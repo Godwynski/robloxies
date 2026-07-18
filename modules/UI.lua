@@ -139,15 +139,11 @@ return function(Core)
             FloatingCircle.Visible = true
         end))
 
-        Utility.RegisterConnection(FloatingCircle.Activated:Connect(function()
-            FloatingCircle.Visible = false
-            MainContainer.Visible = true
-        end))
-
-        local floatDragging, floatDragStart, floatStartPos
+        local floatDragging, floatDragStart, floatStartPos, floatHasMoved
         Utility.RegisterConnection(FloatingCircle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 floatDragging = true
+                floatHasMoved = false
                 floatDragStart = input.Position
                 floatStartPos = FloatingCircle.Position
             end
@@ -155,11 +151,20 @@ return function(Core)
         Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement and floatDragging then
                 local delta = input.Position - floatDragStart
-                FloatingCircle.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + delta.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + delta.Y)
+                if delta.Magnitude > 3 then
+                    floatHasMoved = true
+                    FloatingCircle.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + delta.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + delta.Y)
+                end
             end
         end))
         Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then floatDragging = false end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+                if floatDragging and not floatHasMoved then
+                    FloatingCircle.Visible = false
+                    MainContainer.Visible = true
+                end
+                floatDragging = false 
+            end
         end))
 
         local dragging, dragStart, startPos
@@ -529,7 +534,7 @@ return function(Core)
 
         local OutputBox = Instance.new("TextBox")
         OutputBox.Parent = OutputFrame
-        OutputBox.Size = UDim2.new(1, -16, 1, -16)
+        OutputBox.Size = UDim2.new(1, -16, 1, -46)
         OutputBox.Position = UDim2.new(0, 8, 0, 8)
         OutputBox.BackgroundTransparency = 1
         OutputBox.ClearTextOnFocus = false
@@ -542,6 +547,29 @@ return function(Core)
         OutputBox.TextSize = 12
         OutputBox.TextColor3 = Color3.fromRGB(200, 200, 200)
         OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can select and copy the text inside this box."
+
+        local CopyBtn = Instance.new("TextButton")
+        CopyBtn.Parent = OutputFrame
+        CopyBtn.Size = UDim2.new(1, -16, 0, 30)
+        CopyBtn.Position = UDim2.new(0, 8, 1, -38)
+        CopyBtn.BackgroundColor3 = Color3.fromRGB(80, 70, 120)
+        CopyBtn.Font = Enum.Font.GothamBold
+        CopyBtn.Text = "📋 Copy Output to Clipboard"
+        CopyBtn.TextColor3 = Color3.new(1, 1, 1)
+        CopyBtn.TextSize = 13
+        Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0, 6)
+        Utility.RegisterConnection(CopyBtn.Activated:Connect(function()
+            if setclipboard then
+                setclipboard(OutputBox.Text)
+                local oldText = CopyBtn.Text
+                CopyBtn.Text = "Copied!"
+                task.delay(1.5, function() CopyBtn.Text = oldText end)
+            else
+                local oldText = CopyBtn.Text
+                CopyBtn.Text = "Executor does not support setclipboard!"
+                task.delay(2, function() CopyBtn.Text = oldText end)
+            end
+        end))
 
         local function CreateScannerButton(name, scannerFunc)
             local btn = Instance.new("TextButton")
