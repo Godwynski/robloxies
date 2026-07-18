@@ -410,5 +410,47 @@ return function(Core)
         return r
     end
 
+    function Scanners.TargetDebug()
+        local r = string.rep("=", 40) .. "\nTARGETING SYSTEM DEBUG\n" .. string.rep("=", 40) .. "\n\n"
+        local Aim = Core.Aim
+        local myChar = LocalPlayer.Character
+        
+        local function checkChar(char, title)
+            if not char then return "" end
+            local s = "[" .. title .. " - " .. char.Name .. "]\n"
+            local valid = Aim.IsValidTarget(char)
+            local enemy = Aim.IsEnemy(char)
+            local sameTeam = Aim.IsSameTeam(myChar, char)
+            
+            s = s .. "IsValidTarget: " .. tostring(valid) .. "\n"
+            s = s .. "IsEnemy: " .. tostring(enemy) .. "\n"
+            s = s .. "IsSameTeam: " .. tostring(sameTeam) .. "\n"
+            
+            local root = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+            s = s .. "Has RootPart: " .. tostring(root ~= nil) .. "\n"
+            if root then
+                local inLoS = Aim.HasLoS(root)
+                s = s .. "Has LineOfSight: " .. tostring(inLoS) .. "\n"
+            end
+            
+            s = s .. "Target Result: " .. ((valid and not sameTeam) and "SHOULD TARGET" or "IGNORED") .. "\n\n"
+            return s
+        end
+
+        r = r .. "Config: TeamCheck=" .. tostring(Config.TeamCheck) .. ", TargetMode=" .. tostring(Config.TargetMode) .. "\n\n"
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                r = r .. checkChar(plr.Character, "PLAYER")
+            end
+        end
+        
+        for _, npc in ipairs(State.NPCCache) do
+            r = r .. checkChar(npc, "NPC")
+        end
+
+        return r
+    end
+
     return Scanners
 end

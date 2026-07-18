@@ -685,6 +685,7 @@ return function(Core)
 
         CreateScannerButton("Mega Scan", Scanners.MegaScan)
         CreateScannerButton("Game Data", Scanners.GameData)
+        CreateScannerButton("Targeting Debug", Scanners.TargetDebug)
         CreateScannerButton("Network Remotes", Scanners.ScanRemotes)
         CreateScannerButton("Modules & Configs", Scanners.ScanConfigs)
         CreateScannerButton("Environment Map", Scanners.ScanEnvironment)
