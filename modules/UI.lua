@@ -183,6 +183,38 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
         end))
 
+        -- Resize Handle
+        local ResizeBtn = Instance.new("TextButton")
+        ResizeBtn.Parent = MainContainer
+        ResizeBtn.Size = UDim2.new(0, 20, 0, 20)
+        ResizeBtn.Position = UDim2.new(1, -20, 1, -20)
+        ResizeBtn.BackgroundTransparency = 1
+        ResizeBtn.Text = "↘"
+        ResizeBtn.TextColor3 = Color3.fromRGB(100, 100, 120)
+        ResizeBtn.Font = Enum.Font.GothamBold
+        ResizeBtn.TextSize = 16
+        ResizeBtn.ZIndex = 100
+
+        local resizing, resizeStart, sizeStart
+        Utility.RegisterConnection(ResizeBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                resizing = true
+                resizeStart = input.Position
+                sizeStart = MainContainer.AbsoluteSize
+            end
+        end))
+        Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement and resizing then
+                local delta = input.Position - resizeStart
+                local newW = math.clamp(sizeStart.X + delta.X, 480, 1200)
+                local newH = math.clamp(sizeStart.Y + delta.Y, 300, 1000)
+                MainContainer.Size = UDim2.new(0, newW, 0, newH)
+            end
+        end))
+        Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then resizing = false end
+        end))
+
         -- Tabs Bar
         local TabBar = Instance.new("Frame")
         TabBar.Parent = MainContainer
