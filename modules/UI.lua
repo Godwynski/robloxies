@@ -77,6 +77,30 @@ return function(Core)
             Interface:Destroy()
         end))
 
+        local RefreshBtn = Instance.new("TextButton")
+        RefreshBtn.Parent = Header
+        RefreshBtn.Size = UDim2.new(0, 28, 0, 28)
+        RefreshBtn.Position = UDim2.new(1, -66, 0, 5)
+        RefreshBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 200)
+        RefreshBtn.Text = "🔄"
+        RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
+        RefreshBtn.Font = Enum.Font.GothamBold
+        RefreshBtn.TextSize = 13
+        Instance.new("UICorner", RefreshBtn).CornerRadius = UDim.new(0, 6)
+
+        Utility.RegisterConnection(RefreshBtn.Activated:Connect(function()
+            Utility.Terminate()
+            Interface:Destroy()
+            task.delay(0.2, function()
+                local noCache = "?nocache=" .. tostring(tick())
+                if isfile and isfile("init.lua") then
+                    pcall(function() loadstring(readfile("init.lua"))() end)
+                else
+                    pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/init.lua" .. noCache))() end)
+                end
+            end)
+        end))
+
         local dragging, dragStart, startPos
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
