@@ -55,7 +55,7 @@ return function(Core)
         Title.Position = UDim2.new(0, 12, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Enum.Font.GothamBold
-        Title.Text = "⚡ Pure Auto-Aim v2 (Modular)"
+        Title.Text = "⚡ Pure Auto-Aim v2.1 (Modular)"
         Title.TextColor3 = Color3.fromRGB(190, 170, 255)
         Title.TextSize = 15
         Title.TextXAlignment = Enum.TextXAlignment.Left
