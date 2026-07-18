@@ -31,6 +31,13 @@ return function(Core)
         ESPTeamColor = true,       -- Color by team (green=ally, red=enemy)
         -- Target Nearest
         NearestTargetKey = Enum.KeyCode.T,  -- Keybind to snap to nearest
+        -- Movement
+        WalkSpeedEnabled = false,
+        WalkSpeed = 16,
+        JumpPowerEnabled = false,
+        JumpPower = 50,
+        InfiniteJumpEnabled = false,
+        NoClipEnabled = false,
     }
     return Config
 end

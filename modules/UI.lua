@@ -255,7 +255,7 @@ return function(Core)
         local function CreateTabButton(name, order)
             local btn = Instance.new("TextButton")
             btn.Parent = TabBar
-            btn.Size = UDim2.new(0.25, -6, 1, 0)
+            btn.Size = UDim2.new(0.2, -6, 1, 0)
             btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
             btn.Font = Enum.Font.GothamBold
             btn.Text = name
@@ -305,8 +305,9 @@ return function(Core)
 
         local CombatFrame = CreateTabButton("Combat", 1)
         local VisualsFrame = CreateTabButton("Visuals", 2)
-        local SettingsFrame = CreateTabButton("Settings", 3)
-        local InfoFrame = CreateTabButton("Info", 4)
+        local MovementFrame = CreateTabButton("Movement", 3)
+        local SettingsFrame = CreateTabButton("Settings", 4)
+        local InfoFrame = CreateTabButton("Info", 5)
 
         local function NextOrder(parent)
             local c = 0
@@ -509,6 +510,39 @@ return function(Core)
         end)
 
         CreateSlider(VisualsFrame, "ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
+
+        -- ================== MOVEMENT TAB ==================
+        CreateSection(MovementFrame, "PLAYER MOVEMENT")
+        
+        CreateButton(MovementFrame, "WalkSpeed Override: " .. (Config.WalkSpeedEnabled and "ON" or "OFF"), function(btn)
+            Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
+            btn.Text = "WalkSpeed Override: " .. (Config.WalkSpeedEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+
+        CreateSlider(MovementFrame, "WalkSpeed:", Config.WalkSpeed, function(v) Config.WalkSpeed = v end, 16, 100)
+
+        CreateButton(MovementFrame, "JumpPower Override: " .. (Config.JumpPowerEnabled and "ON" or "OFF"), function(btn)
+            Config.JumpPowerEnabled = not Config.JumpPowerEnabled
+            btn.Text = "JumpPower Override: " .. (Config.JumpPowerEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+
+        CreateSlider(MovementFrame, "JumpPower:", Config.JumpPower, function(v) Config.JumpPower = v end, 50, 200)
+
+        CreateSection(MovementFrame, "EXPLOITS")
+        
+        CreateButton(MovementFrame, "Infinite Jump: " .. (Config.InfiniteJumpEnabled and "ON" or "OFF"), function(btn)
+            Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
+            btn.Text = "Infinite Jump: " .. (Config.InfiniteJumpEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or Color3.fromRGB(40,40,50)
+
+        CreateButton(MovementFrame, "NoClip: " .. (Config.NoClipEnabled and "ON" or "OFF"), function(btn)
+            Config.NoClipEnabled = not Config.NoClipEnabled
+            btn.Text = "NoClip: " .. (Config.NoClipEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or Color3.fromRGB(40,40,50)
 
         -- ================== SETTINGS TAB ==================
         CreateSection(SettingsFrame, "SYSTEM FEATURES")

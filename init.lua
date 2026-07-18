@@ -63,11 +63,13 @@ Core.Scanners = loadModule("Scanners.lua")(Core)
 -- 3. Load Logic Modules
 Core.Aim = loadModule("Aim.lua")(Core)
 Core.ESP = loadModule("ESP.lua")(Core)
+Core.Movement = loadModule("Movement.lua")(Core)
 Core.Hooks = loadModule("Hooks.lua")(Core)
 Core.UI = loadModule("UI.lua")(Core)
 Core.MainLoop = loadModule("MainLoop.lua")(Core)
 
 -- 4. Initialize Sub-Systems
+Core.Movement.Init()
 Core.Hooks.Init()
 Core.UI.Init()
 Core.MainLoop.Init()
