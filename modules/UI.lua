@@ -532,11 +532,20 @@ return function(Core)
         OutputFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
         Instance.new("UICorner", OutputFrame).CornerRadius = UDim.new(0, 6)
 
+        local OutputScroll = Instance.new("ScrollingFrame")
+        OutputScroll.Parent = OutputFrame
+        OutputScroll.Size = UDim2.new(1, -16, 1, -46)
+        OutputScroll.Position = UDim2.new(0, 8, 0, 8)
+        OutputScroll.BackgroundTransparency = 1
+        OutputScroll.ScrollBarThickness = 4
+        OutputScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+        OutputScroll.BorderSizePixel = 0
+
         local OutputBox = Instance.new("TextBox")
-        OutputBox.Parent = OutputFrame
-        OutputBox.Size = UDim2.new(1, -16, 1, -46)
-        OutputBox.Position = UDim2.new(0, 8, 0, 8)
+        OutputBox.Parent = OutputScroll
+        OutputBox.Size = UDim2.new(1, -8, 0, 0)
         OutputBox.BackgroundTransparency = 1
+        OutputBox.AutomaticSize = Enum.AutomaticSize.Y
         OutputBox.ClearTextOnFocus = false
         OutputBox.TextEditable = false -- Allows selection for copying
         OutputBox.MultiLine = true
@@ -546,7 +555,11 @@ return function(Core)
         OutputBox.Font = Enum.Font.RobotoMono
         OutputBox.TextSize = 12
         OutputBox.TextColor3 = Color3.fromRGB(200, 200, 200)
-        OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can select and copy the text inside this box."
+        OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can click the button below to copy the text."
+
+        Utility.RegisterConnection(OutputBox:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+            OutputScroll.CanvasSize = UDim2.new(0, 0, 0, OutputBox.AbsoluteSize.Y + 10)
+        end))
 
         local CopyBtn = Instance.new("TextButton")
         CopyBtn.Parent = OutputFrame

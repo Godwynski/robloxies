@@ -8,7 +8,8 @@ local function loadModule(fileName)
             return loadstring(readfile("modules/" .. fileName))()
         end
         -- Production GitHub fetch
-        return loadstring(game:HttpGet(repoURL .. "modules/" .. fileName))()
+        local noCache = "?nocache=" .. tostring(tick())
+        return loadstring(game:HttpGet(repoURL .. "modules/" .. fileName .. noCache))()
     end)
     
     if not success then
