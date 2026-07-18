@@ -21,13 +21,12 @@ return function(Core)
 
         -- NoClip Logic (Stepped runs before physics simulation)
         Utility.RegisterConnection(RunService.Stepped:Connect(function()
-            if Config.NoClipEnabled then
-                local char = LocalPlayer.Character
-                if char then
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") and part.CanCollide then
-                            part.CanCollide = false
-                        end
+            if not Config.NoClipEnabled then return end
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
                     end
                 end
             end
@@ -35,6 +34,7 @@ return function(Core)
 
         -- WalkSpeed & JumpPower Enforcement (RenderStepped for immediate client response)
         Utility.RegisterConnection(RunService.RenderStepped:Connect(function()
+            if not Config.WalkSpeedEnabled and not Config.JumpPowerEnabled then return end
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             if hum then

@@ -118,36 +118,25 @@ return function(Core)
                 end
             end
 
-            local cf = root.CFrame
-            local size = Vector3.new(4, 5.5, 2)
-            local x, y, z = size.X/2, size.Y/2, size.Z/2
-            
-            local corners = {
-                (cf * CFrame.new(x, y, z)).Position,
-                (cf * CFrame.new(-x, y, z)).Position,
-                (cf * CFrame.new(x, -y, z)).Position,
-                (cf * CFrame.new(-x, -y, z)).Position,
-                (cf * CFrame.new(x, y, -z)).Position,
-                (cf * CFrame.new(-x, y, -z)).Position,
-                (cf * CFrame.new(x, -y, -z)).Position,
-                (cf * CFrame.new(-x, -y, -z)).Position,
-            }
-            
-            local minX, minY = math.huge, math.huge
-            local maxX, maxY = -math.huge, -math.huge
-            
-            for _, pt in ipairs(corners) do
-                local ptSp = cam:WorldToScreenPoint(pt)
-                if ptSp.X < minX then minX = ptSp.X end
-                if ptSp.X > maxX then maxX = ptSp.X end
-                if ptSp.Y < minY then minY = ptSp.Y end
-                if ptSp.Y > maxY then maxY = ptSp.Y end
+            local bbOk, cf, size = pcall(char.GetBoundingBox, char)
+            if not bbOk then
+                if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
+                continue
             end
-            
-            local boxW = maxX - minX
-            local boxH = maxY - minY
-            local boxX = minX
-            local boxY = minY
+            if size.Magnitude == 0 then
+                size = Vector3.new(4, 5.5, 2)
+            end
+
+            -- Distance-based 2D box sizing (avoids 8x WorldToScreenPoint calls)
+            local depth = sp.Z
+            if depth <= 0 then depth = 0.01 end
+            local fov = math.rad(cam.FieldOfView / 2)
+            local scaleFactor = viewport.Y / (2 * depth * math.tan(fov))
+
+            local boxW = size.X * scaleFactor
+            local boxH = size.Y * scaleFactor
+            local boxX = sp.X - boxW / 2
+            local boxY = sp.Y - boxH / 2
 
             if Config.ESPBoxes then
                 cache.box.Size = Vector2.new(boxW, boxH)

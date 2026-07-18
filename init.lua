@@ -2,9 +2,11 @@
 local repoURL = "https://raw.githubusercontent.com/Godwynski/robloxies/main/"
 
 -- Duplicate instance protection: clean up any previous run
-pcall(function()
-    game:GetService("RunService"):UnbindFromRenderStep("AutoAimLoop")
-end)
+if _G.__PureAutoAim_Running then
+    pcall(function() _G.__PureAutoAim_Terminate() end)
+end
+_G.__PureAutoAim_Running = true
+
 for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
     if gui.Name == "PureAutoAimPanel" then pcall(function() gui:Destroy() end) end
 end
@@ -75,4 +77,5 @@ Core.UI.Init()
 Core.MainLoop.Init()
 
 print("Project loaded successfully!")
+_G.__PureAutoAim_Terminate = Core.Utility.Terminate
 

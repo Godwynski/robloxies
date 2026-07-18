@@ -64,14 +64,17 @@ return function(Core)
                     if Config.TrackingMethod == "Mouse" then
                         local sp, onScreen = workspace.CurrentCamera:WorldToScreenPoint(aimPos)
                         if onScreen then
-                            local dx = (sp.X - mouseLoc.X) / Config.Smoothing
-                            local dy = (sp.Y - mouseLoc.Y) / Config.Smoothing
+                            -- Scaling the smoothing out so a slider of 0-30 makes sense.
+                            -- Lower smoothing = faster. dx/dy are pixels to move.
+                            local dx = (sp.X - mouseLoc.X) / (Config.Smoothing + 1)
+                            local dy = (sp.Y - mouseLoc.Y) / (Config.Smoothing + 1)
                             pcall(function() mousemoverel(dx, dy) end)
                         end
                     elseif Config.TrackingMethod == "Camera" then
                         local curCF = workspace.CurrentCamera.CFrame
                         local tgtCF = CFrame.new(curCF.Position, aimPos)
-                        local alpha = math.clamp(1 / Config.Smoothing, 0.01, 1)
+                        -- Scale so Smoothing=0 is instant, Smoothing=30 is slow
+                        local alpha = 1 / (Config.Smoothing + 1)
                         workspace.CurrentCamera.CFrame = curCF:Lerp(tgtCF, alpha)
                     end
                 end

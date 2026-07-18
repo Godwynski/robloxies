@@ -12,13 +12,18 @@ return function(Core)
         local cam = workspace.CurrentCamera
         if not cam then return true end
         local ray = RaycastParams.new()
-        ray.FilterDescendantsInstances = {LocalPlayer.Character}
+        -- Filter both our character AND the target character so the ray
+        -- only hits world geometry. Fixes false negatives when targets
+        -- are reparented into HighlightHolder/Enemy folders.
+        local filterList = {}
+        if LocalPlayer.Character then table.insert(filterList, LocalPlayer.Character) end
+        if part.Parent then table.insert(filterList, part.Parent) end
+        ray.FilterDescendantsInstances = filterList
         ray.FilterType = Enum.RaycastFilterType.Exclude
         local origin = cam.CFrame.Position
         local dir = part.Position - origin
         local res = workspace:Raycast(origin, dir, ray)
-        if not res then return true end
-        return res.Instance:IsDescendantOf(part.Parent)
+        return res == nil -- nil means nothing blocking = clear LoS
     end
 
     function Aim.IsValidTarget(char)
@@ -40,52 +45,69 @@ return function(Core)
         return true
     end
 
+    -- Enemy detection cache to avoid heavy GetDescendants() calls every frame
+    local enemyCache = {}
+    local ENEMY_CACHE_TTL = 0.5
+
     function Aim.IsEnemy(char)
+        -- Check cache first
+        local cached = enemyCache[char]
+        if cached and (tick() - cached.time) < ENEMY_CACHE_TTL then
+            return cached.result
+        end
+
+        local result = false
+
         -- Check if character is inside an "Enemy" folder
         local current = char.Parent
         while current and current ~= workspace do
             if current.Name:lower():find("enemy") then
-                return true
+                result = true
+                break
             end
             current = current.Parent
         end
 
-        local function checkHighlight(hl)
-            if not hl or not hl:IsA("Highlight") then return false end
-            -- If it has an Adornee, ensure the character is the Adornee or inside it
-            if hl.Adornee and hl.Adornee ~= char and not char:IsDescendantOf(hl.Adornee) then
+        if not result then
+            local function checkHighlight(hl)
+                if not hl or not hl:IsA("Highlight") then return false end
+                if hl.Adornee and hl.Adornee ~= char and not char:IsDescendantOf(hl.Adornee) then
+                    return false
+                end
+                local c1, c2 = hl.OutlineColor, hl.FillColor
+                if (c1.R > 0.5 and c1.G < 0.5 and c1.B < 0.5) or 
+                   (c2.R > 0.5 and c2.G < 0.5 and c2.B < 0.5) then
+                    return true
+                end
                 return false
             end
-            local c1, c2 = hl.OutlineColor, hl.FillColor
-            if (c1.R > 0.5 and c1.G < 0.5 and c1.B < 0.5) or 
-               (c2.R > 0.5 and c2.G < 0.5 and c2.B < 0.5) then
-                return true
-            end
-            return false
-        end
 
-        for _, desc in ipairs(char:GetDescendants()) do
-            if checkHighlight(desc) then return true end
-        end
-        
-        if char.Parent then
-            for _, child in ipairs(char.Parent:GetChildren()) do
-                if checkHighlight(child) then return true end
+            for _, desc in ipairs(char:GetDescendants()) do
+                if checkHighlight(desc) then result = true; break end
             end
-        end
-        
-        local hlFolder = workspace:FindFirstChild("Highlight")
-        if hlFolder then
-            for _, hl in ipairs(hlFolder:GetDescendants()) do
-                if hl:IsA("Highlight") and hl.Adornee then
-                    if hl.Adornee == char or char:IsDescendantOf(hl.Adornee) then
-                        if checkHighlight(hl) then return true end
+            
+            if not result and char.Parent then
+                for _, child in ipairs(char.Parent:GetChildren()) do
+                    if checkHighlight(child) then result = true; break end
+                end
+            end
+            
+            if not result then
+                local hlFolder = workspace:FindFirstChild("Highlight")
+                if hlFolder then
+                    for _, hl in ipairs(hlFolder:GetDescendants()) do
+                        if hl:IsA("Highlight") and hl.Adornee then
+                            if hl.Adornee == char or char:IsDescendantOf(hl.Adornee) then
+                                if checkHighlight(hl) then result = true; break end
+                            end
+                        end
                     end
                 end
             end
         end
 
-        return false
+        enemyCache[char] = { result = result, time = tick() }
+        return result
     end
 
     function Aim.IsSameTeam(charA, charB)
@@ -104,6 +126,12 @@ return function(Core)
         end
 
         if Aim.IsEnemy(charB) then return false end
+        
+        -- If charB is an NPC (not a player), treat them as an enemy by default
+        if not plrB then
+            return false
+        end
+
         return true
     end
 
@@ -146,8 +174,17 @@ return function(Core)
             State.LockedTarget = bestPart
             State.LockedCharacter = bestPart.Parent
 
-            local curCF = workspace.CurrentCamera.CFrame
-            workspace.CurrentCamera.CFrame = CFrame.new(curCF.Position, bestPart.Position)
+            -- Smooth snap instead of instant teleport (less obvious)
+            task.spawn(function()
+                for i = 1, 5 do
+                    local cam = workspace.CurrentCamera
+                    if not cam or not bestPart.Parent then break end
+                    local curCF = cam.CFrame
+                    local tgtCF = CFrame.new(curCF.Position, bestPart.Position)
+                    cam.CFrame = curCF:Lerp(tgtCF, 0.5)
+                    task.wait()
+                end
+            end)
 
             Utility.AddKillFeedEntry("⚡ Snapped → " .. bestPart.Parent.Name .. string.format(" [%dm]", math.floor(bestDist)), Color3.fromRGB(255, 200, 50))
         end

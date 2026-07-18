@@ -50,7 +50,7 @@ return function(Core)
     Drawings.LockIndicator.NumSides = 4
     Drawings.LockIndicator.Radius = 12
 
-    Drawings.MAX_KILLFEED = 6
+    Drawings.MAX_KILLFEED = Core.Config.MaxKillFeed or 6
     Drawings.KillFeedDrawings = {}
     for i = 1, Drawings.MAX_KILLFEED do
         local txt = Drawing.new("Text")

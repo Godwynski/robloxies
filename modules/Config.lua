@@ -18,6 +18,7 @@ return function(Core)
         DiagnosticsEnabled = false,
         AutoRespawn = false,
         KillFeedEnabled = true,
+        MaxKillFeed = 6,
         TargetInfoEnabled = true,
         RemoteLogEnabled = false,
         -- ESP

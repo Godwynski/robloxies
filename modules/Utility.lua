@@ -29,6 +29,15 @@ return function(Core)
         end
 
         for _, obj in ipairs(workspace:GetDescendants()) do
+            -- Skip all player characters to avoid breaking gameplay/detection
+            local isCharPart = false
+            for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+                if plr.Character and obj:IsDescendantOf(plr.Character) then
+                    isCharPart = true; break
+                end
+            end
+            if isCharPart then continue end
+
             if obj:IsA("BasePart") then
                 obj.Material = Enum.Material.SmoothPlastic
                 obj.Reflectance = 0
@@ -61,9 +70,9 @@ return function(Core)
             time = tick(),
             color = color or Color3.new(1, 1, 1)
         })
-        local MAX_KILLFEED = 6
-        if #State.KillFeedEntries > MAX_KILLFEED then
-            table.remove(State.KillFeedEntries, MAX_KILLFEED + 1)
+        local MAX = Core.Config.MaxKillFeed or 6
+        if #State.KillFeedEntries > MAX then
+            table.remove(State.KillFeedEntries, MAX + 1)
         end
     end
 
