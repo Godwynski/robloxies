@@ -389,7 +389,7 @@ return function(Core)
         end).BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
 
         CreateSlider(CombatFrame, "FOV Radius:", Config.ViewAngle, function(v) Config.ViewAngle = v; Drawings.FOVCircle.Radius = v end, 10, 800)
-        CreateSlider(CombatFrame, "Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 1, 30)
+        CreateSlider(CombatFrame, "Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 0.01, 30)
 
         CreateButton(CombatFrame, "Focus: " .. Config.FocusPoint, function(btn)
             Config.FocusPoint = Config.FocusPoint == "HumanoidRootPart" and "Head" or "HumanoidRootPart"

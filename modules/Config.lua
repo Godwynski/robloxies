@@ -2,8 +2,8 @@ return function(Core)
     local Config = {
         -- Aim Core
         AutoAimEnabled = false,
-        ViewAngle = 200,
-        Smoothing = 5,
+        ViewAngle = 100,
+        Smoothing = 0.01,
         FocusPoint = "HumanoidRootPart",
         TrackingMethod = "Camera", -- "Mouse" or "Camera"
         TargetMode = "Both",       -- "Players", "NPCs", "Both"
