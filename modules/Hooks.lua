@@ -31,6 +31,16 @@ return function(Core)
             end
         end)
 
+        -- Sink the ServerReplicateCFrame to prevent "invocation queue exhausted" console spam
+        task.spawn(function()
+            pcall(function()
+                local repCFrame = ReplicatedStorage:WaitForChild("ServerReplicateCFrame", 5)
+                if repCFrame and repCFrame:IsA("RemoteEvent") then
+                    Utility.RegisterConnection(repCFrame.OnClientEvent:Connect(function() end))
+                end
+            end)
+        end)
+
         task.spawn(function()
             task.wait(2)
 
