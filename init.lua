@@ -41,6 +41,7 @@ Core.Config = loadModule("Config.lua")(Core)
 Core.State = loadModule("State.lua")(Core)
 Core.Utility = loadModule("Utility.lua")(Core)
 Core.Drawings = loadModule("Drawings.lua")(Core)
+Core.Scanners = loadModule("Scanners.lua")(Core)
 
 -- 3. Load Logic Modules
 Core.Aim = loadModule("Aim.lua")(Core)

@@ -6,11 +6,10 @@ return function(Core)
         local State = Core.State
         local Utility = Core.Utility
         local Drawings = Core.Drawings
+        local Scanners = Core.Scanners
         local LocalPlayer = Core.Services.Players.LocalPlayer
         local CoreGui = Core.Services.CoreGui
         local UserInputService = Core.Services.UserInputService
-        local CollectionService = Core.Services.CollectionService
-        local Players = Core.Services.Players
 
         local Interface = Instance.new("ScreenGui")
         Interface.Name = "PureAutoAimPanel"
@@ -24,8 +23,8 @@ return function(Core)
 
         local MainContainer = Instance.new("Frame")
         MainContainer.Parent = Interface
-        MainContainer.Size = UDim2.new(0, 310, 0, 520)
-        MainContainer.Position = UDim2.new(0.5, -155, 0.5, -260)
+        MainContainer.Size = UDim2.new(0, 480, 0, 520)
+        MainContainer.Position = UDim2.new(0.5, -240, 0.5, -260)
         MainContainer.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
         MainContainer.BorderSizePixel = 0
         MainContainer.Active = true
@@ -52,11 +51,11 @@ return function(Core)
 
         local Title = Instance.new("TextLabel")
         Title.Parent = Header
-        Title.Size = UDim2.new(1, -50, 1, 0)
+        Title.Size = UDim2.new(1, -90, 1, 0)
         Title.Position = UDim2.new(0, 12, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Enum.Font.GothamBold
-        Title.Text = "⚡ Pure Auto-Aim v2"
+        Title.Text = "⚡ Pure Auto-Aim v2 (Modular)"
         Title.TextColor3 = Color3.fromRGB(190, 170, 255)
         Title.TextSize = 15
         Title.TextXAlignment = Enum.TextXAlignment.Left
@@ -104,9 +103,7 @@ return function(Core)
         local dragging, dragStart, startPos
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = MainContainer.Position
+                dragging = true; dragStart = input.Position; startPos = MainContainer.Position
             end
         end))
         Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
@@ -119,41 +116,110 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
         end))
 
-        local ScrollFrame = Instance.new("ScrollingFrame")
-        ScrollFrame.Parent = MainContainer
-        ScrollFrame.Position = UDim2.new(0, 0, 0, 40)
-        ScrollFrame.Size = UDim2.new(1, 0, 1, -40)
-        ScrollFrame.BackgroundTransparency = 1
-        ScrollFrame.ScrollBarThickness = 4
-        ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
-        ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-        ScrollFrame.BorderSizePixel = 0
-        ScrollFrame.Active = true
+        -- Tabs Bar
+        local TabBar = Instance.new("Frame")
+        TabBar.Parent = MainContainer
+        TabBar.Size = UDim2.new(1, -16, 0, 36)
+        TabBar.Position = UDim2.new(0, 8, 0, 46)
+        TabBar.BackgroundTransparency = 1
 
-        local UIList = Instance.new("UIListLayout")
-        UIList.Parent = ScrollFrame
-        UIList.SortOrder = Enum.SortOrder.LayoutOrder
-        UIList.Padding = UDim.new(0, 4)
-        UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        local TabList = Instance.new("UIListLayout")
+        TabList.Parent = TabBar
+        TabList.FillDirection = Enum.FillDirection.Horizontal
+        TabList.SortOrder = Enum.SortOrder.LayoutOrder
+        TabList.Padding = UDim.new(0, 8)
 
-        local UIPad = Instance.new("UIPadding")
-        UIPad.Parent = ScrollFrame
-        UIPad.PaddingTop = UDim.new(0, 6)
-        UIPad.PaddingBottom = UDim.new(0, 10)
+        local TabContainer = Instance.new("Frame")
+        TabContainer.Parent = MainContainer
+        TabContainer.Size = UDim2.new(1, 0, 1, -90)
+        TabContainer.Position = UDim2.new(0, 0, 0, 90)
+        TabContainer.BackgroundTransparency = 1
 
-        Utility.RegisterConnection(UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
-        end))
+        local tabs = {}
+        local tabFrames = {}
 
-        local layoutOrder = 0
-        local function NextOrder() layoutOrder = layoutOrder + 1; return layoutOrder end
+        local function SelectTab(name)
+            for tName, btn in pairs(tabs) do
+                if tName == name then
+                    btn.BackgroundColor3 = Color3.fromRGB(80, 70, 120)
+                    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    tabFrames[tName].Visible = true
+                else
+                    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                    btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+                    tabFrames[tName].Visible = false
+                end
+            end
+        end
 
-        local function CreateSection(text)
+        local function CreateTabButton(name, order)
+            local btn = Instance.new("TextButton")
+            btn.Parent = TabBar
+            btn.Size = UDim2.new(0.25, -6, 1, 0)
+            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+            btn.Font = Enum.Font.GothamBold
+            btn.Text = name
+            btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+            btn.TextSize = 13
+            btn.LayoutOrder = order
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+            Utility.RegisterConnection(btn.Activated:Connect(function() SelectTab(name) end))
+            tabs[name] = btn
+
+            local frame
+            if name == "Info" then
+                frame = Instance.new("Frame")
+                frame.Parent = TabContainer
+                frame.Size = UDim2.new(1, 0, 1, 0)
+                frame.BackgroundTransparency = 1
+                frame.Visible = false
+            else
+                frame = Instance.new("ScrollingFrame")
+                frame.Parent = TabContainer
+                frame.Size = UDim2.new(1, 0, 1, 0)
+                frame.BackgroundTransparency = 1
+                frame.ScrollBarThickness = 4
+                frame.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+                frame.CanvasSize = UDim2.new(0, 0, 0, 0)
+                frame.BorderSizePixel = 0
+                frame.Visible = false
+
+                local UIList = Instance.new("UIListLayout")
+                UIList.Parent = frame
+                UIList.SortOrder = Enum.SortOrder.LayoutOrder
+                UIList.Padding = UDim.new(0, 6)
+                UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+                local UIPad = Instance.new("UIPadding")
+                UIPad.Parent = frame
+                UIPad.PaddingTop = UDim.new(0, 4)
+                UIPad.PaddingBottom = UDim.new(0, 10)
+
+                Utility.RegisterConnection(UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                    frame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
+                end))
+            end
+            tabFrames[name] = frame
+            return frame
+        end
+
+        local CombatFrame = CreateTabButton("Combat", 1)
+        local VisualsFrame = CreateTabButton("Visuals", 2)
+        local SettingsFrame = CreateTabButton("Settings", 3)
+        local InfoFrame = CreateTabButton("Info", 4)
+
+        local function NextOrder(parent)
+            local c = 0
+            for _, v in ipairs(parent:GetChildren()) do if v:IsA("GuiObject") then c = c + 1 end end
+            return c
+        end
+
+        local function CreateSection(parent, text)
             local f = Instance.new("Frame")
-            f.Parent = ScrollFrame
+            f.Parent = parent
             f.Size = UDim2.new(0.92, 0, 0, 22)
             f.BackgroundTransparency = 1
-            f.LayoutOrder = NextOrder()
+            f.LayoutOrder = NextOrder(parent)
             local l = Instance.new("TextLabel")
             l.Parent = f; l.Size = UDim2.new(1,0,1,0); l.BackgroundTransparency = 1
             l.Text = "— " .. text .. " —"
@@ -161,32 +227,32 @@ return function(Core)
             l.Font = Enum.Font.GothamBold; l.TextSize = 11
         end
 
-        local function CreateButton(text, onClick)
+        local function CreateButton(parent, text, onClick)
             local btn = Instance.new("TextButton")
-            btn.Parent = ScrollFrame
-            btn.Size = UDim2.new(0.88, 0, 0, 30)
+            btn.Parent = parent
+            btn.Size = UDim2.new(0.9, 0, 0, 32)
             btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
             btn.Font = Enum.Font.GothamBold
             btn.Text = text
             btn.TextColor3 = Color3.new(1,1,1)
             btn.TextSize = 13
-            btn.LayoutOrder = NextOrder()
+            btn.LayoutOrder = NextOrder(parent)
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
             Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
             return btn
         end
 
-        local function CreateSlider(text, default, cb, min, max)
+        local function CreateSlider(parent, text, default, cb, min, max)
             min = min or 0
             max = max or math.max(default * 2, 100)
             if default < min then default = min end
             if default > max then default = max end
 
             local f = Instance.new("Frame")
-            f.Parent = ScrollFrame
-            f.Size = UDim2.new(0.88, 0, 0, 45)
+            f.Parent = parent
+            f.Size = UDim2.new(0.9, 0, 0, 48)
             f.BackgroundTransparency = 1
-            f.LayoutOrder = NextOrder()
+            f.LayoutOrder = NextOrder(parent)
 
             local lbl = Instance.new("TextLabel")
             lbl.Parent = f; lbl.Size = UDim2.new(0.7,0,0,20)
@@ -202,8 +268,8 @@ return function(Core)
             valLbl.TextSize = 13; valLbl.TextXAlignment = Enum.TextXAlignment.Right
 
             local sliderBG = Instance.new("TextButton")
-            sliderBG.Parent = f; sliderBG.Size = UDim2.new(1,0,0,8)
-            sliderBG.Position = UDim2.new(0,0,0,25)
+            sliderBG.Parent = f; sliderBG.Size = UDim2.new(1,0,0,10)
+            sliderBG.Position = UDim2.new(0,0,0,26)
             sliderBG.BackgroundColor3 = Color3.fromRGB(30,30,40)
             sliderBG.Text = ""; sliderBG.AutoButtonColor = false
             Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(1, 0)
@@ -246,102 +312,70 @@ return function(Core)
             return f
         end
 
-        CreateSection("AIM")
-
-        CreateButton("Auto-Aim: OFF", function(btn)
+        -- ================== COMBAT TAB ==================
+        CreateSection(CombatFrame, "AIM")
+        CreateButton(CombatFrame, "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), function(btn)
             Config.AutoAimEnabled = not Config.AutoAimEnabled
             btn.Text = "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF")
             btn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
             Drawings.FOVCircle.Visible = Config.AutoAimEnabled
-        end)
+        end).BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
 
-        CreateSlider("FOV Radius:", Config.ViewAngle, function(v) Config.ViewAngle = v; Drawings.FOVCircle.Radius = v end, 10, 800)
-        CreateSlider("Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 1, 30)
+        CreateSlider(CombatFrame, "FOV Radius:", Config.ViewAngle, function(v) Config.ViewAngle = v; Drawings.FOVCircle.Radius = v end, 10, 800)
+        CreateSlider(CombatFrame, "Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 1, 30)
 
-        CreateButton("Focus: " .. Config.FocusPoint, function(btn)
+        CreateButton(CombatFrame, "Focus: " .. Config.FocusPoint, function(btn)
             Config.FocusPoint = Config.FocusPoint == "HumanoidRootPart" and "Head" or "HumanoidRootPart"
             btn.Text = "Focus: " .. Config.FocusPoint
         end)
 
-        CreateButton("Method: " .. Config.TrackingMethod, function(btn)
+        CreateButton(CombatFrame, "Method: " .. Config.TrackingMethod, function(btn)
             Config.TrackingMethod = Config.TrackingMethod == "Camera" and "Mouse" or "Camera"
             btn.Text = "Method: " .. Config.TrackingMethod
         end)
 
-        CreateButton("Target: Both", function(btn)
+        CreateButton(CombatFrame, "Target: " .. Config.TargetMode, function(btn)
             if Config.TargetMode == "Players" then Config.TargetMode = "NPCs"
             elseif Config.TargetMode == "NPCs" then Config.TargetMode = "Both"
             else Config.TargetMode = "Players" end
             btn.Text = "Target: " .. Config.TargetMode
         end)
 
-        CreateButton("Priority: Distance", function(btn)
+        CreateButton(CombatFrame, "Priority: " .. Config.PriorityMode, function(btn)
             if Config.PriorityMode == "Distance" then Config.PriorityMode = "LowHP"
             elseif Config.PriorityMode == "LowHP" then Config.PriorityMode = "Closest3D"
             else Config.PriorityMode = "Distance" end
             btn.Text = "Priority: " .. Config.PriorityMode
         end)
 
-        CreateSection("ADVANCED")
-
-        CreateButton("Wall Check: ON", function(btn)
+        CreateSection(CombatFrame, "ADVANCED")
+        CreateButton(CombatFrame, "Wall Check: " .. (Config.WallCheck and "ON" or "OFF"), function(btn)
             Config.WallCheck = not Config.WallCheck
             btn.Text = "Wall Check: " .. (Config.WallCheck and "ON" or "OFF")
         end)
 
-        CreateButton("Team Check: ON", function(btn)
+        CreateButton(CombatFrame, "Team Check: " .. (Config.TeamCheck and "ON" or "OFF"), function(btn)
             Config.TeamCheck = not Config.TeamCheck
             btn.Text = "Team Check: " .. (Config.TeamCheck and "ON" or "OFF")
         end)
 
-        CreateButton("Sticky Target: ON", function(btn)
+        CreateButton(CombatFrame, "Sticky Target: " .. (Config.StickyTarget and "ON" or "OFF"), function(btn)
             Config.StickyTarget = not Config.StickyTarget
             btn.Text = "Sticky Target: " .. (Config.StickyTarget and "ON" or "OFF")
             if not Config.StickyTarget then State.LockedTarget = nil; State.LockedCharacter = nil end
         end)
 
-        CreateButton("Prediction: OFF", function(btn)
+        CreateButton(CombatFrame, "Prediction: " .. (Config.Prediction and "ON" or "OFF"), function(btn)
             Config.Prediction = not Config.Prediction
             btn.Text = "Prediction: " .. (Config.Prediction and "ON" or "OFF")
             btn.BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end)
+        end).BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
 
-        CreateSlider("Predict Scale:", Config.PredictionScale, function(v) Config.PredictionScale = v end, 0, 1)
+        CreateSlider(CombatFrame, "Predict Scale:", Config.PredictionScale, function(v) Config.PredictionScale = v end, 0, 1)
 
-        CreateSection("FEATURES")
-
-        CreateButton("Auto-Respawn: OFF", function(btn)
-            Config.AutoRespawn = not Config.AutoRespawn
-            btn.Text = "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end)
-
-        CreateButton("Kill Feed: ON", function(btn)
-            Config.KillFeedEnabled = not Config.KillFeedEnabled
-            btn.Text = "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF")
-        end)
-
-        CreateButton("Target Info: ON", function(btn)
-            Config.TargetInfoEnabled = not Config.TargetInfoEnabled
-            btn.Text = "Target Info: " .. (Config.TargetInfoEnabled and "ON" or "OFF")
-        end)
-
-        CreateButton("Diagnostics: OFF", function(btn)
-            Config.DiagnosticsEnabled = not Config.DiagnosticsEnabled
-            btn.Text = "Diagnostics: " .. (Config.DiagnosticsEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-            Drawings.DiagnosticText.Visible = Config.DiagnosticsEnabled
-        end)
-
-        CreateButton("Remote Logger: OFF", function(btn)
-            Config.RemoteLogEnabled = not Config.RemoteLogEnabled
-            btn.Text = "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end)
-
-        CreateSection("ESP")
-
-        CreateButton("ESP: OFF", function(btn)
+        -- ================== VISUALS TAB ==================
+        CreateSection(VisualsFrame, "ESP OVERLAYS")
+        CreateButton(VisualsFrame, "ESP: " .. (Config.ESPEnabled and "ON" or "OFF"), function(btn)
             Config.ESPEnabled = not Config.ESPEnabled
             btn.Text = "ESP: " .. (Config.ESPEnabled and "ON" or "OFF")
             btn.BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or Color3.fromRGB(40,40,50)
@@ -350,40 +384,133 @@ return function(Core)
                     for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
                 end
             end
-        end)
+        end).BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or Color3.fromRGB(40,40,50)
 
-        CreateButton("ESP Boxes: ON", function(btn)
-            Config.ESPBoxes = not Config.ESPBoxes
-            btn.Text = "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF")
+        CreateButton(VisualsFrame, "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF"), function(btn)
+            Config.ESPBoxes = not Config.ESPBoxes; btn.Text = "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF")
         end)
-
-        CreateButton("ESP Names: ON", function(btn)
-            Config.ESPNames = not Config.ESPNames
-            btn.Text = "ESP Names: " .. (Config.ESPNames and "ON" or "OFF")
+        CreateButton(VisualsFrame, "ESP Names: " .. (Config.ESPNames and "ON" or "OFF"), function(btn)
+            Config.ESPNames = not Config.ESPNames; btn.Text = "ESP Names: " .. (Config.ESPNames and "ON" or "OFF")
         end)
-
-        CreateButton("ESP Health: ON", function(btn)
-            Config.ESPHealth = not Config.ESPHealth
-            btn.Text = "ESP Health: " .. (Config.ESPHealth and "ON" or "OFF")
+        CreateButton(VisualsFrame, "ESP Health: " .. (Config.ESPHealth and "ON" or "OFF"), function(btn)
+            Config.ESPHealth = not Config.ESPHealth; btn.Text = "ESP Health: " .. (Config.ESPHealth and "ON" or "OFF")
         end)
-
-        CreateButton("ESP Distance: ON", function(btn)
-            Config.ESPDistance = not Config.ESPDistance
-            btn.Text = "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF")
+        CreateButton(VisualsFrame, "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF"), function(btn)
+            Config.ESPDistance = not Config.ESPDistance; btn.Text = "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF")
         end)
-
-        CreateButton("ESP Tracers: OFF", function(btn)
+        CreateButton(VisualsFrame, "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF"), function(btn)
             Config.ESPTracers = not Config.ESPTracers
             btn.Text = "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF")
             btn.BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or Color3.fromRGB(40,40,50)
+
+        CreateButton(VisualsFrame, "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF"), function(btn)
+            Config.ESPTeamColor = not Config.ESPTeamColor; btn.Text = "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF")
         end)
 
-        CreateButton("ESP Team Color: ON", function(btn)
-            Config.ESPTeamColor = not Config.ESPTeamColor
-            btn.Text = "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF")
+        CreateSlider(VisualsFrame, "ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
+
+        -- ================== SETTINGS TAB ==================
+        CreateSection(SettingsFrame, "SYSTEM FEATURES")
+        CreateButton(SettingsFrame, "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF"), function(btn)
+            Config.AutoRespawn = not Config.AutoRespawn
+            btn.Text = "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+
+        CreateButton(SettingsFrame, "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF"), function(btn)
+            Config.KillFeedEnabled = not Config.KillFeedEnabled; btn.Text = "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF")
         end)
 
-        CreateSlider("ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
+        CreateButton(SettingsFrame, "Target Info Overlay: " .. (Config.TargetInfoEnabled and "ON" or "OFF"), function(btn)
+            Config.TargetInfoEnabled = not Config.TargetInfoEnabled; btn.Text = "Target Info Overlay: " .. (Config.TargetInfoEnabled and "ON" or "OFF")
+        end)
+
+        CreateButton(SettingsFrame, "Diagnostics Overlay: " .. (Config.DiagnosticsEnabled and "ON" or "OFF"), function(btn)
+            Config.DiagnosticsEnabled = not Config.DiagnosticsEnabled
+            btn.Text = "Diagnostics Overlay: " .. (Config.DiagnosticsEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+            Drawings.DiagnosticText.Visible = Config.DiagnosticsEnabled
+        end).BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+
+        CreateButton(SettingsFrame, "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF"), function(btn)
+            Config.RemoteLogEnabled = not Config.RemoteLogEnabled
+            btn.Text = "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF")
+            btn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+        end).BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+
+        -- ================== INFO / SCANNERS TAB ==================
+        local ScannersList = Instance.new("ScrollingFrame")
+        ScannersList.Parent = InfoFrame
+        ScannersList.Size = UDim2.new(0, 150, 1, -10)
+        ScannersList.Position = UDim2.new(0, 10, 0, 5)
+        ScannersList.BackgroundTransparency = 1
+        ScannersList.ScrollBarThickness = 3
+        ScannersList.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+        ScannersList.BorderSizePixel = 0
+
+        local SListLayout = Instance.new("UIListLayout")
+        SListLayout.Parent = ScannersList
+        SListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        SListLayout.Padding = UDim.new(0, 6)
+
+        Utility.RegisterConnection(SListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            ScannersList.CanvasSize = UDim2.new(0, 0, 0, SListLayout.AbsoluteContentSize.Y + 10)
+        end))
+
+        local OutputFrame = Instance.new("Frame")
+        OutputFrame.Parent = InfoFrame
+        OutputFrame.Size = UDim2.new(1, -180, 1, -10)
+        OutputFrame.Position = UDim2.new(0, 170, 0, 5)
+        OutputFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+        Instance.new("UICorner", OutputFrame).CornerRadius = UDim.new(0, 6)
+
+        local OutputBox = Instance.new("TextBox")
+        OutputBox.Parent = OutputFrame
+        OutputBox.Size = UDim2.new(1, -16, 1, -16)
+        OutputBox.Position = UDim2.new(0, 8, 0, 8)
+        OutputBox.BackgroundTransparency = 1
+        OutputBox.ClearTextOnFocus = false
+        OutputBox.TextEditable = false -- Allows selection for copying
+        OutputBox.MultiLine = true
+        OutputBox.TextWrapped = true
+        OutputBox.TextXAlignment = Enum.TextXAlignment.Left
+        OutputBox.TextYAlignment = Enum.TextYAlignment.Top
+        OutputBox.Font = Enum.Font.RobotoMono
+        OutputBox.TextSize = 12
+        OutputBox.TextColor3 = Color3.fromRGB(200, 200, 200)
+        OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can select and copy the text inside this box."
+
+        local function CreateScannerButton(name, scannerFunc)
+            local btn = Instance.new("TextButton")
+            btn.Parent = ScannersList
+            btn.Size = UDim2.new(1, -8, 0, 32)
+            btn.BackgroundColor3 = Color3.fromRGB(50, 45, 75)
+            btn.Font = Enum.Font.GothamBold
+            btn.Text = name
+            btn.TextColor3 = Color3.new(1,1,1)
+            btn.TextSize = 11
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+            Utility.RegisterConnection(btn.Activated:Connect(function()
+                OutputBox.Text = "Scanning...\n"
+                task.wait()
+                local ok, res = pcall(scannerFunc)
+                if ok then OutputBox.Text = res
+                else OutputBox.Text = "Error during scan:\n" .. tostring(res) end
+            end))
+        end
+
+        CreateScannerButton("Mega Scan", Scanners.MegaScan)
+        CreateScannerButton("Game Data", Scanners.GameData)
+        CreateScannerButton("Network Remotes", Scanners.ScanRemotes)
+        CreateScannerButton("Modules & Configs", Scanners.ScanConfigs)
+        CreateScannerButton("Environment Map", Scanners.ScanEnvironment)
+        CreateScannerButton("PlayerGui Scan", Scanners.ScanPlayerGui)
+        CreateScannerButton("Team Services", Scanners.ScanTeams)
+        CreateScannerButton("View Remote Log", Scanners.RemoteLog)
+
+        -- Initialize Tab
+        SelectTab("Combat")
 
         UI.MainContainer = MainContainer
     end
