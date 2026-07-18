@@ -4,6 +4,7 @@ return function(Core, loadModuleFunc)
     -- Mapping of game/place IDs to preset names
     local Games = {
         [126042865144779] = "Rivals", -- From diagnostics
+        [71874690745115] = "Rivals",  -- Real Rivals PlaceID from updated scan
         [17621415041] = "Rivals",     -- Known Rivals place ID
         [17373859664] = "Rivals",     -- Another known Rivals place ID
     }

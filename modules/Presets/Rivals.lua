@@ -11,6 +11,10 @@ return function(Core)
         Core.Config.PredictionScale = 0.135
         Core.Config.WalkSpeedEnabled = false
         
+        -- Rivals specific fixes based on mechanics:
+        Core.Config.TeamCheck = false -- Rivals doesn't use standard Roblox Teams
+        Core.Config.TrackingMethod = "Mouse" -- Fixes camera fighting custom FPS mechanics
+        
         -- You could also apply custom Rivals logic here
         -- e.g., overriding how the ESP reads names, or intercepting Rivals remotes.
         
