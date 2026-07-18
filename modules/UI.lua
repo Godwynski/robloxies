@@ -511,6 +511,15 @@ return function(Core)
 
         CreateSlider(VisualsFrame, "ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
 
+        CreateSection(VisualsFrame, "OPTIMIZATION")
+        CreateButton(VisualsFrame, "Optimize FPS (Potato Mode)", function(btn)
+            Core.Utility.OptimizeFPS()
+            local old = btn.Text
+            btn.Text = "Optimization Applied!"
+            btn.BackgroundColor3 = Color3.fromRGB(35, 120, 35)
+            task.delay(2, function() btn.Text = old; btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50) end)
+        end)
+
         -- ================== MOVEMENT TAB ==================
         CreateSection(MovementFrame, "PLAYER MOVEMENT")
         

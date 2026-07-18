@@ -41,9 +41,19 @@ return function(Core)
     end
 
     function Aim.IsEnemy(char)
+        -- Check if character is inside an "Enemy" folder
+        local current = char.Parent
+        while current and current ~= workspace do
+            if current.Name:lower():find("enemy") then
+                return true
+            end
+            current = current.Parent
+        end
+
         local function checkHighlight(hl)
             if not hl or not hl:IsA("Highlight") then return false end
-            if hl.Adornee and hl.Adornee ~= char and not hl.Adornee:IsDescendantOf(char) then
+            -- If it has an Adornee, ensure the character is the Adornee or inside it
+            if hl.Adornee and hl.Adornee ~= char and not char:IsDescendantOf(hl.Adornee) then
                 return false
             end
             local c1, c2 = hl.OutlineColor, hl.FillColor
@@ -68,7 +78,7 @@ return function(Core)
         if hlFolder then
             for _, hl in ipairs(hlFolder:GetDescendants()) do
                 if hl:IsA("Highlight") and hl.Adornee then
-                    if hl.Adornee == char or hl.Adornee:IsDescendantOf(char) then
+                    if hl.Adornee == char or char:IsDescendantOf(hl.Adornee) then
                         if checkHighlight(hl) then return true end
                     end
                 end
@@ -80,6 +90,19 @@ return function(Core)
 
     function Aim.IsSameTeam(charA, charB)
         if not Config.TeamCheck then return false end
+
+        local plrA = Core.Services.Players:GetPlayerFromCharacter(charA)
+        local plrB = Core.Services.Players:GetPlayerFromCharacter(charB)
+        
+        if plrA and plrB then
+            local teamA = plrA:GetAttribute("Team")
+            local teamB = plrB:GetAttribute("Team")
+            -- If both have a Team attribute and they differ, they are enemies
+            if teamA and teamB and teamA ~= teamB then
+                return false
+            end
+        end
+
         if Aim.IsEnemy(charB) then return false end
         return true
     end
