@@ -55,7 +55,7 @@ return function(Core)
         Title.Position = UDim2.new(0, 12, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Enum.Font.GothamBold
-        Title.Text = "⚡ Pure Auto-Aim v2.2 (Modular)"
+        Title.Text = "⚡ Pure Auto-Aim v2.2.1 (Modular)"
         Title.TextColor3 = Color3.fromRGB(190, 170, 255)
         Title.TextSize = 15
         Title.TextXAlignment = Enum.TextXAlignment.Left
@@ -186,14 +186,15 @@ return function(Core)
         -- Resize Handle
         local ResizeBtn = Instance.new("TextButton")
         ResizeBtn.Parent = MainContainer
-        ResizeBtn.Size = UDim2.new(0, 20, 0, 20)
-        ResizeBtn.Position = UDim2.new(1, -20, 1, -20)
+        ResizeBtn.Size = UDim2.new(0, 35, 0, 35)
+        ResizeBtn.Position = UDim2.new(1, -35, 1, -35)
         ResizeBtn.BackgroundTransparency = 1
         ResizeBtn.Text = "↘"
         ResizeBtn.TextColor3 = Color3.fromRGB(100, 100, 120)
         ResizeBtn.Font = Enum.Font.GothamBold
-        ResizeBtn.TextSize = 16
+        ResizeBtn.TextSize = 22
         ResizeBtn.ZIndex = 100
+        ResizeBtn.Active = true
 
         local resizing, resizeStart, sizeStart
         Utility.RegisterConnection(ResizeBtn.InputBegan:Connect(function(input)

@@ -227,7 +227,7 @@ return function(Core)
             end
         end))
 
-        print("⚡ Pure Auto-Aim v2.2 Loaded (Modular). RightShift = toggle UI | CapsLock = toggle aim | T = snap nearest")
+        print("⚡ Pure Auto-Aim v2.2.1 Loaded (Modular). RightShift = toggle UI | CapsLock = toggle aim | T = snap nearest")
     end
 
     return MainLoop
