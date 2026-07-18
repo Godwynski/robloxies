@@ -2,7 +2,6 @@ return function(Core)
     local Aim = {}
 
     local LocalPlayer = Core.Services.Players.LocalPlayer
-    local Camera = workspace.CurrentCamera
     local UserInputService = Core.Services.UserInputService
     local Config = Core.Config
     local State = Core.State

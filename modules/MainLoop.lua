@@ -6,12 +6,12 @@ return function(Core)
     local Utility = Core.Utility
     local Drawings = Core.Drawings
     local LocalPlayer = Core.Services.Players.LocalPlayer
-    local Camera = workspace.CurrentCamera
     local RunService = Core.Services.RunService
     local UserInputService = Core.Services.UserInputService
     local Aim = Core.Aim
     local ESP = Core.ESP
     local Stats = Core.Services.Stats
+
 
     local NetworkPing = 0
     local LastFrame = tick()
@@ -30,6 +30,7 @@ return function(Core)
             FPS = math.floor(1 / math.max(now - LastFrame, 0.001))
             LastFrame = now
 
+            local Camera = workspace.CurrentCamera
             local mouseLoc = UserInputService:GetMouseLocation()
             local viewport = Camera.ViewportSize
 
@@ -61,17 +62,17 @@ return function(Core)
                     end
 
                     if Config.TrackingMethod == "Mouse" then
-                        local sp, onScreen = Camera:WorldToScreenPoint(aimPos)
+                        local sp, onScreen = workspace.CurrentCamera:WorldToScreenPoint(aimPos)
                         if onScreen then
                             local dx = (sp.X - mouseLoc.X) / Config.Smoothing
                             local dy = (sp.Y - mouseLoc.Y) / Config.Smoothing
                             pcall(function() mousemoverel(dx, dy) end)
                         end
                     elseif Config.TrackingMethod == "Camera" then
-                        local curCF = Camera.CFrame
+                        local curCF = workspace.CurrentCamera.CFrame
                         local tgtCF = CFrame.new(curCF.Position, aimPos)
                         local alpha = math.clamp(1 / Config.Smoothing, 0.01, 1)
-                        Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                        workspace.CurrentCamera.CFrame = curCF:Lerp(tgtCF, alpha)
                     end
                 end
             else
@@ -87,7 +88,7 @@ return function(Core)
             end
 
             if Config.TargetInfoEnabled and target then
-                local sp, onScreen = Camera:WorldToScreenPoint(target.Position)
+                local sp, onScreen = workspace.CurrentCamera:WorldToScreenPoint(target.Position)
                 if onScreen then
                     local char = target.Parent
                     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -165,7 +166,7 @@ return function(Core)
             end
 
             if Config.DiagnosticsEnabled and Drawings.DiagnosticText then
-                local camType = Camera and Camera.CameraType.Name or "?"
+                local camType = workspace.CurrentCamera and workspace.CurrentCamera.CameraType.Name or "?"
                 local tgtStr = target and target.Parent.Name or "None"
                 local tgtHP = "N/A"
                 if target then
@@ -199,20 +200,34 @@ return function(Core)
             else
                 if Drawings.DiagnosticText then Drawings.DiagnosticText.Visible = false end
             end
+
+            -- Update floating circle status indicator
+            if Core.UI and Core.UI.UpdateFloatStatus then
+                pcall(Core.UI.UpdateFloatStatus)
+            end
         end)
 
         Utility.RegisterConnection(UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
             if input.KeyCode == Enum.KeyCode.RightShift then
-                if Core.UI and Core.UI.MainContainer then
+                -- Handle minimize state properly
+                if Core.UI and Core.UI.FloatingCircle and Core.UI.FloatingCircle.Visible then
+                    Core.UI.FloatingCircle.Visible = false
+                    Core.UI.MainContainer.Visible = true
+                elseif Core.UI and Core.UI.MainContainer then
                     Core.UI.MainContainer.Visible = not Core.UI.MainContainer.Visible
                 end
+            elseif input.KeyCode == Enum.KeyCode.CapsLock then
+                Config.AutoAimEnabled = not Config.AutoAimEnabled
+                Drawings.FOVCircle.Visible = Config.AutoAimEnabled
+                local color = Config.AutoAimEnabled and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 200, 50)
+                Utility.AddKillFeedEntry("Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), color)
             elseif input.KeyCode == Config.NearestTargetKey then
                 Aim.SnapToNearest()
             end
         end))
 
-        print("⚡ Pure Auto-Aim v2.1 Loaded (Modular). RightShift = toggle UI | T = snap nearest")
+        print("⚡ Pure Auto-Aim v2.2 Loaded (Modular). RightShift = toggle UI | CapsLock = toggle aim | T = snap nearest")
     end
 
     return MainLoop

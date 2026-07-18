@@ -11,8 +11,8 @@ return function(Core)
         local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
         r = r .. "[ ENVIRONMENT ]\nExecutor: " .. executor .. "\nPlaceID: " .. tostring(game.PlaceId) .. "\n\n"
         r = r .. "[ TEAMS IN GAME ]\n"
-        local teams = game:GetService("Teams"):GetChildren()
-        if #teams > 0 then
+        local teamsOk, teams = pcall(function() return game:GetService("Teams"):GetChildren() end)
+        if teamsOk and #teams > 0 then
             for _, t in ipairs(teams) do r = r .. string.format(" - %s (Color: %s)\n", t.Name, tostring(t.TeamColor)) end
         else r = r .. "No Teams found.\n" end
         r = r .. "\n"
@@ -108,9 +108,9 @@ return function(Core)
         local r = string.rep("=", 40) .. "\nGAME DIAGNOSTICS REPORT\n" .. string.rep("=", 40) .. "\n\n"
         r = r .. "[ ENVIRONMENT ]\nExecutor: " .. executor .. "\nPlaceID: " .. tostring(game.PlaceId) .. "\n"
         r = r .. "\n[ TEAMS IN GAME ]\n"
-        local teams = game:GetService("Teams"):GetChildren()
-        if #teams > 0 then
-            for _, t in ipairs(teams) do r = r .. string.format(" - %s (Color: %s)\n", t.Name, tostring(t.TeamColor)) end
+        local teamsOk2, teams2 = pcall(function() return game:GetService("Teams"):GetChildren() end)
+        if teamsOk2 and #teams2 > 0 then
+            for _, t in ipairs(teams2) do r = r .. string.format(" - %s (Color: %s)\n", t.Name, tostring(t.TeamColor)) end
         else r = r .. "No Teams found in Teams Service.\n" end
         r = r .. "\n[ LOCAL PLAYER ]\n" .. getDetailedData(LocalPlayer.Character, LocalPlayer) .. "\n"
         r = r .. "[ CLOSEST TARGET (" .. (closestObj and closestObj.Name or "None") .. ") ]\n"

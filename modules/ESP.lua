@@ -4,7 +4,6 @@ return function(Core)
     local Config = Core.Config
     local State = Core.State
     local LocalPlayer = Core.Services.Players.LocalPlayer
-    local Camera = workspace.CurrentCamera
     local Aim = Core.Aim
 
     function ESP.CreateESPDrawings()
@@ -53,7 +52,8 @@ return function(Core)
 
         local myChar = LocalPlayer.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        local viewport = Camera.ViewportSize
+        local cam = workspace.CurrentCamera
+        local viewport = cam.ViewportSize
 
         local activeModels = {}
         local targets = {}
@@ -100,7 +100,7 @@ return function(Core)
                 continue
             end
 
-            local sp, onScreen = Camera:WorldToScreenPoint(root.Position)
+            local sp, onScreen = cam:WorldToScreenPoint(root.Position)
             if not onScreen then
                 if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
                 continue
@@ -137,7 +137,7 @@ return function(Core)
             local maxX, maxY = -math.huge, -math.huge
             
             for _, pt in ipairs(corners) do
-                local ptSp = Camera:WorldToScreenPoint(pt)
+                local ptSp = cam:WorldToScreenPoint(pt)
                 if ptSp.X < minX then minX = ptSp.X end
                 if ptSp.X > maxX then maxX = ptSp.X end
                 if ptSp.Y < minY then minY = ptSp.Y end

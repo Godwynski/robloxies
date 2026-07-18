@@ -51,11 +51,11 @@ return function(Core)
 
         local Title = Instance.new("TextLabel")
         Title.Parent = Header
-        Title.Size = UDim2.new(1, -90, 1, 0)
+        Title.Size = UDim2.new(1, -120, 1, 0)
         Title.Position = UDim2.new(0, 12, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Enum.Font.GothamBold
-        Title.Text = "⚡ Pure Auto-Aim v2.1 (Modular)"
+        Title.Text = "⚡ Pure Auto-Aim v2.2 (Modular)"
         Title.TextColor3 = Color3.fromRGB(190, 170, 255)
         Title.TextSize = 15
         Title.TextXAlignment = Enum.TextXAlignment.Left
@@ -620,6 +620,22 @@ return function(Core)
         SelectTab("Combat")
 
         UI.MainContainer = MainContainer
+        UI.FloatingCircle = FloatingCircle
+        UI.FloatStroke = floatStroke
+
+        function UI.UpdateFloatStatus()
+            if not FloatingCircle.Visible then return end
+            if Config.AutoAimEnabled then
+                floatStroke.Color = Color3.fromRGB(50, 255, 50)
+                FloatingCircle.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
+            elseif Config.ESPEnabled then
+                floatStroke.Color = Color3.fromRGB(180, 50, 220)
+                FloatingCircle.BackgroundColor3 = Color3.fromRGB(40, 25, 45)
+            else
+                floatStroke.Color = Color3.fromRGB(190, 170, 255)
+                FloatingCircle.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+            end
+        end
     end
 
     return UI
