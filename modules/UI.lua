@@ -543,9 +543,8 @@ return function(Core)
 
         local OutputBox = Instance.new("TextBox")
         OutputBox.Parent = OutputScroll
-        OutputBox.Size = UDim2.new(1, -8, 0, 0)
+        OutputBox.Size = UDim2.new(1, -8, 0, 500)
         OutputBox.BackgroundTransparency = 1
-        OutputBox.AutomaticSize = Enum.AutomaticSize.Y
         OutputBox.ClearTextOnFocus = false
         OutputBox.TextEditable = false -- Allows selection for copying
         OutputBox.MultiLine = true
@@ -557,9 +556,14 @@ return function(Core)
         OutputBox.TextColor3 = Color3.fromRGB(200, 200, 200)
         OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can click the button below to copy the text."
 
-        Utility.RegisterConnection(OutputBox:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-            OutputScroll.CanvasSize = UDim2.new(0, 0, 0, OutputBox.AbsoluteSize.Y + 10)
-        end))
+        local function updateScroll()
+            local y = OutputBox.TextBounds.Y
+            if y < OutputScroll.AbsoluteSize.Y then y = OutputScroll.AbsoluteSize.Y end
+            OutputBox.Size = UDim2.new(1, -8, 0, y + 20)
+            OutputScroll.CanvasSize = UDim2.new(0, 0, 0, y + 30)
+        end
+        Utility.RegisterConnection(OutputBox:GetPropertyChangedSignal("TextBounds"):Connect(updateScroll))
+        Utility.RegisterConnection(OutputBox:GetPropertyChangedSignal("Text"):Connect(updateScroll))
 
         local CopyBtn = Instance.new("TextButton")
         CopyBtn.Parent = OutputFrame
