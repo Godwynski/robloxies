@@ -70,9 +70,15 @@ Core.Hooks = loadModule("Hooks.lua")(Core)
 Core.UI = loadModule("UI.lua")(Core)
 Core.MainLoop = loadModule("MainLoop.lua")(Core)
 
--- 4. Initialize Sub-Systems
+-- 4. Load Game Preset
+Core.Preset = loadModule("GameIdentifier.lua")(Core, loadModule)
+
+-- 5. Initialize Sub-Systems
 Core.Movement.Init()
 Core.Hooks.Init()
+if Core.Preset and Core.Preset.Init then
+    Core.Preset.Init()
+end
 Core.UI.Init()
 Core.MainLoop.Init()
 
