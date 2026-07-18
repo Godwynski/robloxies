@@ -678,8 +678,15 @@ return function(Core)
                 OutputBox.Text = "Scanning...\n"
                 task.wait()
                 local ok, res = pcall(scannerFunc)
-                if ok then OutputBox.Text = res
-                else OutputBox.Text = "Error during scan:\n" .. tostring(res) end
+                if ok then 
+                    OutputBox.Text = res
+                    -- Automatically copy to clipboard if supported by executor
+                    if setclipboard then
+                        pcall(function() setclipboard(res) end)
+                    end
+                else 
+                    OutputBox.Text = "Error during scan:\n" .. tostring(res) 
+                end
             end))
         end
 
