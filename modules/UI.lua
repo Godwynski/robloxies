@@ -100,6 +100,68 @@ return function(Core)
             end)
         end))
 
+        local MinimizeBtn = Instance.new("TextButton")
+        MinimizeBtn.Parent = Header
+        MinimizeBtn.Size = UDim2.new(0, 28, 0, 28)
+        MinimizeBtn.Position = UDim2.new(1, -99, 0, 5)
+        MinimizeBtn.BackgroundColor3 = Color3.fromRGB(150, 120, 50)
+        MinimizeBtn.Text = "—"
+        MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+        MinimizeBtn.Font = Enum.Font.GothamBold
+        MinimizeBtn.TextSize = 13
+        Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
+
+        local FloatingCircle = Instance.new("ImageButton")
+        FloatingCircle.Parent = Interface
+        FloatingCircle.Size = UDim2.new(0, 50, 0, 50)
+        FloatingCircle.Position = UDim2.new(0, 20, 0.5, -25)
+        FloatingCircle.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        FloatingCircle.Visible = false
+        FloatingCircle.Active = true
+        Instance.new("UICorner", FloatingCircle).CornerRadius = UDim.new(1, 0)
+        
+        local floatStroke = Instance.new("UIStroke")
+        floatStroke.Parent = FloatingCircle
+        floatStroke.Color = Color3.fromRGB(190, 170, 255)
+        floatStroke.Thickness = 2
+        
+        local FloatIcon = Instance.new("TextLabel")
+        FloatIcon.Parent = FloatingCircle
+        FloatIcon.Size = UDim2.new(1, 0, 1, 0)
+        FloatIcon.BackgroundTransparency = 1
+        FloatIcon.Text = "⚡"
+        FloatIcon.TextSize = 24
+        FloatIcon.TextColor3 = Color3.new(1, 1, 1)
+        FloatIcon.Font = Enum.Font.GothamBold
+
+        Utility.RegisterConnection(MinimizeBtn.Activated:Connect(function()
+            MainContainer.Visible = false
+            FloatingCircle.Visible = true
+        end))
+
+        Utility.RegisterConnection(FloatingCircle.Activated:Connect(function()
+            FloatingCircle.Visible = false
+            MainContainer.Visible = true
+        end))
+
+        local floatDragging, floatDragStart, floatStartPos
+        Utility.RegisterConnection(FloatingCircle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                floatDragging = true
+                floatDragStart = input.Position
+                floatStartPos = FloatingCircle.Position
+            end
+        end))
+        Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement and floatDragging then
+                local delta = input.Position - floatDragStart
+                FloatingCircle.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + delta.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + delta.Y)
+            end
+        end))
+        Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then floatDragging = false end
+        end))
+
         local dragging, dragStart, startPos
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
