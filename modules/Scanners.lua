@@ -413,6 +413,7 @@ return function(Core)
     function Scanners.TargetDebug()
         local r = string.rep("=", 40) .. "\nTARGETING SYSTEM DEBUG\n" .. string.rep("=", 40) .. "\n\n"
         local Aim = Core.Aim
+        local Config = Core.Config
         local myChar = LocalPlayer.Character
         
         local function checkChar(char, title)
