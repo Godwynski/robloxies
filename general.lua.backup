@@ -1,0 +1,2067 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Stats = game:GetService("Stats")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+-- ============================================
+-- Configuration
+-- ============================================
+local Config = {
+    -- Aim Core
+    AutoAimEnabled = false,
+    ViewAngle = 200,
+    Smoothing = 5,
+    FocusPoint = "HumanoidRootPart",
+    TrackingMethod = "Camera", -- "Mouse" or "Camera"
+    TargetMode = "Both",       -- "Players", "NPCs", "Both"
+    TeamCheck = true,
+    WallCheck = true,
+    -- Aim Advanced
+    StickyTarget = true,         -- Lock target until dead/gone
+    Prediction = false,          -- Lead moving targets
+    PredictionScale = 0.08,      -- Velocity multiplier for lead
+    PriorityMode = "Distance",   -- "Distance" | "LowHP" | "Closest3D"
+    -- Features
+    DiagnosticsEnabled = false,
+    AutoRespawn = false,
+    KillFeedEnabled = true,
+    TargetInfoEnabled = true,
+    RemoteLogEnabled = false,
+    -- ESP
+    ESPEnabled = false,
+    ESPBoxes = true,
+    ESPNames = true,
+    ESPHealth = true,
+    ESPDistance = true,
+    ESPTracers = false,
+    ESPMaxDist = 1000,         -- Max render distance in studs
+    ESPTeamColor = true,       -- Color by team (green=ally, red=enemy)
+    -- Target Nearest
+    NearestTargetKey = Enum.KeyCode.T,  -- Keybind to snap to nearest
+}
+
+-- ============================================
+-- State
+-- ============================================
+local LockedTarget = nil
+local LockedCharacter = nil
+local KillFeedEntries = {}
+local RemoteLog = {}
+local DeathTime = 0
+local IsAlive = true
+local HitMarkerTime = 0
+local KillCount = 0
+local DeathCount = 0
+local AssistCount = 0
+
+-- ESP object pools: ESPCache[player] = {box, name, healthBG, healthFill, dist, tracer}
+local ESPCache = {}
+
+-- Team data captured from TeamService.UpdateData remote
+-- TeamData[playerName] = teamId (string/number)
+local TeamData = {}
+local TeamDataRaw = {} -- Raw args for inspection
+
+-- ============================================
+-- Utility
+-- ============================================
+local function SafeFind(parent, ...)
+    local current = parent
+    for _, name in ipairs({...}) do
+        if not current then return nil end
+        current = current:FindFirstChild(name)
+    end
+    return current
+end
+
+-- ============================================
+-- NPC Cache
+-- ============================================
+local NPCCache = {}
+task.spawn(function()
+    while true do
+        if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
+            local newCache = {}
+            local count = 0
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj ~= LocalPlayer.Character then
+                    if not Players:GetPlayerFromCharacter(obj) then
+                        local hum = obj:FindFirstChildOfClass("Humanoid")
+                        if hum then table.insert(newCache, obj) end
+                    end
+                end
+                count = count + 1
+                if count % 1000 == 0 then task.wait() end
+            end
+            NPCCache = newCache
+            task.wait(3)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+-- ============================================
+-- Connection Manager
+-- ============================================
+local ActiveConnections = {}
+local function RegisterConnection(conn)
+    table.insert(ActiveConnections, conn)
+    return conn
+end
+
+-- ============================================
+-- Drawing Objects
+-- ============================================
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Filled = false
+FOVCircle.NumSides = 64
+
+local DiagnosticText = Drawing.new("Text")
+DiagnosticText.Visible = false
+DiagnosticText.Size = 16
+DiagnosticText.Color = Color3.new(0, 1, 0)
+DiagnosticText.Outline = true
+DiagnosticText.Text = ""
+
+-- Target info near crosshair
+local TargetInfoText = Drawing.new("Text")
+TargetInfoText.Visible = false
+TargetInfoText.Size = 14
+TargetInfoText.Color = Color3.fromRGB(255, 200, 50)
+TargetInfoText.Outline = true
+TargetInfoText.Center = true
+TargetInfoText.Text = ""
+
+-- Health bar background
+local TargetHealthBG = Drawing.new("Square")
+TargetHealthBG.Visible = false
+TargetHealthBG.Color = Color3.fromRGB(30, 30, 30)
+TargetHealthBG.Filled = true
+TargetHealthBG.Transparency = 0.4
+
+-- Health bar fill
+local TargetHealthFill = Drawing.new("Square")
+TargetHealthFill.Visible = false
+TargetHealthFill.Color = Color3.fromRGB(50, 200, 50)
+TargetHealthFill.Filled = true
+
+-- Hit confirmation marker
+local HitMarker = Drawing.new("Text")
+HitMarker.Visible = false
+HitMarker.Size = 30
+HitMarker.Color = Color3.fromRGB(255, 60, 60)
+HitMarker.Outline = true
+HitMarker.Center = true
+HitMarker.Text = "×"
+
+-- Lock indicator
+local LockIndicator = Drawing.new("Circle")
+LockIndicator.Visible = false
+LockIndicator.Thickness = 2
+LockIndicator.Color = Color3.fromRGB(255, 50, 50)
+LockIndicator.Filled = false
+LockIndicator.NumSides = 4
+LockIndicator.Radius = 12
+
+-- Kill feed lines (max 6)
+local MAX_KILLFEED = 6
+local KillFeedDrawings = {}
+for i = 1, MAX_KILLFEED do
+    local txt = Drawing.new("Text")
+    txt.Visible = false
+    txt.Size = 14
+    txt.Color = Color3.new(1, 1, 1)
+    txt.Outline = true
+    txt.Text = ""
+    KillFeedDrawings[i] = txt
+end
+
+-- ============================================
+-- Cleanup
+-- ============================================
+local function Terminate()
+    for _, conn in ipairs(ActiveConnections) do
+        if conn.Connected then pcall(function() conn:Disconnect() end) end
+    end
+    table.clear(ActiveConnections)
+    pcall(function() RunService:UnbindFromRenderStep("AutoAimLoop") end)
+
+    local allDrawings = {FOVCircle, DiagnosticText, TargetInfoText, TargetHealthBG, TargetHealthFill, HitMarker, LockIndicator}
+    for _, d in ipairs(allDrawings) do pcall(function() d:Remove() end) end
+    for _, d in ipairs(KillFeedDrawings) do pcall(function() d:Remove() end) end
+    -- Clean up ESP drawings
+    for plr, cache in pairs(ESPCache) do
+        for _, drawing in pairs(cache) do
+            pcall(function() drawing:Remove() end)
+        end
+    end
+    table.clear(ESPCache)
+end
+
+-- ============================================
+-- Kill Feed
+-- ============================================
+local function AddKillFeedEntry(text, color)
+    table.insert(KillFeedEntries, 1, {
+        text = text,
+        time = tick(),
+        color = color or Color3.new(1, 1, 1)
+    })
+    if #KillFeedEntries > MAX_KILLFEED then
+        table.remove(KillFeedEntries, MAX_KILLFEED + 1)
+    end
+end
+
+-- ============================================
+-- Remote Hooks
+-- ============================================
+task.spawn(function()
+    task.wait(2)
+
+    -- GameService.Killed → Kill feed + K/D tracking
+    local killedRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "Killed")
+    if killedRemote and killedRemote:IsA("RemoteEvent") then
+        RegisterConnection(killedRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            pcall(function()
+                local killer, victim = "?", "?"
+                if typeof(args[1]) == "Instance" and args[1]:IsA("Player") then killer = args[1].Name
+                elseif type(args[1]) == "string" then killer = args[1]
+                elseif typeof(args[1]) == "Instance" then killer = args[1].Name end
+                if typeof(args[2]) == "Instance" and args[2]:IsA("Player") then victim = args[2].Name
+                elseif type(args[2]) == "string" then victim = args[2]
+                elseif typeof(args[2]) == "Instance" then victim = args[2].Name end
+
+                local color = Color3.new(1, 1, 1)
+                if killer == LocalPlayer.Name then
+                    KillCount = KillCount + 1
+                    color = Color3.fromRGB(50, 255, 50)
+                elseif victim == LocalPlayer.Name then
+                    DeathCount = DeathCount + 1
+                    color = Color3.fromRGB(255, 50, 50)
+                end
+                AddKillFeedEntry(killer .. " ▸ " .. victim, color)
+            end)
+            if Config.RemoteLogEnabled then
+                table.insert(RemoteLog, 1, {name = "Killed", time = tick()})
+                if #RemoteLog > 50 then table.remove(RemoteLog, 51) end
+            end
+        end))
+    end
+
+    -- GameService.Assist
+    local assistRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "Assist")
+    if assistRemote and assistRemote:IsA("RemoteEvent") then
+        RegisterConnection(assistRemote.OnClientEvent:Connect(function()
+            AssistCount = AssistCount + 1
+            AddKillFeedEntry("ASSIST!", Color3.fromRGB(100, 200, 255))
+        end))
+    end
+
+    -- EntityService.BeDamaged → Hit marker
+    local beDamagedRemote = SafeFind(ReplicatedStorage, "Remote", "EntityService", "BeDamaged")
+    if beDamagedRemote and beDamagedRemote:IsA("RemoteEvent") then
+        RegisterConnection(beDamagedRemote.OnClientEvent:Connect(function(...)
+            HitMarkerTime = tick()
+            if Config.RemoteLogEnabled then
+                table.insert(RemoteLog, 1, {name = "BeDamaged", time = tick()})
+                if #RemoteLog > 50 then table.remove(RemoteLog, 51) end
+            end
+        end))
+    end
+
+    -- EntityService.Died → Death detection
+    local diedRemote = SafeFind(ReplicatedStorage, "Remote", "EntityService", "Died")
+    if diedRemote and diedRemote:IsA("RemoteEvent") then
+        RegisterConnection(diedRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            pcall(function()
+                if typeof(args[1]) == "Instance" then
+                    if args[1] == LocalPlayer.Character or args[1] == LocalPlayer then
+                        IsAlive = false
+                        DeathTime = tick()
+                    end
+                end
+            end)
+        end))
+    end
+
+    -- EntityService.Spawned → Respawn detection
+    local spawnedRemote = SafeFind(ReplicatedStorage, "Remote", "EntityService", "Spawned")
+    if spawnedRemote and spawnedRemote:IsA("RemoteEvent") then
+        RegisterConnection(spawnedRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            pcall(function()
+                if typeof(args[1]) == "Instance" then
+                    if args[1] == LocalPlayer.Character or args[1] == LocalPlayer then
+                        IsAlive = true
+                        AddKillFeedEntry("Respawned", Color3.fromRGB(50, 200, 255))
+                    end
+                end
+            end)
+        end))
+    end
+
+    -- GameService.WeaponPickup
+    local wpRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "WeaponPickup")
+    if wpRemote and wpRemote:IsA("RemoteEvent") then
+        RegisterConnection(wpRemote.OnClientEvent:Connect(function()
+            AddKillFeedEntry("⚔ Weapon Pickup", Color3.fromRGB(255, 200, 50))
+        end))
+    end
+
+    -- GameService.RoomManager.Room.GameStarted → Reset stats
+    local gsRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "GameStarted")
+    if gsRemote and gsRemote:IsA("RemoteEvent") then
+        RegisterConnection(gsRemote.OnClientEvent:Connect(function()
+            KillCount, DeathCount, AssistCount = 0, 0, 0
+            AddKillFeedEntry("— GAME STARTED —", Color3.fromRGB(255, 255, 100))
+        end))
+    end
+
+    -- GameService.RoomManager.Room.GameEnded → Score summary
+    local geRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "GameEnded")
+    if geRemote and geRemote:IsA("RemoteEvent") then
+        RegisterConnection(geRemote.OnClientEvent:Connect(function()
+            AddKillFeedEntry(string.format("GAME OVER  K:%d D:%d A:%d", KillCount, DeathCount, AssistCount), Color3.fromRGB(255, 200, 50))
+        end))
+    end
+
+    -- GameService.RoomManager.Room.RoundStarted
+    local rsRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "RoundStarted")
+    if rsRemote and rsRemote:IsA("RemoteEvent") then
+        RegisterConnection(rsRemote.OnClientEvent:Connect(function()
+            AddKillFeedEntry("— ROUND START —", Color3.fromRGB(180, 180, 255))
+        end))
+    end
+
+    -- GameMode.Duel.Winner
+    local dwRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "GameMode", "Duel", "Winner")
+    if dwRemote and dwRemote:IsA("RemoteEvent") then
+        RegisterConnection(dwRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            pcall(function()
+                local w = "Unknown"
+                if typeof(args[1]) == "Instance" then w = args[1].Name
+                elseif type(args[1]) == "string" then w = args[1] end
+                local c = (w == LocalPlayer.Name) and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 150, 50)
+                AddKillFeedEntry("DUEL WINNER: " .. w, c)
+            end)
+        end))
+    end
+
+    -- TeamService.UpdateData → Capture team assignments
+    local teamUpdateRemote = SafeFind(ReplicatedStorage, "Remote", "TeamService", "UpdateData")
+    if teamUpdateRemote and teamUpdateRemote:IsA("RemoteEvent") then
+        RegisterConnection(teamUpdateRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            -- Store raw data for the scanner to inspect
+            TeamDataRaw = args
+            pcall(function()
+                -- Try common data formats:
+                -- Format 1: {playerName = teamId, ...}
+                -- Format 2: {members = {playerName, ...}, teamId = X}
+                -- Format 3: table with nested player-team mappings
+                if type(args[1]) == "table" then
+                    for k, v in pairs(args[1]) do
+                        if type(k) == "string" then
+                            -- Could be playerName = teamId
+                            TeamData[k] = tostring(v)
+                        end
+                    end
+                end
+            end)
+            if Config.RemoteLogEnabled then
+                table.insert(RemoteLog, 1, {name = "TeamService.UpdateData", time = tick(), argCount = #args})
+                if #RemoteLog > 50 then table.remove(RemoteLog, 51) end
+            end
+        end))
+    end
+
+    -- EntityService.WalkSpeed → Log speed changes
+    local wsRemote = SafeFind(ReplicatedStorage, "Remote", "EntityService", "WalkSpeed")
+    if wsRemote and wsRemote:IsA("RemoteEvent") then
+        RegisterConnection(wsRemote.OnClientEvent:Connect(function(...)
+            if Config.RemoteLogEnabled then
+                table.insert(RemoteLog, 1, {name = "WalkSpeed", time = tick()})
+                if #RemoteLog > 50 then table.remove(RemoteLog, 51) end
+            end
+        end))
+    end
+
+    -- GameClient.RoleChanged → Notify role assignment + store role
+    local rcRemote = SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "RoleChanged")
+    if rcRemote and rcRemote:IsA("RemoteEvent") then
+        RegisterConnection(rcRemote.OnClientEvent:Connect(function(...)
+            local args = {...}
+            pcall(function()
+                local role = tostring(args[1] or "Unknown")
+                -- Store our role as pseudo-team data
+                TeamData["__myRole"] = role
+                AddKillFeedEntry("Role: " .. role, Color3.fromRGB(200, 150, 255))
+            end)
+        end))
+    end
+end)
+
+-- ============================================
+-- Death Detection (Humanoid backup)
+-- ============================================
+task.spawn(function()
+    local function hookHumanoid()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        IsAlive = hum.Health > 0
+        RegisterConnection(hum.Died:Connect(function()
+            IsAlive = false
+            DeathTime = tick()
+        end))
+    end
+    hookHumanoid()
+    RegisterConnection(LocalPlayer.CharacterAdded:Connect(function()
+        IsAlive = true
+        LockedTarget = nil
+        LockedCharacter = nil
+        task.wait(0.5)
+        hookHumanoid()
+    end))
+end)
+
+-- Auto-Respawn Loop
+task.spawn(function()
+    while true do
+        if Config.AutoRespawn and not IsAlive and (tick() - DeathTime) > 2 then
+            pcall(function()
+                local r = SafeFind(ReplicatedStorage, "Remote", "GameService", "Respawn")
+                if r and r:IsA("RemoteEvent") then
+                    r:FireServer()
+                    AddKillFeedEntry("Auto-Respawn", Color3.fromRGB(50, 255, 200))
+                end
+            end)
+            task.wait(3)
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- ============================================
+-- GUI Setup
+-- ============================================
+local Interface = Instance.new("ScreenGui")
+Interface.Name = "PureAutoAimPanel"
+Interface.ResetOnSpawn = false
+Interface.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+pcall(function() Interface.Parent = CoreGui end)
+if not Interface.Parent then
+    Interface.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local MainContainer = Instance.new("Frame")
+MainContainer.Parent = Interface
+MainContainer.Size = UDim2.new(0, 310, 0, 520)
+MainContainer.Position = UDim2.new(0.5, -155, 0.5, -260)
+MainContainer.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+MainContainer.BorderSizePixel = 0
+MainContainer.Active = true
+Instance.new("UICorner", MainContainer).CornerRadius = UDim.new(0, 10)
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Parent = MainContainer
+UIStroke.Color = Color3.fromRGB(60, 50, 90)
+UIStroke.Thickness = 1.5
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Parent = MainContainer
+Header.Size = UDim2.new(1, 0, 0, 38)
+Header.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+Header.BorderSizePixel = 0
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local HeaderBottom = Instance.new("Frame")
+HeaderBottom.Parent = Header
+HeaderBottom.Size = UDim2.new(1, 0, 0, 10)
+HeaderBottom.Position = UDim2.new(0, 0, 1, -10)
+HeaderBottom.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+HeaderBottom.BorderSizePixel = 0
+
+local Title = Instance.new("TextLabel")
+Title.Parent = Header
+Title.Size = UDim2.new(1, -50, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "⚡ Pure Auto-Aim v2"
+Title.TextColor3 = Color3.fromRGB(190, 170, 255)
+Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Parent = Header
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -33, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 13
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+RegisterConnection(CloseBtn.Activated:Connect(function()
+    Terminate()
+    Interface:Destroy()
+end))
+
+-- Dragging
+local dragging, dragStart, startPos
+RegisterConnection(Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainContainer.Position
+    end
+end))
+RegisterConnection(UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+        local delta = input.Position - dragStart
+        MainContainer.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end))
+RegisterConnection(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end))
+
+-- Scroll Frame
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Parent = MainContainer
+ScrollFrame.Position = UDim2.new(0, 0, 0, 40)
+ScrollFrame.Size = UDim2.new(1, 0, 1, -40)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.ScrollBarThickness = 4
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.Active = true
+
+local UIList = Instance.new("UIListLayout")
+UIList.Parent = ScrollFrame
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.Padding = UDim.new(0, 4)
+UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local UIPad = Instance.new("UIPadding")
+UIPad.Parent = ScrollFrame
+UIPad.PaddingTop = UDim.new(0, 6)
+UIPad.PaddingBottom = UDim.new(0, 10)
+
+RegisterConnection(UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
+end))
+
+-- ============================================
+-- UI Factory
+-- ============================================
+local layoutOrder = 0
+local function NextOrder() layoutOrder = layoutOrder + 1; return layoutOrder end
+
+local function CreateSection(text)
+    local f = Instance.new("Frame")
+    f.Parent = ScrollFrame
+    f.Size = UDim2.new(0.92, 0, 0, 22)
+    f.BackgroundTransparency = 1
+    f.LayoutOrder = NextOrder()
+    local l = Instance.new("TextLabel")
+    l.Parent = f; l.Size = UDim2.new(1,0,1,0); l.BackgroundTransparency = 1
+    l.Text = "— " .. text .. " —"
+    l.TextColor3 = Color3.fromRGB(140, 130, 190)
+    l.Font = Enum.Font.GothamBold; l.TextSize = 11
+end
+
+local function CreateButton(text, onClick)
+    local btn = Instance.new("TextButton")
+    btn.Parent = ScrollFrame
+    btn.Size = UDim2.new(0.88, 0, 0, 30)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    btn.Font = Enum.Font.GothamBold
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.TextSize = 13
+    btn.LayoutOrder = NextOrder()
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
+    return btn
+end
+
+local function CreateSlider(text, default, cb, min, max)
+    min = min or 0
+    max = max or math.max(default * 2, 100)
+    if default < min then default = min end
+    if default > max then default = max end
+
+    local f = Instance.new("Frame")
+    f.Parent = ScrollFrame
+    f.Size = UDim2.new(0.88, 0, 0, 45)
+    f.BackgroundTransparency = 1
+    f.LayoutOrder = NextOrder()
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = f; lbl.Size = UDim2.new(0.7,0,0,20)
+    lbl.BackgroundTransparency = 1; lbl.Text = text
+    lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Parent = f; valLbl.Size = UDim2.new(0.3,0,0,20)
+    valLbl.Position = UDim2.new(0.7,0,0,0)
+    valLbl.BackgroundTransparency = 1; valLbl.Text = tostring(default)
+    valLbl.TextColor3 = Color3.new(1,1,1); valLbl.Font = Enum.Font.Gotham
+    valLbl.TextSize = 13; valLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+    local sliderBG = Instance.new("TextButton")
+    sliderBG.Parent = f; sliderBG.Size = UDim2.new(1,0,0,8)
+    sliderBG.Position = UDim2.new(0,0,0,25)
+    sliderBG.BackgroundColor3 = Color3.fromRGB(30,30,40)
+    sliderBG.Text = ""; sliderBG.AutoButtonColor = false
+    Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(1, 0)
+
+    local sliderFill = Instance.new("Frame")
+    sliderFill.Parent = sliderBG; sliderFill.Size = UDim2.new((default - min) / (max - min),0,1,0)
+    sliderFill.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
+    Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
+
+    local isDragging = false
+    local function updateSlider(input)
+        local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, sliderBG.AbsoluteSize.X)
+        local pct = posX / sliderBG.AbsoluteSize.X
+        sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+        local val = min + ((max - min) * pct)
+        -- round to 2 decimals
+        val = math.floor(val * 100) / 100
+        valLbl.Text = tostring(val)
+        cb(val)
+    end
+
+    RegisterConnection(sliderBG.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            isDragging = true
+            updateSlider(input)
+        end
+    end))
+
+    RegisterConnection(UserInputService.InputChanged:Connect(function(input)
+        if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateSlider(input)
+        end
+    end))
+
+    RegisterConnection(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            isDragging = false
+        end
+    end))
+
+    return f
+end
+
+-- ============================================
+-- Controls
+-- ============================================
+
+-- AIM
+CreateSection("AIM")
+
+CreateButton("Auto-Aim: OFF", function(btn)
+    Config.AutoAimEnabled = not Config.AutoAimEnabled
+    btn.Text = "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
+    FOVCircle.Visible = Config.AutoAimEnabled
+end)
+
+CreateSlider("FOV Radius:", Config.ViewAngle, function(v) Config.ViewAngle = v; FOVCircle.Radius = v end, 10, 800)
+CreateSlider("Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 1, 30)
+
+CreateButton("Focus: " .. Config.FocusPoint, function(btn)
+    Config.FocusPoint = Config.FocusPoint == "HumanoidRootPart" and "Head" or "HumanoidRootPart"
+    btn.Text = "Focus: " .. Config.FocusPoint
+end)
+
+CreateButton("Method: " .. Config.TrackingMethod, function(btn)
+    Config.TrackingMethod = Config.TrackingMethod == "Camera" and "Mouse" or "Camera"
+    btn.Text = "Method: " .. Config.TrackingMethod
+end)
+
+CreateButton("Target: Both", function(btn)
+    if Config.TargetMode == "Players" then Config.TargetMode = "NPCs"
+    elseif Config.TargetMode == "NPCs" then Config.TargetMode = "Both"
+    else Config.TargetMode = "Players" end
+    btn.Text = "Target: " .. Config.TargetMode
+end)
+
+CreateButton("Priority: Distance", function(btn)
+    if Config.PriorityMode == "Distance" then Config.PriorityMode = "LowHP"
+    elseif Config.PriorityMode == "LowHP" then Config.PriorityMode = "Closest3D"
+    else Config.PriorityMode = "Distance" end
+    btn.Text = "Priority: " .. Config.PriorityMode
+end)
+
+-- ADVANCED
+CreateSection("ADVANCED")
+
+CreateButton("Wall Check: ON", function(btn)
+    Config.WallCheck = not Config.WallCheck
+    btn.Text = "Wall Check: " .. (Config.WallCheck and "ON" or "OFF")
+end)
+
+CreateButton("Team Check: ON", function(btn)
+    Config.TeamCheck = not Config.TeamCheck
+    btn.Text = "Team Check: " .. (Config.TeamCheck and "ON" or "OFF")
+end)
+
+CreateButton("Sticky Target: ON", function(btn)
+    Config.StickyTarget = not Config.StickyTarget
+    btn.Text = "Sticky Target: " .. (Config.StickyTarget and "ON" or "OFF")
+    if not Config.StickyTarget then LockedTarget = nil; LockedCharacter = nil end
+end)
+
+CreateButton("Prediction: OFF", function(btn)
+    Config.Prediction = not Config.Prediction
+    btn.Text = "Prediction: " .. (Config.Prediction and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+end)
+
+CreateSlider("Predict Scale:", Config.PredictionScale, function(v) Config.PredictionScale = v end, 0, 1)
+
+-- FEATURES
+CreateSection("FEATURES")
+
+CreateButton("Auto-Respawn: OFF", function(btn)
+    Config.AutoRespawn = not Config.AutoRespawn
+    btn.Text = "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+end)
+
+CreateButton("Kill Feed: ON", function(btn)
+    Config.KillFeedEnabled = not Config.KillFeedEnabled
+    btn.Text = "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF")
+end)
+
+CreateButton("Target Info: ON", function(btn)
+    Config.TargetInfoEnabled = not Config.TargetInfoEnabled
+    btn.Text = "Target Info: " .. (Config.TargetInfoEnabled and "ON" or "OFF")
+end)
+
+CreateButton("Diagnostics: OFF", function(btn)
+    Config.DiagnosticsEnabled = not Config.DiagnosticsEnabled
+    btn.Text = "Diagnostics: " .. (Config.DiagnosticsEnabled and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+    DiagnosticText.Visible = Config.DiagnosticsEnabled
+end)
+
+CreateButton("Remote Logger: OFF", function(btn)
+    Config.RemoteLogEnabled = not Config.RemoteLogEnabled
+    btn.Text = "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+end)
+
+-- ESP
+CreateSection("ESP")
+
+CreateButton("ESP: OFF", function(btn)
+    Config.ESPEnabled = not Config.ESPEnabled
+    btn.Text = "ESP: " .. (Config.ESPEnabled and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or Color3.fromRGB(40,40,50)
+    if not Config.ESPEnabled then
+        for _, cache in pairs(ESPCache) do
+            for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
+        end
+    end
+end)
+
+CreateButton("ESP Boxes: ON", function(btn)
+    Config.ESPBoxes = not Config.ESPBoxes
+    btn.Text = "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF")
+end)
+
+CreateButton("ESP Names: ON", function(btn)
+    Config.ESPNames = not Config.ESPNames
+    btn.Text = "ESP Names: " .. (Config.ESPNames and "ON" or "OFF")
+end)
+
+CreateButton("ESP Health: ON", function(btn)
+    Config.ESPHealth = not Config.ESPHealth
+    btn.Text = "ESP Health: " .. (Config.ESPHealth and "ON" or "OFF")
+end)
+
+CreateButton("ESP Distance: ON", function(btn)
+    Config.ESPDistance = not Config.ESPDistance
+    btn.Text = "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF")
+end)
+
+CreateButton("ESP Tracers: OFF", function(btn)
+    Config.ESPTracers = not Config.ESPTracers
+    btn.Text = "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF")
+    btn.BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or Color3.fromRGB(40,40,50)
+end)
+
+CreateButton("ESP Team Color: ON", function(btn)
+    Config.ESPTeamColor = not Config.ESPTeamColor
+    btn.Text = "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF")
+end)
+
+CreateSlider("ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
+
+-- SCANNERS
+CreateSection("SCANNERS")
+
+CreateButton("📋 Copy ALL Info (Mega Scan)", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Generating Mega Report..."; btn.BackgroundColor3 = Color3.fromRGB(150,50,150)
+    task.wait(0.1)
+
+    local r = string.rep("=", 50) .. "\nMEGA DIAGNOSTICS REPORT\n" .. string.rep("=", 50) .. "\n\n"
+
+    -- 1. Game Data
+    local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
+    r = r .. "[ ENVIRONMENT ]\nExecutor: " .. executor .. "\nPlaceID: " .. tostring(game.PlaceId) .. "\n\n"
+    r = r .. "[ TEAMS IN GAME ]\n"
+    local teams = game:GetService("Teams"):GetChildren()
+    if #teams > 0 then
+        for _, t in ipairs(teams) do r = r .. string.format(" - %s (Color: %s)\n", t.Name, tostring(t.TeamColor)) end
+    else r = r .. "No Teams found.\n" end
+    r = r .. "\n"
+
+    -- 2. Remotes
+    r = r .. string.rep("-", 40) .. "\n[ NETWORK REMOTES ]\n"
+    local rCount = 0
+    for _, container in ipairs({game:GetService("ReplicatedStorage"), workspace}) do
+        pcall(function()
+            for _, obj in ipairs(container:GetDescendants()) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    r = r .. string.format("%s -> %s\n", obj.ClassName, obj:GetFullName())
+                    rCount = rCount + 1
+                end
+            end
+        end)
+    end
+    r = r .. "Total Remotes: " .. rCount .. "\n\n"
+
+    -- 3. Environment Map
+    r = r .. string.rep("-", 40) .. "\n[ ENVIRONMENT MAP ]\n"
+    local interactableClasses = {"ProximityPrompt", "ClickDetector", "SelectionBox", "TouchTransmitter"}
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Camera") or child:IsA("Terrain") then continue end
+        local descendants = {}
+        local ok = pcall(function() descendants = child:GetDescendants() end)
+        r = r .. string.format("[%s] %s — %d children, %d descendants\n", child.ClassName, child.Name, #child:GetChildren(), ok and #descendants or 0)
+        if ok then
+            local inter = {}
+            for _, d in ipairs(descendants) do
+                for _, cn in ipairs(interactableClasses) do
+                    if d:IsA(cn) then inter[cn] = (inter[cn] or 0) + 1 end
+                end
+            end
+            for cn, cnt in pairs(inter) do r = r .. string.format("  -> %d x %s\n", cnt, cn) end
+        end
+    end
+    r = r .. "Workspace.Gravity: " .. tostring(workspace.Gravity) .. "\n\n"
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied Mega Report!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else 
+        btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) 
+    end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+
+CreateButton("📋 Copy Game Data", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local function getDetailedData(model, player)
+        if not model then return "No Model\n" end
+        local data = ""
+        data = data .. "Name: " .. model.Name .. "\n"
+        data = data .. "Parent: " .. (model.Parent and model.Parent.Name or "None") .. " [" .. (model.Parent and model.Parent.ClassName or "N/A") .. "]\n"
+        if player then
+            data = data .. "Team: " .. (player.Team and player.Team.Name or "None") .. "\n"
+        end
+        local hum = model:FindFirstChildOfClass("Humanoid")
+        data = data .. "RigType: " .. (hum and hum.RigType.Name or "None") .. "\n"
+        if hum then
+            data = data .. string.format("Health: %.1f / %.1f\n", hum.Health, hum.MaxHealth)
+            data = data .. string.format("WalkSpeed: %.1f | JumpPower: %.1f\n", hum.WalkSpeed, hum.JumpPower)
+        end
+        data = data .. "Attributes:\n"
+        local attrs = model:GetAttributes()
+        local ac = 0
+        for k, v in pairs(attrs) do
+            data = data .. string.format(" - %s: %s\n", tostring(k), tostring(v))
+            ac = ac + 1
+        end
+        if ac == 0 then data = data .. " - None\n" end
+        data = data .. "Tags: "
+        local tags = CollectionService:GetTags(model)
+        data = data .. (#tags > 0 and table.concat(tags, ", ") or "None") .. "\n"
+        data = data .. "Values (String/Int/Bool etc):\n"
+        local vc = 0
+        for _, child in ipairs(model:GetChildren()) do
+            if child:IsA("ValueBase") then
+                data = data .. string.format(" - %s [%s] = %s\n", child.Name, child.ClassName, tostring(child.Value))
+                vc = vc + 1
+            end
+        end
+        if vc == 0 then data = data .. " - None\n" end
+        return data
+    end
+
+    local executor = (identifyexecutor and identifyexecutor()) or "Unknown"
+
+    local closestObj, isPlrObj, closestDist = nil, true, math.huge
+    local function evalDist(model, isPlr)
+        if model and model:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (model.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if d < closestDist then closestDist = d; closestObj = model; isPlrObj = isPlr end
+        end
+    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then evalDist(plr.Character, true) end
+    end
+    for _, npc in ipairs(NPCCache) do evalDist(npc, false) end
+
+    local r = string.rep("=", 40) .. "\nGAME DIAGNOSTICS REPORT\n" .. string.rep("=", 40) .. "\n\n"
+    r = r .. "[ ENVIRONMENT ]\nExecutor: " .. executor .. "\nPlaceID: " .. tostring(game.PlaceId) .. "\n"
+    r = r .. "\n[ TEAMS IN GAME ]\n"
+    local teams = game:GetService("Teams"):GetChildren()
+    if #teams > 0 then
+        for _, t in ipairs(teams) do r = r .. string.format(" - %s (Color: %s)\n", t.Name, tostring(t.TeamColor)) end
+    else r = r .. "No Teams found in Teams Service.\n" end
+    r = r .. "\n[ LOCAL PLAYER ]\n" .. getDetailedData(LocalPlayer.Character, LocalPlayer) .. "\n"
+    r = r .. "[ CLOSEST TARGET (" .. (closestObj and closestObj.Name or "None") .. ") ]\n"
+    local p = isPlrObj and Players:GetPlayerFromCharacter(closestObj) or nil
+    r = r .. getDetailedData(closestObj, p)
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+CreateButton("📡 Scan Remotes", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local r = string.rep("=", 40) .. "\nNETWORK REMOTES MAP\n" .. string.rep("=", 40) .. "\n\n"
+    local containers = {{game:GetService("ReplicatedStorage"), "ReplicatedStorage"}, {workspace, "Workspace"}}
+    local total = 0
+    for _, entry in ipairs(containers) do
+        local container, name = entry[1], entry[2]
+        r = r .. "[ " .. name .. " ]\n"
+        local count = 0
+        local ok, desc = pcall(function() return container:GetDescendants() end)
+        if ok then
+            for _, obj in ipairs(desc) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    r = r .. string.format("  %s  ->  %s\n", obj.ClassName, obj:GetFullName())
+                    count = count + 1; total = total + 1
+                end
+            end
+        end
+        if count == 0 then r = r .. "  No remotes found.\n" end
+        r = r .. "\n"
+    end
+    r = r .. "Total Remotes Found: " .. total .. "\n"
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied! (" .. total .. ")"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+CreateButton("⚙ Scan Configs", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local keywords = {"Config", "Setting", "Stat", "Data", "Weapon", "Profile", "Shop", "Item", "Ability", "Skill"}
+    local r = string.rep("=", 40) .. "\nMODULE CONFIGURATION SCAN\n" .. string.rep("=", 40) .. "\n\n"
+    r = r .. "Keywords: " .. table.concat(keywords, ", ") .. "\n\n"
+
+    local function matchKW(n)
+        local lo = n:lower()
+        for _, kw in ipairs(keywords) do if lo:find(kw:lower()) then return true end end
+        return false
+    end
+    local function serialize(tbl, indent, depth)
+        if depth > 3 then return indent .. "... (max depth)\n" end
+        local res, c = "", 0
+        for k, v in pairs(tbl) do
+            if c >= 30 then res = res .. indent .. "... (truncated)\n"; break end
+            if type(v) == "table" then
+                res = res .. indent .. tostring(k) .. " [table]:\n" .. serialize(v, indent.."  ", depth+1)
+            else
+                res = res .. indent .. tostring(k) .. " [" .. typeof(v) .. "] = " .. tostring(v) .. "\n"
+            end
+            c = c + 1
+        end
+        return res
+    end
+
+    local containers = {{game:GetService("ReplicatedStorage"), "ReplicatedStorage"}, {game:GetService("StarterPlayer"), "StarterPlayer"}}
+    local total = 0
+    for _, entry in ipairs(containers) do
+        local container, name = entry[1], entry[2]
+        r = r .. "[ " .. name .. " ]\n"
+        local count = 0
+        local ok, desc = pcall(function() return container:GetDescendants() end)
+        if ok then
+            for _, obj in ipairs(desc) do
+                if obj:IsA("ModuleScript") and matchKW(obj.Name) then
+                    r = r .. string.format("\n  Module: %s\n  Path: %s\n", obj.Name, obj:GetFullName())
+                    count = count + 1; total = total + 1
+                    local rok, result = pcall(function() return require(obj) end)
+                    if rok then
+                        if type(result) == "table" then
+                            r = r .. "  Contents:\n" .. serialize(result, "    ", 1)
+                        else
+                            r = r .. "  Returns: [" .. typeof(result) .. "] " .. tostring(result) .. "\n"
+                        end
+                    else r = r .. "  require() failed: " .. tostring(result) .. "\n" end
+                end
+            end
+        end
+        if count == 0 then r = r .. "  No matching modules found.\n" end
+        r = r .. "\n"
+    end
+    r = r .. "Total Config Modules Found: " .. total .. "\n"
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied! (" .. total .. ")"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+CreateButton("🗺 Scan Environment", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local r = string.rep("=", 40) .. "\nENVIRONMENT & OBJECT MAP\n" .. string.rep("=", 40) .. "\n\n"
+    local interactableClasses = {"ProximityPrompt", "ClickDetector", "SelectionBox", "TouchTransmitter"}
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Camera") or child:IsA("Terrain") then continue end
+        local descendants = {}
+        local ok = pcall(function() descendants = child:GetDescendants() end)
+        r = r .. string.format("[%s] %s  —  %d children, %d descendants\n",
+            child.ClassName, child.Name, #child:GetChildren(), ok and #descendants or 0)
+        if ok then
+            local inter = {}
+            for _, d in ipairs(descendants) do
+                for _, cn in ipairs(interactableClasses) do
+                    if d:IsA(cn) then inter[cn] = (inter[cn] or 0) + 1 end
+                end
+            end
+            for cn, cnt in pairs(inter) do
+                r = r .. string.format("  -> %d x %s\n", cnt, cn)
+            end
+        end
+    end
+    r = r .. "\n" .. string.rep("-", 40) .. "\nWorkspace.Gravity: " .. tostring(workspace.Gravity) .. "\n"
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+CreateButton("🖥 Scan PlayerGui", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local r = string.rep("=", 40) .. "\nPLAYERGUI UI LAYER INSPECTION\n" .. string.rep("=", 40) .. "\n\n"
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then r = r .. "PlayerGui not found!\n"
+    else
+        local textElem, progBars, cap = 0, 0, 200
+        r = r .. "[ TEXT ELEMENTS ]\n"
+        local allDesc = playerGui:GetDescendants()
+        for _, d in ipairs(allDesc) do
+            if textElem >= cap then r = r .. "... (capped at " .. cap .. ")\n"; break end
+            if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) and d.Text ~= "" then
+                if d:IsDescendantOf(Interface) then continue end
+                r = r .. string.format("  %s [%s]\n  Text: \"%s\"\n\n", d:GetFullName(), d.ClassName, d.Text:sub(1,100))
+                textElem = textElem + 1
+            end
+        end
+        if textElem == 0 then r = r .. "  None found.\n" end
+        r = r .. "\n[ POTENTIAL PROGRESS BARS ]\n"
+        for _, d in ipairs(allDesc) do
+            if progBars >= cap then break end
+            if d:IsA("Frame") and not d:IsDescendantOf(Interface) then
+                for _, inner in ipairs(d:GetChildren()) do
+                    if inner:IsA("Frame") or inner:IsA("ImageLabel") then
+                        local sx = inner.Size.X.Scale
+                        if sx > 0 and sx < 1 then
+                            r = r .. string.format("  %s\n  Inner: %s (Width: %.2f)\n\n", d:GetFullName(), inner.Name, sx)
+                            progBars = progBars + 1; break
+                        end
+                    end
+                end
+            end
+        end
+        if progBars == 0 then r = r .. "  None found.\n" end
+        r = r .. "\nTotal: " .. textElem .. " text, " .. progBars .. " progress bars\n"
+    end
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+CreateButton("📝 Copy Remote Log", function(btn)
+    if #RemoteLog == 0 then
+        btn.Text = "Log empty!"; btn.BackgroundColor3 = Color3.fromRGB(150,100,50)
+        task.delay(1.5, function() btn.Text = "📝 Copy Remote Log"; btn.BackgroundColor3 = Color3.fromRGB(40,40,50) end)
+        return
+    end
+    local r = string.rep("=", 40) .. "\nREMOTE ACTIVITY LOG\n" .. string.rep("=", 40) .. "\n\n"
+    for i, entry in ipairs(RemoteLog) do
+        r = r .. string.format("[%d] %s  (%.1fs ago)\n", i, entry.name, tick() - entry.time)
+    end
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied! (" .. #RemoteLog .. ")"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else
+        btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50)
+    end
+    task.delay(2, function() btn.Text = "📝 Copy Remote Log"; btn.BackgroundColor3 = Color3.fromRGB(40,40,50) end)
+end)
+
+CreateButton("🔄 Reset K/D/A", function(btn)
+    KillCount, DeathCount, AssistCount = 0, 0, 0
+    btn.Text = "Reset!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    AddKillFeedEntry("Stats Reset", Color3.fromRGB(200,200,200))
+    task.delay(1.5, function() btn.Text = "🔄 Reset K/D/A"; btn.BackgroundColor3 = Color3.fromRGB(40,40,50) end)
+end)
+
+CreateButton("🔍 Scan Teams (IN MATCH)", function(btn)
+    local origText, origColor = btn.Text, btn.BackgroundColor3
+    btn.Text = "Scanning..."; btn.BackgroundColor3 = Color3.fromRGB(150,150,50)
+    task.wait(0.1)
+
+    local r = string.rep("=", 50) .. "\n"
+    r = r .. "TEAM DETECTION DEEP SCAN\n"
+    r = r .. "Run this DURING a team match (TDM/etc) for best results\n"
+    r = r .. string.rep("=", 50) .. "\n\n"
+
+    -- Section 1: TeamService.UpdateData captured data
+    r = r .. "[ CAPTURED TeamService.UpdateData ]\n"
+    if next(TeamData) then
+        for k, v in pairs(TeamData) do
+            r = r .. string.format("  %s = %s\n", tostring(k), tostring(v))
+        end
+    else
+        r = r .. "  No data captured yet. Join a team match first.\n"
+    end
+    r = r .. "\n  Raw arg count: " .. #TeamDataRaw .. "\n"
+    if #TeamDataRaw > 0 then
+        for i, arg in ipairs(TeamDataRaw) do
+            if type(arg) == "table" then
+                local entryCount = 0
+                for _ in pairs(arg) do entryCount = entryCount + 1 end
+                r = r .. string.format("  Arg[%d] = table with %d entries:\n", i, entryCount)
+                local c = 0
+                for k2, v2 in pairs(arg) do
+                    r = r .. string.format("    [%s] (%s) = %s (%s)\n", tostring(k2), type(k2), tostring(v2), type(v2))
+                    c = c + 1
+                    if c >= 30 then r = r .. "    ... truncated\n"; break end
+                end
+            else
+                r = r .. string.format("  Arg[%d] = %s (%s)\n", i, tostring(arg), type(arg))
+            end
+        end
+    end
+    r = r .. "\n"
+
+    -- Section 2: Per-player deep comparison
+    r = r .. "[ PLAYER COMPARISON ]\n"
+    r = r .. string.format("  %-20s | %-12s | %-12s | %-20s | Attributes\n", "Name", "RobloxTeam", "Parent", "Tags")
+    r = r .. "  " .. string.rep("-", 100) .. "\n"
+
+    local myChar = LocalPlayer.Character
+    local allPlayers = Players:GetPlayers()
+
+    for _, plr in ipairs(allPlayers) do
+        local char = plr.Character
+        if not char then continue end
+
+        local teamName = plr.Team and plr.Team.Name or "None"
+        local parentName = char.Parent and char.Parent.Name or "nil"
+        local tags = CollectionService:GetTags(char)
+        local tagStr = #tags > 0 and table.concat(tags, ",") or "None"
+
+        -- All attributes
+        local attrStr = ""
+        local attrs = char:GetAttributes()
+        for k, v in pairs(attrs) do
+            attrStr = attrStr .. k .. "=" .. tostring(v) .. " "
+        end
+        if attrStr == "" then attrStr = "None" end
+
+        local marker = plr == LocalPlayer and " (YOU)" or ""
+        r = r .. string.format("  %-20s | %-12s | %-12s | %-20s | %s%s\n",
+            plr.Name, teamName, parentName, tagStr, attrStr, marker)
+    end
+    r = r .. "\n"
+
+    -- Section 3: Character hierarchy differences
+    r = r .. "[ CHARACTER PARENT HIERARCHY ]\n"
+    for _, plr in ipairs(allPlayers) do
+        local char = plr.Character
+        if not char then continue end
+        local path = ""
+        local current = char
+        for i = 1, 5 do
+            if not current then break end
+            path = path .. (path ~= "" and " ← " or "") .. current.Name .. " [" .. current.ClassName .. "]"
+            current = current.Parent
+        end
+        r = r .. "  " .. plr.Name .. ": " .. path .. "\n"
+    end
+    r = r .. "\n"
+
+    -- Section 4: Scan for team-like children in character models
+    r = r .. "[ TEAM-LIKE CHILDREN IN CHARACTERS ]\n"
+    local teamKeywords = {"team", "faction", "side", "role", "group", "squad", "color", "ally", "enemy"}
+    for _, plr in ipairs(allPlayers) do
+        local char = plr.Character
+        if not char then continue end
+        local found = {}
+        for _, child in ipairs(char:GetDescendants()) do
+            local lowerName = child.Name:lower()
+            for _, kw in ipairs(teamKeywords) do
+                if lowerName:find(kw) then
+                    local val = ""
+                    if child:IsA("ValueBase") then val = " = " .. tostring(child.Value) end
+                    table.insert(found, child.Name .. " [" .. child.ClassName .. "]" .. val)
+                    break
+                end
+            end
+        end
+        if #found > 0 then
+            r = r .. "  " .. plr.Name .. ":\n"
+            for _, f in ipairs(found) do r = r .. "    - " .. f .. "\n" end
+        end
+    end
+    r = r .. "\n"
+
+    -- Section 5: Scan DataReplica values
+    r = r .. "[ PLAYER ATTRIBUTES ON PLAYER OBJECTS ]\n"
+    for _, plr in ipairs(allPlayers) do
+        local attrs = plr:GetAttributes()
+        local attrStr = ""
+        for k, v in pairs(attrs) do
+            attrStr = attrStr .. k .. "=" .. tostring(v) .. " "
+        end
+        if attrStr ~= "" then
+            r = r .. "  " .. plr.Name .. ": " .. attrStr .. "\n"
+        end
+    end
+    r = r .. "\n"
+
+    -- Section 6: BillboardGui / overhead team indicators
+    r = r .. "[ OVERHEAD GUI / BILLBOARDGUI ]\n"
+    for _, plr in ipairs(allPlayers) do
+        local char = plr.Character
+        if not char or not char:FindFirstChild("Head") then continue end
+        local head = char.Head
+        local billboards = {}
+        for _, child in ipairs(head:GetChildren()) do
+            if child:IsA("BillboardGui") then
+                local texts = {}
+                for _, desc in ipairs(child:GetDescendants()) do
+                    if desc:IsA("TextLabel") and desc.Text ~= "" then
+                        table.insert(texts, desc.Text:sub(1, 50))
+                    end
+                end
+                table.insert(billboards, child.Name .. ": " .. table.concat(texts, " | "))
+            end
+        end
+        if #billboards > 0 then
+            r = r .. "  " .. plr.Name .. ":\n"
+            for _, b in ipairs(billboards) do r = r .. "    - " .. b .. "\n" end
+        end
+    end
+    r = r .. "\n"
+
+    -- Section 7: Highlight objects (game uses HighlightHolder)
+    r = r .. "[ HIGHLIGHT / TEAM COLORS ]\n"
+    for _, plr in ipairs(allPlayers) do
+        local char = plr.Character
+        if not char then continue end
+        for _, desc in ipairs(char:GetDescendants()) do
+            if desc:IsA("Highlight") then
+                r = r .. string.format("  %s: FillColor=%s OutlineColor=%s FillTransparency=%.2f\n",
+                    plr.Name, tostring(desc.FillColor), tostring(desc.OutlineColor), desc.FillTransparency)
+            end
+        end
+        -- Also check parent container for highlights
+        if char.Parent then
+            for _, sibling in ipairs(char.Parent:GetChildren()) do
+                if sibling:IsA("Highlight") then
+                    r = r .. string.format("  %s (parent): FillColor=%s OutlineColor=%s\n",
+                        plr.Name, tostring(sibling.FillColor), tostring(sibling.OutlineColor))
+                end
+            end
+        end
+    end
+
+    if setclipboard then
+        pcall(function() setclipboard(r) end)
+        btn.Text = "Copied!"; btn.BackgroundColor3 = Color3.fromRGB(50,150,50)
+    else btn.Text = "No clipboard!"; btn.BackgroundColor3 = Color3.fromRGB(150,50,50) end
+    task.delay(2, function() btn.Text = origText; btn.BackgroundColor3 = origColor end)
+end)
+
+-- ============================================
+-- Aim Logic (must be above ESP & SnapToNearest)
+-- ============================================
+local function HasLoS(part)
+    if not Config.WallCheck then return true end
+    local cam = workspace.CurrentCamera
+    if not cam then return true end
+    local ray = RaycastParams.new()
+    ray.FilterDescendantsInstances = {LocalPlayer.Character}
+    ray.FilterType = Enum.RaycastFilterType.Exclude
+    local origin = cam.CFrame.Position
+    local dir = part.Position - origin
+    local res = workspace:Raycast(origin, dir, ray)
+    if not res then return true end -- Nothing hit, clear LoS
+    return res.Instance:IsDescendantOf(part.Parent)
+end
+
+local function IsValidTarget(char)
+    if not char or not char.Parent then return false end
+
+    -- vc_Visible attribute: game-level visibility flag
+    local vcVisible = char:GetAttribute("vc_Visible")
+    if vcVisible == false then return false end
+
+    -- Standard health check (fallback when vc_Visible isn't set)
+    if vcVisible == nil then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return false end
+    end
+
+    -- ForceField = invulnerable
+    if char:FindFirstChildOfClass("ForceField") then return false end
+
+    -- Must have an aimable part
+    local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+    if not part then return false end
+
+    return true
+end
+
+local function IsEnemy(char)
+    local function checkHighlight(hl)
+        if not hl or not hl:IsA("Highlight") then return false end
+        -- Ensure Adornee is valid if present
+        if hl.Adornee and hl.Adornee ~= char and not hl.Adornee:IsDescendantOf(char) then
+            return false
+        end
+        local c1, c2 = hl.OutlineColor, hl.FillColor
+        -- Check if it's prominently red (R > 0.5, G < 0.5, B < 0.5)
+        if (c1.R > 0.5 and c1.G < 0.5 and c1.B < 0.5) or 
+           (c2.R > 0.5 and c2.G < 0.5 and c2.B < 0.5) then
+            return true
+        end
+        return false
+    end
+
+    -- 1. Check inside character
+    for _, desc in ipairs(char:GetDescendants()) do
+        if checkHighlight(desc) then return true end
+    end
+    
+    -- 2. Check parent folder/model
+    if char.Parent then
+        for _, child in ipairs(char.Parent:GetChildren()) do
+            if checkHighlight(child) then return true end
+        end
+    end
+    
+    -- 3. Check Workspace for disconnected Highlights targeting this char
+    local hlFolder = workspace:FindFirstChild("Highlight")
+    if hlFolder then
+        for _, hl in ipairs(hlFolder:GetDescendants()) do
+            if hl:IsA("Highlight") and hl.Adornee then
+                if hl.Adornee == char or hl.Adornee:IsDescendantOf(char) then
+                    if checkHighlight(hl) then return true end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local function IsSameTeam(charA, charB)
+    if not Config.TeamCheck then return false end
+
+    -- 1. "All the players with red outline are the enemy"
+    -- If the target (charB) has a red highlight, they are an enemy.
+    if IsEnemy(charB) then
+        return false
+    end
+
+    -- 2. If they don't have a red outline, they are an ally.
+    return true
+end
+
+-- ============================================
+-- ESP System
+-- ============================================
+local function CreateESPDrawings()
+    local box = Drawing.new("Square")
+    box.Visible = false; box.Color = Color3.fromRGB(255, 50, 50)
+    box.Thickness = 1.5; box.Filled = false
+
+    local nameTag = Drawing.new("Text")
+    nameTag.Visible = false; nameTag.Size = 13
+    nameTag.Color = Color3.new(1,1,1); nameTag.Outline = true
+    nameTag.Center = true; nameTag.Text = ""
+
+    local healthBG = Drawing.new("Square")
+    healthBG.Visible = false; healthBG.Color = Color3.fromRGB(30,30,30)
+    healthBG.Filled = true; healthBG.Transparency = 0.5
+
+    local healthFill = Drawing.new("Square")
+    healthFill.Visible = false; healthFill.Color = Color3.fromRGB(50,200,50)
+    healthFill.Filled = true
+
+    local distTag = Drawing.new("Text")
+    distTag.Visible = false; distTag.Size = 12
+    distTag.Color = Color3.fromRGB(200,200,200); distTag.Outline = true
+    distTag.Center = true; distTag.Text = ""
+
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false; tracer.Color = Color3.fromRGB(255,50,50)
+    tracer.Thickness = 1
+
+    return {
+        box = box, name = nameTag, healthBG = healthBG,
+        healthFill = healthFill, dist = distTag, tracer = tracer
+    }
+end
+
+local function RemoveESPDrawings(cache)
+    for _, d in pairs(cache) do pcall(function() d:Remove() end) end
+end
+
+local function HideESPDrawings(cache)
+    for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
+end
+
+local function UpdateESP()
+    if not Config.ESPEnabled then return end
+
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local viewport = Camera.ViewportSize
+
+    local activeModels = {}
+    local targets = {}
+
+    if Config.TargetMode == "Players" or Config.TargetMode == "Both" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                table.insert(targets, {char = plr.Character, name = plr.DisplayName or plr.Name})
+            end
+        end
+    end
+    if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
+        for _, npc in ipairs(NPCCache) do
+            if npc and npc.Parent then
+                table.insert(targets, {char = npc, name = npc.Name})
+            end
+        end
+    end
+
+    for _, data in ipairs(targets) do
+        local char = data.char
+        activeModels[char] = true
+
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local head = char:FindFirstChild("Head")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root then
+            if ESPCache[char] then HideESPDrawings(ESPCache[char]) end
+            continue
+        end
+
+        -- vc_Visible check
+        local vcVisible = char:GetAttribute("vc_Visible")
+        if vcVisible == false then
+            if ESPCache[char] then HideESPDrawings(ESPCache[char]) end
+            continue
+        end
+        if vcVisible == nil and hum and hum.Health <= 0 then
+            if ESPCache[char] then HideESPDrawings(ESPCache[char]) end
+            continue
+        end
+
+        -- Distance check
+        local dist3D = myRoot and (root.Position - myRoot.Position).Magnitude or 0
+        if dist3D > Config.ESPMaxDist then
+            if ESPCache[char] then HideESPDrawings(ESPCache[char]) end
+            continue
+        end
+
+        -- Screen position
+        local sp, onScreen = Camera:WorldToScreenPoint(root.Position)
+        if not onScreen then
+            if ESPCache[char] then HideESPDrawings(ESPCache[char]) end
+            continue
+        end
+
+        -- Create drawings if needed
+        if not ESPCache[char] then
+            ESPCache[char] = CreateESPDrawings()
+        end
+        local cache = ESPCache[char]
+
+        -- Determine color
+        local espColor = Color3.fromRGB(255, 50, 50) -- Red = enemy
+        if Config.ESPTeamColor and myChar then
+            if IsSameTeam(myChar, char) then
+                espColor = Color3.fromRGB(50, 255, 50) -- Green = ally
+            end
+        end
+
+        -- Calculate accurate 2D box perfectly framing the 3D player
+        local cf = root.CFrame
+        local size = Vector3.new(4, 5.5, 2) -- Standard R15 size
+        local x, y, z = size.X/2, size.Y/2, size.Z/2
+        
+        local corners = {
+            (cf * CFrame.new(x, y, z)).Position,
+            (cf * CFrame.new(-x, y, z)).Position,
+            (cf * CFrame.new(x, -y, z)).Position,
+            (cf * CFrame.new(-x, -y, z)).Position,
+            (cf * CFrame.new(x, y, -z)).Position,
+            (cf * CFrame.new(-x, y, -z)).Position,
+            (cf * CFrame.new(x, -y, -z)).Position,
+            (cf * CFrame.new(-x, -y, -z)).Position,
+        }
+        
+        local minX, minY = math.huge, math.huge
+        local maxX, maxY = -math.huge, -math.huge
+        
+        for _, pt in ipairs(corners) do
+            local ptSp = Camera:WorldToScreenPoint(pt)
+            if ptSp.X < minX then minX = ptSp.X end
+            if ptSp.X > maxX then maxX = ptSp.X end
+            if ptSp.Y < minY then minY = ptSp.Y end
+            if ptSp.Y > maxY then maxY = ptSp.Y end
+        end
+        
+        local boxW = maxX - minX
+        local boxH = maxY - minY
+        local boxX = minX
+        local boxY = minY
+
+        -- Box
+        if Config.ESPBoxes then
+            cache.box.Size = Vector2.new(boxW, boxH)
+            cache.box.Position = Vector2.new(boxX, boxY)
+            cache.box.Color = espColor
+            cache.box.Visible = true
+        else
+            cache.box.Visible = false
+        end
+
+        -- Name
+        if Config.ESPNames then
+            cache.name.Text = data.name
+            cache.name.Position = Vector2.new(sp.X, boxY - 16)
+            cache.name.Color = espColor
+            cache.name.Visible = true
+        else
+            cache.name.Visible = false
+        end
+
+        -- Health bar (left side of box)
+        if Config.ESPHealth then
+            local hpPct = hum and math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1) or 1
+            local barW = 3
+            local barX = boxX - barW - 2
+
+            cache.healthBG.Size = Vector2.new(barW, boxH)
+            cache.healthBG.Position = Vector2.new(barX, boxY)
+            cache.healthBG.Visible = true
+
+            local fillH = boxH * hpPct
+            cache.healthFill.Size = Vector2.new(barW, fillH)
+            cache.healthFill.Position = Vector2.new(barX, boxY + (boxH - fillH))
+            if hpPct > 0.6 then cache.healthFill.Color = Color3.fromRGB(50, 200, 50)
+            elseif hpPct > 0.3 then cache.healthFill.Color = Color3.fromRGB(255, 200, 50)
+            else cache.healthFill.Color = Color3.fromRGB(255, 60, 60) end
+            cache.healthFill.Visible = true
+        else
+            cache.healthBG.Visible = false
+            cache.healthFill.Visible = false
+        end
+
+        -- Distance tag
+        if Config.ESPDistance then
+            cache.dist.Text = string.format("%dm", math.floor(dist3D))
+            cache.dist.Position = Vector2.new(sp.X, boxY + boxH + 2)
+            cache.dist.Visible = true
+        else
+            cache.dist.Visible = false
+        end
+
+        -- Tracer (bottom center screen to target feet)
+        if Config.ESPTracers then
+            cache.tracer.From = Vector2.new(viewport.X / 2, viewport.Y)
+            cache.tracer.To = Vector2.new(sp.X, boxY + boxH)
+            cache.tracer.Color = espColor
+            cache.tracer.Visible = true
+        else
+            cache.tracer.Visible = false
+        end
+    end
+
+    -- Clean up ESP for models that are gone
+    for model, cache in pairs(ESPCache) do
+        if not activeModels[model] then
+            RemoveESPDrawings(cache)
+            ESPCache[model] = nil
+        end
+    end
+end
+
+-- ============================================
+-- Target Nearest (snap to closest 3D player)
+-- ============================================
+local function SnapToNearest()
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    local bestPart, bestDist = nil, math.huge
+
+    local targetsList = {}
+    if Config.TargetMode == "Players" or Config.TargetMode == "Both" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                table.insert(targetsList, plr.Character)
+            end
+        end
+    end
+    if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
+        for _, npc in ipairs(NPCCache) do
+            if npc and npc.Parent then table.insert(targetsList, npc) end
+        end
+    end
+
+    for _, char in ipairs(targetsList) do
+        if not IsValidTarget(char) then continue end
+        if IsSameTeam(myChar, char) then continue end
+
+        local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+        if not part then continue end
+
+        local d = (part.Position - myRoot.Position).Magnitude
+        if d < bestDist then
+            bestDist = d
+            bestPart = part
+        end
+    end
+
+    if bestPart then
+        LockedTarget = bestPart
+        LockedCharacter = bestPart.Parent
+
+        -- Instant snap camera
+        local curCF = Camera.CFrame
+        Camera.CFrame = CFrame.new(curCF.Position, bestPart.Position)
+
+        AddKillFeedEntry("⚡ Snapped → " .. bestPart.Parent.Name .. string.format(" [%dm]", math.floor(bestDist)), Color3.fromRGB(255, 200, 50))
+    end
+end
+
+local function GetTargetScore(char, part, mouseLoc)
+    local screenPos, onScreen = Camera:WorldToScreenPoint(part.Position)
+    if not onScreen then return nil, math.huge end
+
+    -- Also reject targets outside the actual viewport (on screen but off edges)
+    local viewport = Camera.ViewportSize
+    if screenPos.X < 0 or screenPos.X > viewport.X or screenPos.Y < 0 or screenPos.Y > viewport.Y then
+        return nil, math.huge
+    end
+
+    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
+    if screenDist > Config.ViewAngle then return nil, math.huge end
+
+    if Config.PriorityMode == "Distance" then
+        return screenDist, screenDist
+    elseif Config.PriorityMode == "LowHP" then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hp = hum and hum.Health or 100
+        -- Lower HP = lower score = higher priority. Tie-break by screen distance.
+        return hp + (screenDist * 0.01), screenDist
+    elseif Config.PriorityMode == "Closest3D" then
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if myRoot then
+            local dist3D = (part.Position - myRoot.Position).Magnitude
+            return dist3D, screenDist
+        end
+        return screenDist, screenDist
+    end
+    return screenDist, screenDist
+end
+
+local function GetTarget()
+    local mouseLoc = UserInputService:GetMouseLocation()
+    local myChar = LocalPlayer.Character
+    if not myChar then return nil, "No Character" end
+
+    local debugState = "Scanning..."
+    local validCount, inFOV = 0, 0
+
+    -- Sticky target: check if current lock is still valid
+    if Config.StickyTarget and LockedCharacter and LockedTarget then
+        if IsValidTarget(LockedCharacter) and not IsSameTeam(myChar, LockedCharacter) then
+            local part = LockedCharacter:FindFirstChild(Config.FocusPoint) or LockedCharacter:FindFirstChild("HumanoidRootPart")
+            if part then
+                local sp, onScreen = Camera:WorldToScreenPoint(part.Position)
+                if not onScreen then
+                    -- Target is behind camera, drop lock
+                else
+                    -- Viewport bounds check
+                    local viewport = Camera.ViewportSize
+                    local inViewport = sp.X >= 0 and sp.X <= viewport.X and sp.Y >= 0 and sp.Y <= viewport.Y
+                    local dist = (Vector2.new(sp.X, sp.Y) - mouseLoc).Magnitude
+                    if inViewport and dist <= Config.ViewAngle then
+                        local inLoS = HasLoS(part)
+                        if inLoS then
+                            return part, "Locked!"
+                        end
+                    end
+                end
+            end
+        end
+        -- Lock is invalid, clear it
+        LockedTarget = nil
+        LockedCharacter = nil
+    end
+
+    -- Build target list
+    local targetsList = {}
+    if Config.TargetMode == "Players" or Config.TargetMode == "Both" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                table.insert(targetsList, plr.Character)
+            end
+        end
+    end
+    if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
+        for _, npc in ipairs(NPCCache) do
+            if npc and npc.Parent then table.insert(targetsList, npc) end
+        end
+    end
+
+    local bestPart, bestScore = nil, math.huge
+
+    for _, char in ipairs(targetsList) do
+        if not IsValidTarget(char) then continue end
+        if IsSameTeam(myChar, char) then continue end
+
+        local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+        if not part then continue end
+
+        validCount = validCount + 1
+
+        local score, screenDist = GetTargetScore(char, part, mouseLoc)
+        if not score then continue end -- Off screen or out of FOV
+
+        inFOV = inFOV + 1
+
+        local vcVisible = char:GetAttribute("vc_Visible")
+        local inLoS = HasLoS(part)
+
+        if inLoS then
+            if score < bestScore then
+                bestScore = score
+                bestPart = part
+                debugState = "Locked!"
+            end
+        else
+            if not bestPart then debugState = "Blocked by Wall" end
+        end
+    end
+
+    if validCount == 0 then debugState = "No valid targets"
+    elseif inFOV == 0 and not bestPart then debugState = "Nobody in FOV" end
+
+    -- Set sticky lock
+    if bestPart and Config.StickyTarget then
+        LockedTarget = bestPart
+        LockedCharacter = bestPart.Parent
+    end
+
+    return bestPart, debugState
+end
+
+-- ============================================
+-- Diagnostics / Network
+-- ============================================
+local NetworkPing = 0
+task.spawn(function()
+    while true do
+        pcall(function() NetworkPing = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+        task.wait(1)
+    end
+end)
+
+local LastFrame = tick()
+local FPS = 0
+
+-- ============================================
+-- Main Render Loop
+-- ============================================
+RunService:BindToRenderStep("AutoAimLoop", Enum.RenderPriority.Camera.Value + 1, function()
+    local now = tick()
+    FPS = math.floor(1 / math.max(now - LastFrame, 0.001))
+    LastFrame = now
+
+    local mouseLoc = UserInputService:GetMouseLocation()
+    local viewport = Camera.ViewportSize
+
+    -- FOV Circle
+    if FOVCircle then
+        FOVCircle.Position = mouseLoc
+        FOVCircle.Radius = Config.ViewAngle
+    end
+
+    -- Aim
+    local target = nil
+    local aimState = "Disabled"
+
+    if Config.AutoAimEnabled then
+        target, aimState = GetTarget()
+
+        -- FOV circle color feedback
+        if target then
+            FOVCircle.Color = Color3.fromRGB(50, 255, 50) -- Green when locked
+        else
+            FOVCircle.Color = Color3.fromRGB(255, 255, 255) -- White when scanning
+        end
+
+        if target then
+            -- Compute aim position (with optional prediction)
+            local aimPos = target.Position
+            if Config.Prediction then
+                local vel = Vector3.zero
+                pcall(function()
+                    vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero
+                end)
+                aimPos = aimPos + vel * Config.PredictionScale
+            end
+
+            if Config.TrackingMethod == "Mouse" then
+                local sp, onScreen = Camera:WorldToScreenPoint(aimPos)
+                if onScreen then
+                    local dx = (sp.X - mouseLoc.X) / Config.Smoothing
+                    local dy = (sp.Y - mouseLoc.Y) / Config.Smoothing
+                    pcall(function() mousemoverel(dx, dy) end)
+                end
+            elseif Config.TrackingMethod == "Camera" then
+                local curCF = Camera.CFrame
+                local tgtCF = CFrame.new(curCF.Position, aimPos)
+                local alpha = math.clamp(1 / Config.Smoothing, 0.01, 1)
+                Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+            end
+        end
+    else
+        FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+    end
+
+    -- ESP Update
+    if Config.ESPEnabled then
+        pcall(UpdateESP)
+    else
+        -- Hide all ESP when disabled
+        for _, cache in pairs(ESPCache) do
+            HideESPDrawings(cache)
+        end
+    end
+
+    -- Target Info HUD
+    if Config.TargetInfoEnabled and target then
+        local sp, onScreen = Camera:WorldToScreenPoint(target.Position)
+        if onScreen then
+            local char = target.Parent
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local name = char and char.Name or "?"
+            local hp = hum and hum.Health or 0
+            local maxHp = hum and hum.MaxHealth or 100
+            local hpPct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
+
+            -- Distance
+            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local dist = myRoot and math.floor((target.Position - myRoot.Position).Magnitude) or 0
+
+            TargetInfoText.Text = string.format("%s  [%dm]", name, dist)
+            TargetInfoText.Position = Vector2.new(sp.X, sp.Y - 35)
+            TargetInfoText.Visible = true
+
+            -- Health bar
+            local barW = 60
+            local barH = 4
+            TargetHealthBG.Size = Vector2.new(barW, barH)
+            TargetHealthBG.Position = Vector2.new(sp.X - barW/2, sp.Y - 22)
+            TargetHealthBG.Visible = true
+
+            TargetHealthFill.Size = Vector2.new(barW * hpPct, barH)
+            TargetHealthFill.Position = Vector2.new(sp.X - barW/2, sp.Y - 22)
+            TargetHealthFill.Visible = true
+
+            -- Health bar color
+            if hpPct > 0.6 then TargetHealthFill.Color = Color3.fromRGB(50, 200, 50)
+            elseif hpPct > 0.3 then TargetHealthFill.Color = Color3.fromRGB(255, 200, 50)
+            else TargetHealthFill.Color = Color3.fromRGB(255, 60, 60) end
+
+            -- Lock diamond indicator
+            LockIndicator.Position = Vector2.new(sp.X, sp.Y)
+            LockIndicator.Visible = true
+        else
+            TargetInfoText.Visible = false
+            TargetHealthBG.Visible = false
+            TargetHealthFill.Visible = false
+            LockIndicator.Visible = false
+        end
+    else
+        TargetInfoText.Visible = false
+        TargetHealthBG.Visible = false
+        TargetHealthFill.Visible = false
+        LockIndicator.Visible = false
+    end
+
+    -- Hit Marker (fade after 0.3s)
+    if (now - HitMarkerTime) < 0.3 then
+        HitMarker.Position = Vector2.new(viewport.X / 2, viewport.Y / 2)
+        HitMarker.Visible = true
+    else
+        HitMarker.Visible = false
+    end
+
+    -- Kill Feed (top-right, fade after 5s)
+    if Config.KillFeedEnabled then
+        local feedX = viewport.X - 20
+        local feedY = 60
+        for i, entry in ipairs(KillFeedEntries) do
+            local d = KillFeedDrawings[i]
+            if d then
+                local age = now - entry.time
+                if age < 5 then
+                    d.Text = entry.text
+                    d.Color = entry.color
+                    d.Position = Vector2.new(feedX - d.TextBounds.X, feedY + (i-1) * 20)
+                    d.Transparency = math.clamp(1 - ((age - 3.5) / 1.5), 0, 1)
+                    d.Visible = true
+                else
+                    d.Visible = false
+                end
+            end
+        end
+        -- Hide unused
+        for i = #KillFeedEntries + 1, MAX_KILLFEED do
+            if KillFeedDrawings[i] then KillFeedDrawings[i].Visible = false end
+        end
+    else
+        for _, d in ipairs(KillFeedDrawings) do d.Visible = false end
+    end
+
+    -- Diagnostics Overlay
+    if Config.DiagnosticsEnabled and DiagnosticText then
+        local camType = Camera and Camera.CameraType.Name or "?"
+        local tgtStr = target and target.Parent.Name or "None"
+        local tgtHP = "N/A"
+        if target then
+            local h = target.Parent and target.Parent:FindFirstChildOfClass("Humanoid")
+            if h then tgtHP = string.format("%.0f/%.0f", h.Health, h.MaxHealth) end
+        end
+
+        local ws, jp, jh, ps = 0, 0, 0, "N/A"
+        local lc = LocalPlayer.Character
+        if lc then
+            local h = lc:FindFirstChildOfClass("Humanoid")
+            if h then
+                ws = h.WalkSpeed; jp = h.JumpPower; jh = h.JumpHeight
+                pcall(function() ps = h:GetState().Name end)
+            end
+        end
+
+        local kda = string.format("K:%d D:%d A:%d", KillCount, DeathCount, AssistCount)
+
+        DiagnosticText.Text = string.format(
+            "--- Diagnostics ---\nFPS: %d | Ping: %d ms\nAim: %s | %s\nCam: %s | Track: %s\nTarget: %s (%s)\nPriority: %s | Sticky: %s\n--- Physics ---\nSpeed: %.1f | JP: %.1f | JH: %.1f\nState: %s | Gravity: %.1f\n--- Stats ---\n%s | Alive: %s",
+            FPS, NetworkPing, aimState, Config.Prediction and "PRED" or "STD",
+            camType, Config.TrackingMethod,
+            tgtStr, tgtHP,
+            Config.PriorityMode, Config.StickyTarget and "ON" or "OFF",
+            ws, jp, jh, ps, workspace.Gravity,
+            kda, IsAlive and "Yes" or "No"
+        )
+        DiagnosticText.Position = mouseLoc + Vector2.new(40, -60)
+    else
+        if DiagnosticText then DiagnosticText.Visible = false end
+    end
+end)
+
+-- ============================================
+-- Keybinds
+-- ============================================
+RegisterConnection(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        MainContainer.Visible = not MainContainer.Visible
+    elseif input.KeyCode == Config.NearestTargetKey then
+        SnapToNearest()
+    end
+end))
+
+print("⚡ Pure Auto-Aim v2 Loaded. RightShift = toggle UI | T = snap nearest")
+print("   Features: ESP | Sticky Lock | Prediction | Kill Feed | Hit Marker | Auto-Respawn")
