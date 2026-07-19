@@ -130,22 +130,31 @@ return function(Core)
         local plrB = Core.Services.Players:GetPlayerFromCharacter(charB)
         
         if plrA and plrB then
+            -- 1. Check native Roblox Teams
+            if plrA.Team ~= nil and plrB.Team ~= nil then
+                if plrA.Team == plrB.Team then return true else return false end
+            end
+            
+            -- 2. Check custom "Team" attribute
             local teamA = plrA:GetAttribute("Team")
             local teamB = plrB:GetAttribute("Team")
-            -- If both have a Team attribute and they differ, they are enemies
-            if teamA and teamB and teamA ~= teamB then
-                return false
+            if teamA ~= nil and teamB ~= nil then
+                if teamA == teamB then return true else return false end
             end
         end
 
+        -- 3. Check for specific enemy markers (Red highlights, "Enemy" folders)
         if Aim.IsEnemy(charB) then return false end
         
-        -- If charB is an NPC (not a player), treat them as an enemy by default
+        -- 4. If charB is an NPC (not a player), treat them as an enemy
         if not plrB then
             return false
         end
 
-        return true
+        -- 5. If we have absolutely no team data (FFA game, no teams assigned), 
+        -- we default to false (treat as enemy) so the aimbot actually targets them.
+        -- The old logic returned true here, which made it ignore everyone!
+        return false
     end
 
     function Aim.SnapToNearest()
