@@ -415,7 +415,16 @@ return function(Core)
                         local curCF = ctx.Camera.CFrame
                         local tgtCF = CFrame.new(curCF.Position, aimPos)
                         local alpha = 1 / (Config.Smoothing + 1)
-                        ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                        -- Detect if the target is nearly behind the camera.
+                        -- CFrame:Lerp uses slerp which takes the shortest arc; when the
+                        -- angle approaches 180° it can flip the wrong way ("avoidance bug").
+                        local dot = curCF.LookVector:Dot(tgtCF.LookVector)
+                        if dot < -0.5 then
+                            -- Target is >120° away — snap directly to avoid wrong-way slerp
+                            ctx.Camera.CFrame = tgtCF
+                        else
+                            ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                        end
                     end
                 else
                     Core.Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)

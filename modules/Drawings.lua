@@ -61,8 +61,133 @@ return function(Core)
         txt.Size = 14
         txt.Color = Color3.new(1, 1, 1)
         txt.Outline = true
+        txt.Center = false
         txt.Text = ""
+        -- In some executors, there isn't a direct TextXAlignment for Drawings.Text
+        -- But for those that support it or custom wrappers, we could set it. 
+        -- However, Drawing API usually expects us to calculate text bounds ourselves if we want true right-align.
+        -- For now we just position it by its top-left and let it flow right. To right align, we need to subtract TextBounds.X from the position later in the render loop.
         Drawings.KillFeedDrawings[i] = txt
+    end
+
+    function Drawings.Init()
+        Core.EventManager:Subscribe("OnRender", "HUDRender", function(ctx)
+            local Config = Core.Config
+            local State = Core.State
+            local viewport = ctx.ViewportSize
+
+            -- ==================== DIAGNOSTICS OVERLAY ====================
+            if Config.DiagnosticsEnabled then
+                Drawings.DiagnosticText.Visible = true
+                Drawings.DiagnosticText.Position = Vector2.new(10, 10)
+                local diagLines = {
+                    string.format("FPS: %d | Ping: %dms", ctx.FPS, ctx.NetworkPing),
+                    "Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF") .. " | State: " .. tostring(State.AimState),
+                    "Method: " .. Config.TrackingMethod .. " | Focus: " .. Config.FocusPoint,
+                    string.format("Smooth: %.2f | FOV: %d", Config.Smoothing, Config.ViewAngle),
+                    string.format("K: %d  D: %d  A: %d", State.KillCount, State.DeathCount, State.AssistCount),
+                }
+                Drawings.DiagnosticText.Text = table.concat(diagLines, "\n")
+            else
+                Drawings.DiagnosticText.Visible = false
+            end
+
+            -- ==================== TARGET INFO OVERLAY ====================
+            if Config.TargetInfoEnabled and State.CurrentTarget and State.CurrentTarget.Parent then
+                local target = State.CurrentTarget
+                local char = target.Parent
+                local sp, onScreen = ctx.Camera:WorldToScreenPoint(target.Position)
+
+                if onScreen then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    local hp = hum and hum.Health or 0
+                    local maxHp = hum and hum.MaxHealth or 100
+
+                    -- Target name text
+                    Drawings.TargetInfoText.Text = char.Name
+                    Drawings.TargetInfoText.Position = Vector2.new(sp.X, sp.Y - 50)
+                    Drawings.TargetInfoText.Visible = true
+
+                    -- Health bar background
+                    local barW = 60
+                    local barH = 5
+                    Drawings.TargetHealthBG.Size = Vector2.new(barW, barH)
+                    Drawings.TargetHealthBG.Position = Vector2.new(sp.X - barW / 2, sp.Y - 38)
+                    Drawings.TargetHealthBG.Visible = true
+
+                    -- Health bar fill
+                    local hpPct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
+                    Drawings.TargetHealthFill.Size = Vector2.new(barW * hpPct, barH)
+                    Drawings.TargetHealthFill.Position = Vector2.new(sp.X - barW / 2, sp.Y - 38)
+                    if hpPct > 0.6 then
+                        Drawings.TargetHealthFill.Color = Color3.fromRGB(50, 200, 50)
+                    elseif hpPct > 0.3 then
+                        Drawings.TargetHealthFill.Color = Color3.fromRGB(255, 200, 50)
+                    else
+                        Drawings.TargetHealthFill.Color = Color3.fromRGB(255, 60, 60)
+                    end
+                    Drawings.TargetHealthFill.Visible = true
+
+                    -- Lock indicator (diamond around target)
+                    Drawings.LockIndicator.Position = Vector2.new(sp.X, sp.Y)
+                    Drawings.LockIndicator.Visible = true
+                else
+                    Drawings.TargetInfoText.Visible = false
+                    Drawings.TargetHealthBG.Visible = false
+                    Drawings.TargetHealthFill.Visible = false
+                    Drawings.LockIndicator.Visible = false
+                end
+            else
+                Drawings.TargetInfoText.Visible = false
+                Drawings.TargetHealthBG.Visible = false
+                Drawings.TargetHealthFill.Visible = false
+                Drawings.LockIndicator.Visible = false
+            end
+
+            -- ==================== HIT MARKER ====================
+            local hitAge = tick() - State.HitMarkerTime
+            if hitAge < 0.3 then
+                Drawings.HitMarker.Position = Vector2.new(viewport.X / 2, viewport.Y / 2)
+                Drawings.HitMarker.Visible = true
+                -- Fade out based on age
+                Drawings.HitMarker.Transparency = math.clamp(1 - (hitAge / 0.3), 0, 1)
+            else
+                Drawings.HitMarker.Visible = false
+            end
+
+            -- ==================== KILL FEED ====================
+            if Config.KillFeedEnabled then
+                local maxFeed = Drawings.GetMaxKillFeed()
+                local now = tick()
+                for i = 1, KILLFEED_MAX_SLOTS do
+                    local entry = State.KillFeedEntries[i]
+                    local drawing = Drawings.KillFeedDrawings[i]
+                    if entry and i <= maxFeed then
+                        local age = now - entry.time
+                        if age < 5 then
+                            drawing.Text = entry.text
+                            drawing.Color = entry.color
+                            drawing.Position = Vector2.new(viewport.X - 10 - drawing.TextBounds.X, 10 + (i - 1) * 18)
+                            drawing.Visible = true
+                            -- Fade out in last second
+                            if age > 4 then
+                                drawing.Transparency = math.clamp(1 - (age - 4), 0, 1)
+                            else
+                                drawing.Transparency = 1
+                            end
+                        else
+                            drawing.Visible = false
+                        end
+                    else
+                        drawing.Visible = false
+                    end
+                end
+            else
+                for i = 1, KILLFEED_MAX_SLOTS do
+                    Drawings.KillFeedDrawings[i].Visible = false
+                end
+            end
+        end)
     end
 
     return Drawings

@@ -221,6 +221,9 @@ return function(Core)
         self.TabCount = 0
 
         self:InitInputDispatchers()
+
+        -- Single resize listener for tab widths (not per-tab to avoid jitter)
+        Utility.RegisterConnection(self.TabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:UpdateTabWidths() end))
         
         -- Window object to return
         local Window = {
@@ -314,9 +317,9 @@ return function(Core)
             frame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
         end))
         
+        
         self.TabFrames[name] = frame
         
-        Utility.RegisterConnection(self.TabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:UpdateTabWidths() end))
         task.defer(function() self:UpdateTabWidths() end)
 
         local TabObj = {

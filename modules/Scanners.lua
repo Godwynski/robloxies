@@ -234,7 +234,7 @@ return function(Core)
             for _, d in ipairs(allDesc) do
                 if textElem >= cap then r = r .. "... (capped at " .. cap .. ")\n"; break end
                 if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) and d.Text ~= "" then
-                    if Core.UI and Core.UI.MainContainer and d:IsDescendantOf(Core.UI.MainContainer) then continue end
+                    if Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.MainContainer and d:IsDescendantOf(Core.UI.Window.Library.MainContainer) then continue end
                     r = r .. string.format("  %s [%s]\n  Text: \"%s\"\n\n", d:GetFullName(), d.ClassName, d.Text:sub(1,100))
                     textElem = textElem + 1
                 end
@@ -243,7 +243,7 @@ return function(Core)
             r = r .. "\n[ POTENTIAL PROGRESS BARS ]\n"
             for _, d in ipairs(allDesc) do
                 if progBars >= cap then break end
-                if d:IsA("Frame") and Core.UI and Core.UI.MainContainer and not d:IsDescendantOf(Core.UI.MainContainer) then
+                if d:IsA("Frame") and Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.MainContainer and not d:IsDescendantOf(Core.UI.Window.Library.MainContainer) then
                     for _, inner in ipairs(d:GetChildren()) do
                         if inner:IsA("Frame") or inner:IsA("ImageLabel") then
                             local sx = inner.Size.X.Scale

@@ -85,7 +85,7 @@ return function(Core)
             if conn.Connected then pcall(function() conn:Disconnect() end) end
         end
         table.clear(State.ActiveConnections)
-        pcall(function() Core.Services.RunService:UnbindFromRenderStep("AutoAimLoop") end)
+        pcall(function() Core.Services.RunService:UnbindFromRenderStep("PureAutoAimLoop") end)
 
         local Drawings = Core.Drawings
         if Drawings then

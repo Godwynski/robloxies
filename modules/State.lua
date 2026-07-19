@@ -10,6 +10,8 @@ return function(Core)
         KillCount = 0,
         DeathCount = 0,
         AssistCount = 0,
+        AimState = "Disabled",
+        CurrentTarget = nil,
         ESPCache = {},
         TeamData = {},
         TeamDataRaw = {},
