@@ -213,10 +213,12 @@ return function(Core)
     end
 
     function Aim.GetTargetScore(char, part, mouseLoc)
-        local screenPos, onScreen = workspace.CurrentCamera:WorldToScreenPoint(part.Position)
+        local cam = workspace.CurrentCamera
+        if not cam then return nil, math.huge end
+        local screenPos, onScreen = cam:WorldToScreenPoint(part.Position)
         if not onScreen then return nil, math.huge end
 
-        local viewport = workspace.CurrentCamera.ViewportSize
+        local viewport = cam.ViewportSize
         if screenPos.X < 0 or screenPos.X > viewport.X or screenPos.Y < 0 or screenPos.Y > viewport.Y then
             return nil, math.huge
         end
@@ -246,6 +248,8 @@ return function(Core)
         local mouseLoc = UserInputService:GetMouseLocation()
         local myChar = LocalPlayer.Character
         if not myChar then return nil, "No Character" end
+        local cam = workspace.CurrentCamera
+        if not cam then return nil, "No Camera" end
 
         local debugState = "Scanning..."
         local validCount, inFOV = 0, 0
@@ -254,9 +258,9 @@ return function(Core)
             if Aim.IsValidTarget(State.LockedCharacter) and not Aim.IsSameTeam(myChar, State.LockedCharacter) then
                 local part = State.LockedCharacter:FindFirstChild(Config.FocusPoint) or State.LockedCharacter:FindFirstChild("HumanoidRootPart")
                 if part then
-                    local sp, onScreen = workspace.CurrentCamera:WorldToScreenPoint(part.Position)
+                    local sp, onScreen = cam:WorldToScreenPoint(part.Position)
                     if onScreen then
-                        local viewport = workspace.CurrentCamera.ViewportSize
+                        local viewport = cam.ViewportSize
                         local inViewport = sp.X >= 0 and sp.X <= viewport.X and sp.Y >= 0 and sp.Y <= viewport.Y
                         local dist = (Vector2.new(sp.X, sp.Y) - mouseLoc).Magnitude
                         if inViewport and dist <= Config.ViewAngle then
@@ -403,51 +407,55 @@ return function(Core)
             local aimState = "Disabled"
 
             if Config.AutoAimEnabled then
-                target, aimState = Aim.GetTarget()
-
-                if target then
-                    Core.Drawings.FOVCircle.Color = Color3.fromRGB(50, 255, 50)
-                    
-                    local aimPos = target.Position
-                    if Config.Prediction then
-                        local vel = Vector3.zero
-                        pcall(function() vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero end)
-                        aimPos = aimPos + vel * Config.PredictionScale
-                    end
-
-                    if Config.TrackingMethod == "Mouse" then
-                        local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
-                        if onScreen then
-                            local dx = (sp.X - ctx.MouseLocation.X) / (Config.Smoothing + 1)
-                            local dy = (sp.Y - ctx.MouseLocation.Y) / (Config.Smoothing + 1)
-                            pcall(function() mousemoverel(dx, dy) end)
-                        end
-                    elseif Config.TrackingMethod == "Camera" then
-                        local curCF = ctx.Camera.CFrame
-                        local tgtCF = CFrame.new(curCF.Position, aimPos)
-                        local alpha = 1 / (Config.Smoothing + 1)
-                        -- Detect if the target is nearly behind the camera.
-                        -- CFrame:Lerp uses slerp which takes the shortest arc; when the
-                        -- angle approaches 180° it can flip the wrong way ("avoidance bug").
-                        local dot = curCF.LookVector:Dot(tgtCF.LookVector)
-                        if dot < -0.5 then
-                            -- Target is >120° away — snap directly to avoid wrong-way slerp
-                            ctx.Camera.CFrame = tgtCF
-                        else
-                            ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
-                        end
-                    end
-                    
-                    -- Auto-Shoot (TriggerBot) Logic
-                    if Config.AutoShoot and aimState == "Locked!" then
-                        -- Debounce clicking so we don't spam it every frame
-                        if not State.LastAutoShoot or (tick() - State.LastAutoShoot) > 0.05 then
-                            State.LastAutoShoot = tick()
-                            pcall(function() mouse1click() end)
-                        end
-                    end
+                if not ctx.Camera then
+                    aimState = "No Camera"
                 else
-                    Core.Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+                    target, aimState = Aim.GetTarget()
+
+                    if target then
+                        Core.Drawings.FOVCircle.Color = Color3.fromRGB(50, 255, 50)
+
+                        local aimPos = target.Position
+                        if Config.Prediction then
+                            local vel = Vector3.zero
+                            pcall(function() vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero end)
+                            aimPos = aimPos + vel * Config.PredictionScale
+                        end
+
+                        if Config.TrackingMethod == "Mouse" then
+                            local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
+                            if onScreen then
+                                local dx = (sp.X - ctx.MouseLocation.X) / (Config.Smoothing + 1)
+                                local dy = (sp.Y - ctx.MouseLocation.Y) / (Config.Smoothing + 1)
+                                pcall(function() mousemoverel(dx, dy) end)
+                            end
+                        elseif Config.TrackingMethod == "Camera" then
+                            local curCF = ctx.Camera.CFrame
+                            local tgtCF = CFrame.new(curCF.Position, aimPos)
+                            local alpha = 1 / (Config.Smoothing + 1)
+                            -- Detect if the target is nearly behind the camera.
+                            -- CFrame:Lerp uses slerp which takes the shortest arc; when the
+                            -- angle approaches 180° it can flip the wrong way ("avoidance bug").
+                            local dot = curCF.LookVector:Dot(tgtCF.LookVector)
+                            if dot < -0.5 then
+                                -- Target is >120° away — snap directly to avoid wrong-way slerp
+                                ctx.Camera.CFrame = tgtCF
+                            else
+                                ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                            end
+                        end
+
+                        -- Auto-Shoot (TriggerBot) Logic
+                        if Config.AutoShoot and aimState == "Locked!" then
+                            -- Debounce clicking so we don't spam it every frame
+                            if not State.LastAutoShoot or (tick() - State.LastAutoShoot) > 0.05 then
+                                State.LastAutoShoot = tick()
+                                pcall(function() mouse1click() end)
+                            end
+                        end
+                    else
+                        Core.Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+                    end
                 end
             else
                 if Core.Drawings.FOVCircle then

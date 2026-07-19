@@ -53,6 +53,7 @@ return function(Core)
         local myChar = LocalPlayer.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
         local cam = workspace.CurrentCamera
+        if not cam then return end
         local viewport = cam.ViewportSize
 
         local activeModels = {}
