@@ -212,11 +212,14 @@ return function(Core)
         end
     end
 
-    function Aim.GetTargetScore(char, part, mouseLoc)
-        local screenPos, onScreen = workspace.CurrentCamera:WorldToScreenPoint(part.Position)
+    function Aim.GetTargetScore(char, part, mouseLoc, cam)
+        cam = cam or workspace.CurrentCamera
+        if not cam then return nil, math.huge end
+
+        local screenPos, onScreen = cam:WorldToScreenPoint(part.Position)
         if not onScreen then return nil, math.huge end
 
-        local viewport = workspace.CurrentCamera.ViewportSize
+        local viewport = cam.ViewportSize
         if screenPos.X < 0 or screenPos.X > viewport.X or screenPos.Y < 0 or screenPos.Y > viewport.Y then
             return nil, math.huge
         end
@@ -246,6 +249,8 @@ return function(Core)
         local mouseLoc = UserInputService:GetMouseLocation()
         local myChar = LocalPlayer.Character
         if not myChar then return nil, "No Character" end
+        local cam = workspace.CurrentCamera
+        if not cam then return nil, "No Camera" end
 
         local debugState = "Scanning..."
         local validCount, inFOV = 0, 0
@@ -254,9 +259,9 @@ return function(Core)
             if Aim.IsValidTarget(State.LockedCharacter) and not Aim.IsSameTeam(myChar, State.LockedCharacter) then
                 local part = State.LockedCharacter:FindFirstChild(Config.FocusPoint) or State.LockedCharacter:FindFirstChild("HumanoidRootPart")
                 if part then
-                    local sp, onScreen = workspace.CurrentCamera:WorldToScreenPoint(part.Position)
+                    local sp, onScreen = cam:WorldToScreenPoint(part.Position)
                     if onScreen then
-                        local viewport = workspace.CurrentCamera.ViewportSize
+                        local viewport = cam.ViewportSize
                         local inViewport = sp.X >= 0 and sp.X <= viewport.X and sp.Y >= 0 and sp.Y <= viewport.Y
                         local dist = (Vector2.new(sp.X, sp.Y) - mouseLoc).Magnitude
                         if inViewport and dist <= Config.ViewAngle then
@@ -297,7 +302,7 @@ return function(Core)
 
             validCount = validCount + 1
 
-            local score, screenDist = Aim.GetTargetScore(char, part, mouseLoc)
+            local score, screenDist = Aim.GetTargetScore(char, part, mouseLoc, cam)
             if not score then continue end
 
             inFOV = inFOV + 1

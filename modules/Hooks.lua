@@ -10,23 +10,43 @@ return function(Core)
     function Hooks.Init()
         -- NPC scanner loop — guarded by State.Running (#2)
         task.spawn(function()
+            local FULL_SCAN_INTERVAL = 10
+            local lastFullScanAt = 0
+
+            local function isNPCModel(obj)
+                if not obj or not obj.Parent or not obj:IsA("Model") then return false end
+                if obj == LocalPlayer.Character then return false end
+                if Core.Services.Players:GetPlayerFromCharacter(obj) then return false end
+                return obj:FindFirstChildOfClass("Humanoid") ~= nil
+            end
+
             while Core.State.Running do
                 if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
                     local newCache = {}
-                    local count = 0
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        if not Core.State.Running then break end -- fast exit
-                        if obj:IsA("Model") and obj ~= LocalPlayer.Character then
-                            if not Core.Services.Players:GetPlayerFromCharacter(obj) then
-                                local hum = obj:FindFirstChildOfClass("Humanoid")
-                                if hum then table.insert(newCache, obj) end
+                    local now = tick()
+                    local isFullScan = (now - lastFullScanAt) >= FULL_SCAN_INTERVAL or #State.NPCCache == 0
+
+                    if isFullScan then
+                        local count = 0
+                        for _, obj in ipairs(workspace:GetDescendants()) do
+                            if not Core.State.Running then break end -- fast exit
+                            if isNPCModel(obj) then
+                                table.insert(newCache, obj)
+                            end
+                            count = count + 1
+                            if count % 1000 == 0 then task.wait() end
+                        end
+                        lastFullScanAt = now
+                    else
+                        for _, npc in ipairs(State.NPCCache) do
+                            if isNPCModel(npc) then
+                                table.insert(newCache, npc)
                             end
                         end
-                        count = count + 1
-                        if count % 1000 == 0 then task.wait() end
                     end
+
                     State.NPCCache = newCache
-                    task.wait(3)
+                    task.wait(isFullScan and 3 or 1)
                 else
                     task.wait(1)
                 end
