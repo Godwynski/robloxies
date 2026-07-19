@@ -212,9 +212,10 @@ return function(Core)
         end
     end
 
-    function Aim.GetTargetScore(char, part, mouseLoc)
-        local cam = workspace.CurrentCamera
+    function Aim.GetTargetScore(char, part, mouseLoc, cam)
+        cam = cam or workspace.CurrentCamera
         if not cam then return nil, math.huge end
+
         local screenPos, onScreen = cam:WorldToScreenPoint(part.Position)
         if not onScreen then return nil, math.huge end
 
@@ -301,7 +302,7 @@ return function(Core)
 
             validCount = validCount + 1
 
-            local score, screenDist = Aim.GetTargetScore(char, part, mouseLoc)
+            local score, screenDist = Aim.GetTargetScore(char, part, mouseLoc, cam)
             if not score then continue end
 
             inFOV = inFOV + 1

@@ -134,13 +134,16 @@ return function(Core)
             Utility.Terminate()
             Interface:Destroy()
             task.wait(0.1)
-            pcall(function()
+            local ok, err = pcall(function()
                 if isfile and isfile("init.lua") then
                     loadstring(readfile("init.lua"))()
                 else
                     loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/init.lua?nocache=" .. tostring(tick())))()
                 end
             end)
+            if not ok then
+                warn("[UILibrary] Refresh failed:", tostring(err))
+            end
         end))
 
         local MinimizeBtn = Instance.new("TextButton")

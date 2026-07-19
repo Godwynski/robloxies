@@ -53,7 +53,12 @@ return function(Core)
         local myChar = LocalPlayer.Character
         local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
         local cam = workspace.CurrentCamera
-        if not cam then return end
+        if not cam then
+            for _, cache in pairs(State.ESPCache) do
+                ESP.HideESPDrawings(cache)
+            end
+            return
+        end
         local viewport = cam.ViewportSize
 
         local activeModels = {}
