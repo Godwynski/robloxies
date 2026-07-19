@@ -14,6 +14,7 @@ return function(Core)
         Prediction = false,          -- Lead moving targets
         PredictionScale = 0.08,      -- Velocity multiplier for lead
         PriorityMode = "Distance",   -- "Distance" | "LowHP" | "Closest3D"
+        AutoShoot = false,           -- Automatically click when aimed at target
         -- Features
         DiagnosticsEnabled = false,
         AutoRespawn = false,

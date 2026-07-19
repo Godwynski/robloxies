@@ -350,6 +350,8 @@ return function(Core)
             
             CombatTab:AddSlider("Smoothing", Config.Smoothing, 0.01, 30, function(val) Config.Smoothing = val end)
 
+            CombatTab:AddToggle("Auto-Shoot (TriggerBot)", Config.AutoShoot, function(val) Config.AutoShoot = val end)
+
             local focusBtn = CombatTab:AddButton("Focus: " .. Config.FocusPoint, function() end)
             -- Hacky way to override the callback for a toggle-like text update
             Utility.RegisterConnection(focusBtn.Activated:Connect(function()
@@ -433,6 +435,15 @@ return function(Core)
                             ctx.Camera.CFrame = tgtCF
                         else
                             ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                        end
+                    end
+                    
+                    -- Auto-Shoot (TriggerBot) Logic
+                    if Config.AutoShoot and aimState == "Locked!" then
+                        -- Debounce clicking so we don't spam it every frame
+                        if not State.LastAutoShoot or (tick() - State.LastAutoShoot) > 0.05 then
+                            State.LastAutoShoot = tick()
+                            pcall(function() mouse1click() end)
                         end
                     end
                 else
