@@ -120,6 +120,29 @@ return function(Core)
             Interface:Destroy()
         end))
 
+        local RefreshBtn = Instance.new("TextButton")
+        RefreshBtn.Parent = Header
+        RefreshBtn.Size = UDim2.new(0, 28, 0, 28)
+        RefreshBtn.Position = UDim2.new(1, -66, 0, 5)
+        RefreshBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+        RefreshBtn.Text = "↻"
+        RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
+        RefreshBtn.Font = Enum.Font.GothamBold
+        RefreshBtn.TextSize = 16
+        Instance.new("UICorner", RefreshBtn).CornerRadius = UDim.new(0, 6)
+        Utility.RegisterConnection(RefreshBtn.Activated:Connect(function()
+            Utility.Terminate()
+            Interface:Destroy()
+            task.wait(0.1)
+            pcall(function()
+                if isfile and isfile("init.lua") then
+                    loadstring(readfile("init.lua"))()
+                else
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/init.lua?nocache=" .. tostring(tick())))()
+                end
+            end)
+        end))
+
         local MinimizeBtn = Instance.new("TextButton")
         MinimizeBtn.Parent = Header
         MinimizeBtn.Size = UDim2.new(0, 28, 0, 28)
