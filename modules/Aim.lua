@@ -48,11 +48,24 @@ return function(Core)
     -- Enemy detection cache to avoid heavy GetDescendants() calls every frame
     local enemyCache = {}
     local ENEMY_CACHE_TTL = 0.5
+    local lastCacheClean = 0
 
     function Aim.IsEnemy(char)
+        -- Prune stale/destroyed entries every 2 seconds to prevent memory leaks (#14)
+        local now = tick()
+        if now - lastCacheClean > 2 then
+            lastCacheClean = now
+            for cachedChar, entry in pairs(enemyCache) do
+                -- Destroyed instances lose their Parent; evict them
+                if not cachedChar.Parent or (now - entry.time) > ENEMY_CACHE_TTL * 10 then
+                    enemyCache[cachedChar] = nil
+                end
+            end
+        end
+
         -- Check cache first
         local cached = enemyCache[char]
-        if cached and (tick() - cached.time) < ENEMY_CACHE_TTL then
+        if cached and (now - cached.time) < ENEMY_CACHE_TTL then
             return cached.result
         end
 
@@ -106,7 +119,7 @@ return function(Core)
             end
         end
 
-        enemyCache[char] = { result = result, time = tick() }
+        enemyCache[char] = { result = result, time = now }
         return result
     end
 

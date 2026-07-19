@@ -14,7 +14,8 @@ return function(Core)
         TeamData = {},
         TeamDataRaw = {},
         NPCCache = {},
-        ActiveConnections = {}
+        ActiveConnections = {},
+        Running = true, -- Set to false by Terminate() to stop all background loops
     }
     return State
 end

@@ -50,9 +50,12 @@ return function(Core)
     Drawings.LockIndicator.NumSides = 4
     Drawings.LockIndicator.Radius = 12
 
-    Drawings.MAX_KILLFEED = Core.Config.MaxKillFeed or 6
+    -- Pre-allocate kill feed slots at a safe max; actual count is read live from Config (#16)
+    local KILLFEED_MAX_SLOTS = 12
+    Drawings.GetMaxKillFeed = function() return Core.Config.MaxKillFeed or 6 end
+    Drawings.MAX_KILLFEED = KILLFEED_MAX_SLOTS -- kept for backwards compat; use GetMaxKillFeed() for live value
     Drawings.KillFeedDrawings = {}
-    for i = 1, Drawings.MAX_KILLFEED do
+    for i = 1, KILLFEED_MAX_SLOTS do
         local txt = Drawing.new("Text")
         txt.Visible = false
         txt.Size = 14

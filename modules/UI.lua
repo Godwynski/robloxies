@@ -88,6 +88,8 @@ return function(Core)
         Instance.new("UICorner", RefreshBtn).CornerRadius = UDim.new(0, 6)
 
         Utility.RegisterConnection(RefreshBtn.Activated:Connect(function()
+            -- Fix #5: Terminate() now clears _G.__PureAutoAim_Running before re-executing,
+            -- so the new instance starts clean without zombie loops from the old one.
             Utility.Terminate()
             Interface:Destroy()
             task.delay(0.2, function()
@@ -139,7 +141,16 @@ return function(Core)
             FloatingCircle.Visible = true
         end))
 
+        -- ================================================================
+        -- Single InputChanged dispatcher to avoid N parallel listeners (#15)
+        -- All drag/resize state is held here and dispatched to each handler.
+        -- ================================================================
         local floatDragging, floatDragStart, floatStartPos, floatHasMoved
+        local dragging, dragStart, startPos
+        local resizing, resizeStart, sizeStart
+        local activeSliderId = nil      -- which slider is currently being dragged
+        local sliderCallbacks = {}      -- id -> updateSlider function
+
         Utility.RegisterConnection(FloatingCircle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 floatDragging = true
@@ -148,39 +159,48 @@ return function(Core)
                 floatStartPos = FloatingCircle.Position
             end
         end))
-        Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement and floatDragging then
-                local delta = input.Position - floatDragStart
-                if delta.Magnitude > 3 then
-                    floatHasMoved = true
-                    FloatingCircle.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + delta.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + delta.Y)
-                end
-            end
-        end))
-        Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then 
-                if floatDragging and not floatHasMoved then
-                    FloatingCircle.Visible = false
-                    MainContainer.Visible = true
-                end
-                floatDragging = false 
-            end
-        end))
 
-        local dragging, dragStart, startPos
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 dragging = true; dragStart = input.Position; startPos = MainContainer.Position
             end
         end))
+
+        -- Single shared InputChanged handler for all drags and all sliders
         Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if floatDragging then
+                local delta = input.Position - floatDragStart
+                if delta.Magnitude > 3 then
+                    floatHasMoved = true
+                    FloatingCircle.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + delta.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + delta.Y)
+                end
+            elseif dragging then
                 local delta = input.Position - dragStart
                 MainContainer.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            elseif resizing then
+                local delta = input.Position - resizeStart
+                -- Fix #24: lowered minimum from 480 to 320 so small/low-res screens can resize smaller
+                local newW = math.clamp(sizeStart.X + delta.X, 320, 1200)
+                local newH = math.clamp(sizeStart.Y + delta.Y, 260, 1000)
+                MainContainer.Size = UDim2.new(0, newW, 0, newH)
+            elseif activeSliderId then
+                local cb = sliderCallbacks[activeSliderId]
+                if cb then cb(input) end
             end
         end))
+
         Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if floatDragging and not floatHasMoved then
+                    FloatingCircle.Visible = false
+                    MainContainer.Visible = true
+                end
+                floatDragging = false
+                dragging = false
+                resizing = false
+                activeSliderId = nil
+            end
         end))
 
         -- Resize Handle
@@ -196,7 +216,6 @@ return function(Core)
         ResizeBtn.ZIndex = 100
         ResizeBtn.Active = true
 
-        local resizing, resizeStart, sizeStart
         Utility.RegisterConnection(ResizeBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 resizing = true
@@ -204,19 +223,13 @@ return function(Core)
                 sizeStart = MainContainer.AbsoluteSize
             end
         end))
-        Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement and resizing then
-                local delta = input.Position - resizeStart
-                local newW = math.clamp(sizeStart.X + delta.X, 480, 1200)
-                local newH = math.clamp(sizeStart.Y + delta.Y, 300, 1000)
-                MainContainer.Size = UDim2.new(0, newW, 0, newH)
-            end
-        end))
-        Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then resizing = false end
-        end))
 
         -- Tabs Bar
+        -- Fix #22: use offset-based widths so 5 tabs never overflow the panel
+        local TAB_NAMES = {"Combat", "Visuals", "Movement", "Settings", "Info"}
+        local TAB_COUNT = #TAB_NAMES
+        local TAB_GAP = 8
+
         local TabBar = Instance.new("Frame")
         TabBar.Parent = MainContainer
         TabBar.Size = UDim2.new(1, -16, 0, 36)
@@ -227,7 +240,7 @@ return function(Core)
         TabList.Parent = TabBar
         TabList.FillDirection = Enum.FillDirection.Horizontal
         TabList.SortOrder = Enum.SortOrder.LayoutOrder
-        TabList.Padding = UDim.new(0, 8)
+        TabList.Padding = UDim.new(0, TAB_GAP)
 
         local TabContainer = Instance.new("Frame")
         TabContainer.Parent = MainContainer
@@ -255,7 +268,9 @@ return function(Core)
         local function CreateTabButton(name, order)
             local btn = Instance.new("TextButton")
             btn.Parent = TabBar
-            btn.Size = UDim2.new(0.2, -6, 1, 0)
+            -- Fix #22: offset-based size avoids 5*scale overflow
+            btn.Size = UDim2.new(0, 0, 1, 0) -- width set dynamically below
+            btn.AutomaticSize = Enum.AutomaticSize.None
             btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
             btn.Font = Enum.Font.GothamBold
             btn.Text = name
@@ -263,6 +278,19 @@ return function(Core)
             btn.TextSize = 13
             btn.LayoutOrder = order
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+            -- Hover feedback (#21)
+            Utility.RegisterConnection(btn.MouseEnter:Connect(function()
+                if tabFrames[name] and not tabFrames[name].Visible then
+                    btn.BackgroundColor3 = Color3.fromRGB(50, 45, 70)
+                end
+            end))
+            Utility.RegisterConnection(btn.MouseLeave:Connect(function()
+                if tabFrames[name] and not tabFrames[name].Visible then
+                    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                end
+            end))
+
             Utility.RegisterConnection(btn.Activated:Connect(function() SelectTab(name) end))
             tabs[name] = btn
 
@@ -309,6 +337,17 @@ return function(Core)
         local SettingsFrame = CreateTabButton("Settings", 4)
         local InfoFrame = CreateTabButton("Info", 5)
 
+        -- Equalize tab button widths based on available space (#22)
+        local function updateTabWidths()
+            local available = TabBar.AbsoluteSize.X - (TAB_COUNT - 1) * TAB_GAP
+            local w = math.floor(available / TAB_COUNT)
+            for _, btn in pairs(tabs) do
+                btn.Size = UDim2.new(0, w, 1, 0)
+            end
+        end
+        Utility.RegisterConnection(TabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateTabWidths))
+        task.defer(updateTabWidths)
+
         local function NextOrder(parent)
             local c = 0
             for _, v in ipairs(parent:GetChildren()) do if v:IsA("GuiObject") then c = c + 1 end end
@@ -328,26 +367,50 @@ return function(Core)
             l.Font = Enum.Font.GothamBold; l.TextSize = 11
         end
 
+        local IDLE_COLOR = Color3.fromRGB(40, 40, 50)
+        local HOVER_COLOR = Color3.fromRGB(60, 60, 75)
+
         local function CreateButton(parent, text, onClick)
             local btn = Instance.new("TextButton")
             btn.Parent = parent
             btn.Size = UDim2.new(0.9, 0, 0, 32)
-            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            btn.BackgroundColor3 = IDLE_COLOR
             btn.Font = Enum.Font.GothamBold
             btn.Text = text
             btn.TextColor3 = Color3.new(1,1,1)
             btn.TextSize = 13
             btn.LayoutOrder = NextOrder(parent)
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+            -- Hover feedback for all buttons (#21)
+            Utility.RegisterConnection(btn.MouseEnter:Connect(function()
+                if btn.BackgroundColor3 == IDLE_COLOR then
+                    btn.BackgroundColor3 = HOVER_COLOR
+                end
+            end))
+            Utility.RegisterConnection(btn.MouseLeave:Connect(function()
+                if btn.BackgroundColor3 == HOVER_COLOR then
+                    btn.BackgroundColor3 = IDLE_COLOR
+                end
+            end))
+
             Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
             return btn
         end
 
+        -- Slider counter for unique IDs (#15 — single dispatcher needs to know which slider is active)
+        local sliderIdCounter = 0
+
         local function CreateSlider(parent, text, default, cb, min, max)
             min = min or 0
-            max = max or math.max(default * 2, 100)
+            -- Fix #9: use explicit max if provided; don't auto-calculate from default
+            -- (auto-calculation could produce a huge unusable range)
+            max = max or (default > 0 and default * 2 or 100)
             if default < min then default = min end
             if default > max then default = max end
+
+            sliderIdCounter = sliderIdCounter + 1
+            local sliderId = sliderIdCounter
 
             local f = Instance.new("Frame")
             f.Parent = parent
@@ -380,7 +443,6 @@ return function(Core)
             sliderFill.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
             Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
 
-            local isDragging = false
             local function updateSlider(input)
                 local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, sliderBG.AbsoluteSize.X)
                 local pct = posX / sliderBG.AbsoluteSize.X
@@ -391,22 +453,13 @@ return function(Core)
                 cb(val)
             end
 
+            -- Register with the shared dispatcher instead of adding another InputChanged listener (#15)
+            sliderCallbacks[sliderId] = updateSlider
+
             Utility.RegisterConnection(sliderBG.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    isDragging = true
+                    activeSliderId = sliderId
                     updateSlider(input)
-                end
-            end))
-
-            Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
-                if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                    updateSlider(input)
-                end
-            end))
-
-            Utility.RegisterConnection(UserInputService.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    isDragging = false
                 end
             end))
 
@@ -415,12 +468,15 @@ return function(Core)
 
         -- ================== COMBAT TAB ==================
         CreateSection(CombatFrame, "AIM")
-        CreateButton(CombatFrame, "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), function(btn)
+
+        -- Store reference to auto-aim button so SyncAutoAimButton() can update it (#11)
+        local autoAimBtn = CreateButton(CombatFrame, "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), function(btn)
             Config.AutoAimEnabled = not Config.AutoAimEnabled
             btn.Text = "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
             Drawings.FOVCircle.Visible = Config.AutoAimEnabled
-        end).BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or Color3.fromRGB(40,40,50)
+        end)
+        autoAimBtn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
 
         CreateSlider(CombatFrame, "FOV Radius:", Config.ViewAngle, function(v) Config.ViewAngle = v; Drawings.FOVCircle.Radius = v end, 10, 800)
         CreateSlider(CombatFrame, "Smoothing:", Config.Smoothing, function(v) Config.Smoothing = v end, 0.01, 30)
@@ -466,26 +522,28 @@ return function(Core)
             if not Config.StickyTarget then State.LockedTarget = nil; State.LockedCharacter = nil end
         end)
 
-        CreateButton(CombatFrame, "Prediction: " .. (Config.Prediction and "ON" or "OFF"), function(btn)
+        local predBtn = CreateButton(CombatFrame, "Prediction: " .. (Config.Prediction and "ON" or "OFF"), function(btn)
             Config.Prediction = not Config.Prediction
             btn.Text = "Prediction: " .. (Config.Prediction and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or IDLE_COLOR
+        end)
+        predBtn.BackgroundColor3 = Config.Prediction and Color3.fromRGB(35,120,35) or IDLE_COLOR
 
         CreateSlider(CombatFrame, "Predict Scale:", Config.PredictionScale, function(v) Config.PredictionScale = v end, 0, 1)
 
         -- ================== VISUALS TAB ==================
         CreateSection(VisualsFrame, "ESP OVERLAYS")
-        CreateButton(VisualsFrame, "ESP: " .. (Config.ESPEnabled and "ON" or "OFF"), function(btn)
+        local espBtn = CreateButton(VisualsFrame, "ESP: " .. (Config.ESPEnabled and "ON" or "OFF"), function(btn)
             Config.ESPEnabled = not Config.ESPEnabled
             btn.Text = "ESP: " .. (Config.ESPEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or IDLE_COLOR
             if not Config.ESPEnabled then
                 for _, cache in pairs(State.ESPCache) do
                     for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
                 end
             end
-        end).BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or Color3.fromRGB(40,40,50)
+        end)
+        espBtn.BackgroundColor3 = Config.ESPEnabled and Color3.fromRGB(120, 35, 120) or IDLE_COLOR
 
         CreateButton(VisualsFrame, "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF"), function(btn)
             Config.ESPBoxes = not Config.ESPBoxes; btn.Text = "ESP Boxes: " .. (Config.ESPBoxes and "ON" or "OFF")
@@ -499,11 +557,13 @@ return function(Core)
         CreateButton(VisualsFrame, "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF"), function(btn)
             Config.ESPDistance = not Config.ESPDistance; btn.Text = "ESP Distance: " .. (Config.ESPDistance and "ON" or "OFF")
         end)
-        CreateButton(VisualsFrame, "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF"), function(btn)
+
+        local tracerBtn = CreateButton(VisualsFrame, "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF"), function(btn)
             Config.ESPTracers = not Config.ESPTracers
             btn.Text = "ESP Tracers: " .. (Config.ESPTracers and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or IDLE_COLOR
+        end)
+        tracerBtn.BackgroundColor3 = Config.ESPTracers and Color3.fromRGB(120,35,120) or IDLE_COLOR
 
         CreateButton(VisualsFrame, "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF"), function(btn)
             Config.ESPTeamColor = not Config.ESPTeamColor; btn.Text = "ESP Team Color: " .. (Config.ESPTeamColor and "ON" or "OFF")
@@ -512,54 +572,59 @@ return function(Core)
         CreateSlider(VisualsFrame, "ESP Max Dist:", Config.ESPMaxDist, function(v) Config.ESPMaxDist = v end, 50, 5000)
 
         CreateSection(VisualsFrame, "OPTIMIZATION")
-        CreateButton(VisualsFrame, "Optimize FPS (Potato Mode)", function(btn)
+        -- Fix #10: button text now makes the permanent/destructive nature clear (#10)
+        CreateButton(VisualsFrame, "⚠ Apply FPS Boost (Irreversible)", function(btn)
             Core.Utility.OptimizeFPS()
-            local old = btn.Text
-            btn.Text = "Optimization Applied!"
+            btn.Text = "✔ FPS Optimizations Applied"
             btn.BackgroundColor3 = Color3.fromRGB(35, 120, 35)
-            task.delay(2, function() btn.Text = old; btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50) end)
+            -- Don't reset the text; leaving it green makes the permanent state visible
         end)
 
         -- ================== MOVEMENT TAB ==================
         CreateSection(MovementFrame, "PLAYER MOVEMENT")
         
-        CreateButton(MovementFrame, "WalkSpeed Override: " .. (Config.WalkSpeedEnabled and "ON" or "OFF"), function(btn)
+        local wsBtn = CreateButton(MovementFrame, "WalkSpeed Override: " .. (Config.WalkSpeedEnabled and "ON" or "OFF"), function(btn)
             Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
             btn.Text = "WalkSpeed Override: " .. (Config.WalkSpeedEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or IDLE_COLOR
+        end)
+        wsBtn.BackgroundColor3 = Config.WalkSpeedEnabled and Color3.fromRGB(35,120,120) or IDLE_COLOR
 
         CreateSlider(MovementFrame, "WalkSpeed:", Config.WalkSpeed, function(v) Config.WalkSpeed = v end, 16, 100)
 
-        CreateButton(MovementFrame, "JumpPower Override: " .. (Config.JumpPowerEnabled and "ON" or "OFF"), function(btn)
+        local jpBtn = CreateButton(MovementFrame, "JumpPower Override: " .. (Config.JumpPowerEnabled and "ON" or "OFF"), function(btn)
             Config.JumpPowerEnabled = not Config.JumpPowerEnabled
             btn.Text = "JumpPower Override: " .. (Config.JumpPowerEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or IDLE_COLOR
+        end)
+        jpBtn.BackgroundColor3 = Config.JumpPowerEnabled and Color3.fromRGB(35,120,120) or IDLE_COLOR
 
         CreateSlider(MovementFrame, "JumpPower:", Config.JumpPower, function(v) Config.JumpPower = v end, 50, 200)
 
         CreateSection(MovementFrame, "EXPLOITS")
         
-        CreateButton(MovementFrame, "Infinite Jump: " .. (Config.InfiniteJumpEnabled and "ON" or "OFF"), function(btn)
+        local ijBtn = CreateButton(MovementFrame, "Infinite Jump: " .. (Config.InfiniteJumpEnabled and "ON" or "OFF"), function(btn)
             Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
             btn.Text = "Infinite Jump: " .. (Config.InfiniteJumpEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or IDLE_COLOR
+        end)
+        ijBtn.BackgroundColor3 = Config.InfiniteJumpEnabled and Color3.fromRGB(120,120,35) or IDLE_COLOR
 
-        CreateButton(MovementFrame, "NoClip: " .. (Config.NoClipEnabled and "ON" or "OFF"), function(btn)
+        local ncBtn = CreateButton(MovementFrame, "NoClip: " .. (Config.NoClipEnabled and "ON" or "OFF"), function(btn)
             Config.NoClipEnabled = not Config.NoClipEnabled
             btn.Text = "NoClip: " .. (Config.NoClipEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or IDLE_COLOR
+        end)
+        ncBtn.BackgroundColor3 = Config.NoClipEnabled and Color3.fromRGB(120,35,35) or IDLE_COLOR
 
         -- ================== SETTINGS TAB ==================
         CreateSection(SettingsFrame, "SYSTEM FEATURES")
-        CreateButton(SettingsFrame, "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF"), function(btn)
+        local arBtn = CreateButton(SettingsFrame, "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF"), function(btn)
             Config.AutoRespawn = not Config.AutoRespawn
             btn.Text = "Auto-Respawn: " .. (Config.AutoRespawn and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or IDLE_COLOR
+        end)
+        arBtn.BackgroundColor3 = Config.AutoRespawn and Color3.fromRGB(35,120,35) or IDLE_COLOR
 
         CreateButton(SettingsFrame, "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF"), function(btn)
             Config.KillFeedEnabled = not Config.KillFeedEnabled; btn.Text = "Kill Feed: " .. (Config.KillFeedEnabled and "ON" or "OFF")
@@ -569,18 +634,20 @@ return function(Core)
             Config.TargetInfoEnabled = not Config.TargetInfoEnabled; btn.Text = "Target Info Overlay: " .. (Config.TargetInfoEnabled and "ON" or "OFF")
         end)
 
-        CreateButton(SettingsFrame, "Diagnostics Overlay: " .. (Config.DiagnosticsEnabled and "ON" or "OFF"), function(btn)
+        local diagBtn = CreateButton(SettingsFrame, "Diagnostics Overlay: " .. (Config.DiagnosticsEnabled and "ON" or "OFF"), function(btn)
             Config.DiagnosticsEnabled = not Config.DiagnosticsEnabled
             btn.Text = "Diagnostics Overlay: " .. (Config.DiagnosticsEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or IDLE_COLOR
             Drawings.DiagnosticText.Visible = Config.DiagnosticsEnabled
-        end).BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+        end)
+        diagBtn.BackgroundColor3 = Config.DiagnosticsEnabled and Color3.fromRGB(35,120,35) or IDLE_COLOR
 
-        CreateButton(SettingsFrame, "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF"), function(btn)
+        local rlBtn = CreateButton(SettingsFrame, "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF"), function(btn)
             Config.RemoteLogEnabled = not Config.RemoteLogEnabled
             btn.Text = "Remote Logger: " .. (Config.RemoteLogEnabled and "ON" or "OFF")
-            btn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
-        end).BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or Color3.fromRGB(40,40,50)
+            btn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or IDLE_COLOR
+        end)
+        rlBtn.BackgroundColor3 = Config.RemoteLogEnabled and Color3.fromRGB(35,120,35) or IDLE_COLOR
 
         -- ================== INFO / SCANNERS TAB ==================
         local ScannersList = Instance.new("ScrollingFrame")
@@ -622,7 +689,9 @@ return function(Core)
         OutputBox.Size = UDim2.new(1, -8, 0, 500)
         OutputBox.BackgroundTransparency = 1
         OutputBox.ClearTextOnFocus = false
-        OutputBox.TextEditable = false -- Allows selection for copying
+        -- Fix #28: TextEditable false prevents keyboard selection; set true so users can Ctrl+A
+        -- and copy text. The box appearance stays read-only via ClearTextOnFocus = false.
+        OutputBox.TextEditable = true
         OutputBox.MultiLine = true
         OutputBox.TextWrapped = true
         OutputBox.TextXAlignment = Enum.TextXAlignment.Left
@@ -652,17 +721,21 @@ return function(Core)
         CopyBtn.TextSize = 13
         Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0, 6)
         Utility.RegisterConnection(CopyBtn.Activated:Connect(function()
-            if setclipboard then
+            -- Fix #26: use type() check instead of truthy check for setclipboard
+            if type(setclipboard) == "function" then
                 setclipboard(OutputBox.Text)
                 local oldText = CopyBtn.Text
-                CopyBtn.Text = "Copied!"
+                CopyBtn.Text = "✔ Copied!"
                 task.delay(1.5, function() CopyBtn.Text = oldText end)
             else
                 local oldText = CopyBtn.Text
-                CopyBtn.Text = "Executor does not support setclipboard!"
+                CopyBtn.Text = "✘ Executor doesn't support clipboard"
                 task.delay(2, function() CopyBtn.Text = oldText end)
             end
         end))
+
+        -- Track active scanner button for highlight (#29)
+        local activeScannerBtn = nil
 
         local function CreateScannerButton(name, scannerFunc)
             local btn = Instance.new("TextButton")
@@ -674,15 +747,40 @@ return function(Core)
             btn.TextColor3 = Color3.new(1,1,1)
             btn.TextSize = 11
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+
+            -- Hover feedback (#21)
+            Utility.RegisterConnection(btn.MouseEnter:Connect(function()
+                if btn ~= activeScannerBtn then
+                    btn.BackgroundColor3 = Color3.fromRGB(65, 58, 95)
+                end
+            end))
+            Utility.RegisterConnection(btn.MouseLeave:Connect(function()
+                if btn ~= activeScannerBtn then
+                    btn.BackgroundColor3 = Color3.fromRGB(50, 45, 75)
+                end
+            end))
+
             Utility.RegisterConnection(btn.Activated:Connect(function()
+                -- Highlight active scanner button (#29)
+                if activeScannerBtn then
+                    activeScannerBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 75)
+                    activeScannerBtn.TextColor3 = Color3.new(1,1,1)
+                end
+                activeScannerBtn = btn
+                btn.BackgroundColor3 = Color3.fromRGB(100, 85, 150)
+                btn.TextColor3 = Color3.fromRGB(255, 230, 255)
+
                 OutputBox.Text = "Scanning...\n"
                 task.wait()
                 local ok, res = pcall(scannerFunc)
                 if ok then 
                     OutputBox.Text = res
-                    -- Automatically copy to clipboard if supported by executor
-                    if setclipboard then
+                    -- Fix #27: show feedback when auto-copy happens so user knows
+                    if type(setclipboard) == "function" then
                         pcall(function() setclipboard(res) end)
+                        local old = CopyBtn.Text
+                        CopyBtn.Text = "📋 Auto-copied to clipboard!"
+                        task.delay(2, function() CopyBtn.Text = old end)
                     end
                 else 
                     OutputBox.Text = "Error during scan:\n" .. tostring(res) 
@@ -706,6 +804,12 @@ return function(Core)
         UI.MainContainer = MainContainer
         UI.FloatingCircle = FloatingCircle
         UI.FloatStroke = floatStroke
+
+        -- Exported so MainLoop's CapsLock handler can sync button text (#11)
+        function UI.SyncAutoAimButton()
+            autoAimBtn.Text = "Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF")
+            autoAimBtn.BackgroundColor3 = Config.AutoAimEnabled and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
+        end
 
         function UI.UpdateFloatStatus()
             if not FloatingCircle.Visible then return end

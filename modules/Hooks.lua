@@ -8,12 +8,14 @@ return function(Core)
     local Utility = Core.Utility
 
     function Hooks.Init()
+        -- NPC scanner loop — guarded by State.Running (#2)
         task.spawn(function()
-            while true do
+            while Core.State.Running do
                 if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
                     local newCache = {}
                     local count = 0
                     for _, obj in ipairs(workspace:GetDescendants()) do
+                        if not Core.State.Running then break end -- fast exit
                         if obj:IsA("Model") and obj ~= LocalPlayer.Character then
                             if not Core.Services.Players:GetPlayerFromCharacter(obj) then
                                 local hum = obj:FindFirstChildOfClass("Humanoid")
@@ -50,18 +52,32 @@ return function(Core)
                     local args = {...}
                     pcall(function()
                         local killer, victim = "?", "?"
-                        if typeof(args[1]) == "Instance" and args[1]:IsA("Player") then killer = args[1].Name
-                        elseif type(args[1]) == "string" then killer = args[1]
-                        elseif typeof(args[1]) == "Instance" then killer = args[1].Name end
-                        if typeof(args[2]) == "Instance" and args[2]:IsA("Player") then victim = args[2].Name
-                        elseif type(args[2]) == "string" then victim = args[2]
-                        elseif typeof(args[2]) == "Instance" then victim = args[2].Name end
+
+                        -- Helper: resolve name from an arg, checking both Name and DisplayName (#13)
+                        local function resolveName(arg)
+                            if typeof(arg) == "Instance" and arg:IsA("Player") then
+                                return arg.Name, arg.DisplayName
+                            elseif type(arg) == "string" then
+                                return arg, arg
+                            elseif typeof(arg) == "Instance" then
+                                return arg.Name, arg.Name
+                            end
+                            return "?", "?"
+                        end
+
+                        local killerName, killerDisplay = resolveName(args[1])
+                        local victimName, victimDisplay = resolveName(args[2])
+                        killer = killerDisplay
+                        victim = victimDisplay
 
                         local color = Color3.new(1, 1, 1)
-                        if killer == LocalPlayer.Name then
+                        -- Compare both Name and DisplayName to handle either format (#13)
+                        local isKiller = killerName == LocalPlayer.Name or killerDisplay == LocalPlayer.DisplayName
+                        local isVictim = victimName == LocalPlayer.Name or victimDisplay == LocalPlayer.DisplayName
+                        if isKiller then
                             State.KillCount = State.KillCount + 1
                             color = Color3.fromRGB(50, 255, 50)
-                        elseif victim == LocalPlayer.Name then
+                        elseif isVictim then
                             State.DeathCount = State.DeathCount + 1
                             color = Color3.fromRGB(255, 50, 50)
                         end
@@ -232,8 +248,9 @@ return function(Core)
             end))
         end)
 
+        -- Auto-respawn loop — guarded by State.Running (#2)
         task.spawn(function()
-            while true do
+            while Core.State.Running do
                 if Config.AutoRespawn and not State.IsAlive and (tick() - State.DeathTime) > 2 then
                     pcall(function()
                         local r = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "Respawn")

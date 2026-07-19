@@ -20,7 +20,21 @@ return function(Core, loadModuleFunc)
         return presetFn(Core)
     else
         warn("[GameIdentifier] Failed to load preset:", PresetName, "| Error:", tostring(presetFn))
-        -- Fallback to General
-        return loadModuleFunc("Presets/General.lua")(Core)
+
+        -- Fix #18: wrap the General fallback in its own pcall so a network failure
+        -- doesn't leave the user with no UI at all
+        if PresetName ~= "General" then
+            local fbSuccess, fbResult = pcall(function()
+                return loadModuleFunc("Presets/General.lua")
+            end)
+            if fbSuccess and type(fbResult) == "function" then
+                return fbResult(Core)
+            else
+                warn("[GameIdentifier] General preset fallback also failed:", tostring(fbResult))
+            end
+        end
+
+        -- Last resort: return a minimal no-op preset so the rest of init can continue
+        return { Init = function() warn("[GameIdentifier] Running with no preset.") end }
     end
 end

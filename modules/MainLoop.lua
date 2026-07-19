@@ -18,8 +18,9 @@ return function(Core)
     local FPS = 0
 
     function MainLoop.Init()
+        -- Ping polling loop — guarded by State.Running (#3)
         task.spawn(function()
-            while true do
+            while Core.State.Running do
                 pcall(function() NetworkPing = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
                 task.wait(1)
             end
@@ -146,6 +147,7 @@ return function(Core)
             if Config.KillFeedEnabled then
                 local feedX = viewport.X - 20
                 local feedY = 60
+                local maxFeed = Drawings.GetMaxKillFeed and Drawings.GetMaxKillFeed() or Drawings.MAX_KILLFEED
                 for i, entry in ipairs(State.KillFeedEntries) do
                     local d = Drawings.KillFeedDrawings[i]
                     if d then
@@ -161,7 +163,7 @@ return function(Core)
                         end
                     end
                 end
-                for i = #State.KillFeedEntries + 1, Drawings.MAX_KILLFEED do
+                for i = #State.KillFeedEntries + 1, maxFeed do
                     if Drawings.KillFeedDrawings[i] then Drawings.KillFeedDrawings[i].Visible = false end
                 end
             else
@@ -225,6 +227,10 @@ return function(Core)
                 Drawings.FOVCircle.Visible = Config.AutoAimEnabled
                 local color = Config.AutoAimEnabled and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 200, 50)
                 Utility.AddKillFeedEntry("Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), color)
+                -- Sync the UI button text so keybind and button never desync (#11)
+                if Core.UI and Core.UI.SyncAutoAimButton then
+                    Core.UI.SyncAutoAimButton()
+                end
             elseif input.KeyCode == Config.NearestTargetKey then
                 Aim.SnapToNearest()
             end

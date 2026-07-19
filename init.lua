@@ -30,8 +30,11 @@ local function loadModule(fileName)
         return loadstring(game:HttpGet(repoURL .. "modules/" .. fileName .. noCache))()
     end)
     
-    if not success or result == nil then
+    if not success then
         error("Failed to load module: " .. fileName .. " | Error: " .. tostring(result))
+    end
+    if result == nil then
+        error("Module loaded but returned nil: " .. fileName .. " (check the module returns a value)")
     end
     return result
 end
@@ -70,7 +73,7 @@ Core.Hooks = loadModule("Hooks.lua")(Core)
 Core.UI = loadModule("UI.lua")(Core)
 Core.MainLoop = loadModule("MainLoop.lua")(Core)
 
--- 4. Load Game Preset
+-- 4. Load Game Preset (must be before UI so buttons spawn with correct state)
 Core.Preset = loadModule("GameIdentifier.lua")(Core, loadModule)
 
 -- 5. Initialize Sub-Systems
