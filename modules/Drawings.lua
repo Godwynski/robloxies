@@ -93,7 +93,7 @@ return function(Core)
             end
 
             -- ==================== TARGET INFO OVERLAY ====================
-            if Config.TargetInfoEnabled and State.CurrentTarget and State.CurrentTarget.Parent then
+            if Config.TargetInfoEnabled and State.CurrentTarget and State.CurrentTarget.Parent and ctx.Camera then
                 local target = State.CurrentTarget
                 local char = target.Parent
                 local sp, onScreen = ctx.Camera:WorldToScreenPoint(target.Position)

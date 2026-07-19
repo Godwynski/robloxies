@@ -82,7 +82,9 @@ return function(Core)
         _G.__PureAutoAim_Running = false -- Clear global guard so re-execution is clean
 
         for _, conn in ipairs(State.ActiveConnections) do
-            if conn.Connected then pcall(function() conn:Disconnect() end) end
+            if conn and typeof(conn) == "RBXScriptConnection" and conn.Connected then
+                pcall(function() conn:Disconnect() end)
+            end
         end
         table.clear(State.ActiveConnections)
         pcall(function() Core.Services.RunService:UnbindFromRenderStep("PureAutoAimLoop") end)
