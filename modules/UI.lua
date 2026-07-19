@@ -11,27 +11,28 @@ return function(Core)
             UILibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/modules/UILibrary.lua?nocache=" .. tostring(tick())))()(Core)
         end
 
+        local Theme = UILibrary.Theme or {}
+
         -- Create the main window
-        local Window = UILibrary:CreateWindow("⚡ Pure Auto-Aim v3.0.0 (Scalable)")
+        local Window = UILibrary:CreateWindow("⚡ Pure Auto-Aim v3.0.0 (Premium)")
         UI.Window = Window
 
         -- Expose a method to update the floating circle color
         function UI.UpdateFloatStatus()
             if not UILibrary.FloatingCircle.Visible then return end
             if Config.AutoAimEnabled then
-                UILibrary.FloatStroke.Color = Color3.fromRGB(50, 255, 50)
+                UILibrary.FloatStroke.Color = Theme.Success
                 UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
             elseif Config.ESPEnabled then
                 UILibrary.FloatStroke.Color = Color3.fromRGB(180, 50, 220)
                 UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(40, 25, 45)
             else
-                UILibrary.FloatStroke.Color = Color3.fromRGB(190, 170, 255)
-                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                UILibrary.FloatStroke.Color = Theme.TextAccent
+                UILibrary.FloatingCircle.BackgroundColor3 = Theme.ElementIdle
             end
         end
 
         -- ================== INFO / SCANNERS TAB ==================
-        -- We will keep the Scanners tab here as it's a core utility feature
         local InfoTab = Window:AddTab("Info")
         local InfoFrame = InfoTab.Frame
 
@@ -41,7 +42,7 @@ return function(Core)
         ScannersList.Position = UDim2.new(0, 10, 0, 5)
         ScannersList.BackgroundTransparency = 1
         ScannersList.ScrollBarThickness = 3
-        ScannersList.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+        ScannersList.ScrollBarImageColor3 = Theme.ElementActive
         ScannersList.BorderSizePixel = 0
 
         local SListLayout = Instance.new("UIListLayout")
@@ -57,7 +58,7 @@ return function(Core)
         OutputFrame.Parent = InfoFrame
         OutputFrame.Size = UDim2.new(1, -180, 1, -10)
         OutputFrame.Position = UDim2.new(0, 170, 0, 5)
-        OutputFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+        OutputFrame.BackgroundColor3 = Theme.Header
         Instance.new("UICorner", OutputFrame).CornerRadius = UDim.new(0, 6)
 
         local OutputScroll = Instance.new("ScrollingFrame")
@@ -66,7 +67,7 @@ return function(Core)
         OutputScroll.Position = UDim2.new(0, 8, 0, 8)
         OutputScroll.BackgroundTransparency = 1
         OutputScroll.ScrollBarThickness = 4
-        OutputScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+        OutputScroll.ScrollBarImageColor3 = Theme.ElementActive
         OutputScroll.BorderSizePixel = 0
 
         local OutputBox = Instance.new("TextBox")
@@ -81,7 +82,7 @@ return function(Core)
         OutputBox.TextYAlignment = Enum.TextYAlignment.Top
         OutputBox.Font = Enum.Font.RobotoMono
         OutputBox.TextSize = 12
-        OutputBox.TextColor3 = Color3.fromRGB(200, 200, 200)
+        OutputBox.TextColor3 = Theme.TextPrimary
         OutputBox.Text = "Select a scanner from the left to view output here.\n\nYou can click the button below to copy the text."
 
         local function updateScroll()
@@ -97,12 +98,16 @@ return function(Core)
         CopyBtn.Parent = OutputFrame
         CopyBtn.Size = UDim2.new(1, -16, 0, 30)
         CopyBtn.Position = UDim2.new(0, 8, 1, -38)
-        CopyBtn.BackgroundColor3 = Color3.fromRGB(80, 70, 120)
+        CopyBtn.BackgroundColor3 = Theme.ElementActive
         CopyBtn.Font = Enum.Font.GothamBold
         CopyBtn.Text = "📋 Copy Output to Clipboard"
-        CopyBtn.TextColor3 = Color3.new(1, 1, 1)
+        CopyBtn.TextColor3 = Theme.TextPrimary
         CopyBtn.TextSize = 13
         Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0, 6)
+
+        Core.Utility.RegisterConnection(CopyBtn.MouseEnter:Connect(function() UILibrary.Tween(CopyBtn, {BackgroundColor3 = Theme.ElementHover}) end))
+        Core.Utility.RegisterConnection(CopyBtn.MouseLeave:Connect(function() UILibrary.Tween(CopyBtn, {BackgroundColor3 = Theme.ElementActive}) end))
+
         Core.Utility.RegisterConnection(CopyBtn.Activated:Connect(function()
             if type(setclipboard) == "function" then
                 setclipboard(OutputBox.Text)
@@ -121,28 +126,26 @@ return function(Core)
             local btn = Instance.new("TextButton")
             btn.Parent = ScannersList
             btn.Size = UDim2.new(1, -8, 0, 32)
-            btn.BackgroundColor3 = Color3.fromRGB(50, 45, 75)
+            btn.BackgroundColor3 = Theme.ElementIdle
             btn.Font = Enum.Font.GothamBold
             btn.Text = name
-            btn.TextColor3 = Color3.new(1,1,1)
+            btn.TextColor3 = Theme.TextSecondary
             btn.TextSize = 11
             Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
             Core.Utility.RegisterConnection(btn.MouseEnter:Connect(function()
-                if btn ~= activeScannerBtn then btn.BackgroundColor3 = Color3.fromRGB(65, 58, 95) end
+                if btn ~= activeScannerBtn then UILibrary.Tween(btn, {BackgroundColor3 = Theme.ElementHover}) end
             end))
             Core.Utility.RegisterConnection(btn.MouseLeave:Connect(function()
-                if btn ~= activeScannerBtn then btn.BackgroundColor3 = Color3.fromRGB(50, 45, 75) end
+                if btn ~= activeScannerBtn then UILibrary.Tween(btn, {BackgroundColor3 = Theme.ElementIdle}) end
             end))
 
             Core.Utility.RegisterConnection(btn.Activated:Connect(function()
                 if activeScannerBtn then
-                    activeScannerBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 75)
-                    activeScannerBtn.TextColor3 = Color3.new(1,1,1)
+                    UILibrary.Tween(activeScannerBtn, {BackgroundColor3 = Theme.ElementIdle, TextColor3 = Theme.TextSecondary})
                 end
                 activeScannerBtn = btn
-                btn.BackgroundColor3 = Color3.fromRGB(100, 85, 150)
-                btn.TextColor3 = Color3.fromRGB(255, 230, 255)
+                UILibrary.Tween(btn, {BackgroundColor3 = Theme.ElementActive, TextColor3 = Theme.TextPrimary})
 
                 OutputBox.Text = "Scanning...\n"
                 task.wait()
@@ -181,9 +184,34 @@ return function(Core)
             SettingsTab:AddToggle("Target Info Overlay", Config.TargetInfoEnabled, function(val) Config.TargetInfoEnabled = val end)
             SettingsTab:AddToggle("Diagnostics Overlay", Config.DiagnosticsEnabled, function(val)
                 Config.DiagnosticsEnabled = val
-                Core.Drawings.DiagnosticText.Visible = val
+                if Core.Drawings and Core.Drawings.DiagnosticText then
+                    Core.Drawings.DiagnosticText.Visible = val
+                end
             end)
             SettingsTab:AddToggle("Remote Logger", Config.RemoteLogEnabled, function(val) Config.RemoteLogEnabled = val end)
+            
+            SettingsTab:AddSection("KEYBINDS")
+            SettingsTab:AddKeybind("Toggle Menu", Config.MenuKey, function(key) Config.MenuKey = key end)
+            SettingsTab:AddKeybind("Toggle Auto-Aim", Config.AimKey, function(key) Config.AimKey = key end)
+            SettingsTab:AddKeybind("Snap to Nearest Target", Config.NearestTargetKey, function(key) Config.NearestTargetKey = key end)
+            
+            SettingsTab:AddSection("CONFIG")
+            SettingsTab:AddButton("Save Config", function(btn)
+                if Core.Config.Save then
+                    local success = Core.Config:Save()
+                    local oldText = btn.Text
+                    btn.Text = success and "Saved!" or "Error Saving"
+                    task.delay(1.5, function() btn.Text = oldText end)
+                end
+            end)
+            SettingsTab:AddButton("Load Config", function(btn)
+                if Core.Config.Load then
+                    local success = Core.Config:Load()
+                    local oldText = btn.Text
+                    btn.Text = success and "Loaded!" or "Error Loading"
+                    task.delay(1.5, function() btn.Text = oldText end)
+                end
+            end)
         end
     end
 

@@ -353,7 +353,14 @@ return function(Core)
                 Core.Drawings.FOVCircle.Radius = val
             end)
             
+            CombatTab:AddSlider("Deadzone", Config.AimDeadzone, 0, 300, function(val) Config.AimDeadzone = val end)
             CombatTab:AddSlider("Smoothing", Config.Smoothing, 0.01, 30, function(val) Config.Smoothing = val end)
+
+            local styleBtn = CombatTab:AddButton("Smooth Style: " .. Config.SmoothingStyle, function() end)
+            Utility.RegisterConnection(styleBtn.Activated:Connect(function()
+                Config.SmoothingStyle = Config.SmoothingStyle == "Linear" and "Exponential" or "Linear"
+                styleBtn.Text = "Smooth Style: " .. Config.SmoothingStyle
+            end))
 
             CombatTab:AddToggle("Auto-Shoot (TriggerBot)", Config.AutoShoot, function(val) Config.AutoShoot = val end)
 
@@ -426,23 +433,45 @@ return function(Core)
                         if Config.TrackingMethod == "Mouse" then
                             local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
                             if onScreen then
-                                local dx = (sp.X - ctx.MouseLocation.X) / (Config.Smoothing + 1)
-                                local dy = (sp.Y - ctx.MouseLocation.Y) / (Config.Smoothing + 1)
-                                pcall(function() mousemoverel(dx, dy) end)
+                                local dx = sp.X - ctx.MouseLocation.X
+                                local dy = sp.Y - ctx.MouseLocation.Y
+                                local dist = math.sqrt(dx*dx + dy*dy)
+                                
+                                if dist > Config.AimDeadzone then
+                                    local factor = Config.Smoothing + 1
+                                    if Config.SmoothingStyle == "Exponential" then
+                                        factor = factor * (1 + (dist / (Config.ViewAngle + 1)))
+                                    end
+                                    pcall(function() mousemoverel(dx / factor, dy / factor) end)
+                                end
                             end
                         elseif Config.TrackingMethod == "Camera" then
                             local curCF = ctx.Camera.CFrame
                             local tgtCF = CFrame.new(curCF.Position, aimPos)
                             local alpha = 1 / (Config.Smoothing + 1)
-                            -- Detect if the target is nearly behind the camera.
-                            -- CFrame:Lerp uses slerp which takes the shortest arc; when the
-                            -- angle approaches 180° it can flip the wrong way ("avoidance bug").
-                            local dot = curCF.LookVector:Dot(tgtCF.LookVector)
-                            if dot < -0.5 then
-                                -- Target is >120° away — snap directly to avoid wrong-way slerp
-                                ctx.Camera.CFrame = tgtCF
-                            else
-                                ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                            
+                            -- Apply Deadzone check for Camera
+                            local _, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
+                            if onScreen then
+                                local sp2 = ctx.Camera:WorldToScreenPoint(aimPos)
+                                local dx = sp2.X - ctx.MouseLocation.X
+                                local dy = sp2.Y - ctx.MouseLocation.Y
+                                local dist = math.sqrt(dx*dx + dy*dy)
+                                if dist <= Config.AimDeadzone then
+                                    alpha = 0
+                                elseif Config.SmoothingStyle == "Exponential" then
+                                    alpha = math.clamp(alpha * (dist / 100), 0, 1)
+                                end
+                            end
+                            
+                            if alpha > 0 then
+                                -- Detect if the target is nearly behind the camera.
+                                local dot = curCF.LookVector:Dot(tgtCF.LookVector)
+                                if dot < -0.5 then
+                                    ctx.Camera.CFrame = tgtCF
+                                else
+                                    ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                                end
                             end
                         end
 

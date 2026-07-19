@@ -40,11 +40,19 @@ return function(Core)
     end
 
     function ESP.RemoveESPDrawings(cache)
-        for _, d in pairs(cache) do pcall(function() d:Remove() end) end
+        for _, d in pairs(cache) do 
+            pcall(function() 
+                if typeof(d) == "Instance" then d:Destroy() else d:Remove() end 
+            end) 
+        end
     end
 
     function ESP.HideESPDrawings(cache)
-        for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
+        for _, d in pairs(cache) do 
+            pcall(function() 
+                if typeof(d) == "Instance" then d.Enabled = false else d.Visible = false end 
+            end) 
+        end
     end
 
     function ESP.UpdateESP()
@@ -199,6 +207,23 @@ return function(Core)
             else
                 cache.tracer.Visible = false
             end
+            
+            if Config.ESPChams then
+                if not cache.cham then
+                    local cham = Instance.new("Highlight")
+                    pcall(function() cham.Parent = Core.Services.CoreGui end)
+                    if not cham.Parent then pcall(function() cham.Parent = char end) end
+                    cache.cham = cham
+                end
+                cache.cham.Adornee = char
+                cache.cham.FillColor = espColor
+                cache.cham.OutlineColor = espColor
+                cache.cham.FillTransparency = 0.5
+                cache.cham.OutlineTransparency = 0
+                cache.cham.Enabled = true
+            else
+                if cache.cham then cache.cham.Enabled = false end
+            end
         end
 
         for model, cache in pairs(State.ESPCache) do
@@ -228,6 +253,7 @@ return function(Core)
             VisualsTab:AddToggle("ESP Health", Config.ESPHealth, function(val) Config.ESPHealth = val end)
             VisualsTab:AddToggle("ESP Distance", Config.ESPDistance, function(val) Config.ESPDistance = val end)
             VisualsTab:AddToggle("ESP Tracers", Config.ESPTracers, function(val) Config.ESPTracers = val end)
+            VisualsTab:AddToggle("ESP Chams", Config.ESPChams, function(val) Config.ESPChams = val end)
             VisualsTab:AddToggle("ESP Team Color", Config.ESPTeamColor, function(val) Config.ESPTeamColor = val end)
             VisualsTab:AddSlider("ESP Max Dist", Config.ESPMaxDist, 50, 5000, function(val) Config.ESPMaxDist = val end)
             

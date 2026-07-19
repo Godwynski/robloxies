@@ -46,17 +46,34 @@ return function(Core)
         Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
             
-            if input.KeyCode == Enum.KeyCode.RightShift then
+            if Config.MenuKey and input.KeyCode == Config.MenuKey then
                 if Core.UI.Window and Core.UI.Window.Library then
                     local lib = Core.UI.Window.Library
                     if lib.FloatingCircle and lib.FloatingCircle.Visible then
                         lib.FloatingCircle.Visible = false
                         lib.MainContainer.Visible = true
+                        lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
+                        if lib.Tween then
+                            lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
+                        end
                     elseif lib.MainContainer then
-                        lib.MainContainer.Visible = not lib.MainContainer.Visible
+                        if lib.MainContainer.Visible then
+                            if lib.Tween then
+                                local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
+                                tw.Completed:Wait()
+                            end
+                            lib.MainContainer.Visible = false
+                            lib.FloatingCircle.Visible = true
+                        else
+                            lib.MainContainer.Visible = true
+                            lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
+                            if lib.Tween then
+                                lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
+                            end
+                        end
                     end
                 end
-            elseif input.KeyCode == Enum.KeyCode.CapsLock then
+            elseif Config.AimKey and input.KeyCode == Config.AimKey then
                 Config.AutoAimEnabled = not Config.AutoAimEnabled
                 Core.Drawings.FOVCircle.Visible = Config.AutoAimEnabled
                 local color = Config.AutoAimEnabled and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 200, 50)
@@ -65,6 +82,10 @@ return function(Core)
                 -- Sync the UI button text if it exists
                 if Core.UI.SyncAutoAimButton then
                     Core.UI.SyncAutoAimButton()
+                end
+            elseif Config.NearestTargetKey and input.KeyCode == Config.NearestTargetKey then
+                if Core.Aim and Core.Aim.SnapToNearest then
+                    Core.Aim.SnapToNearest()
                 end
             end
             

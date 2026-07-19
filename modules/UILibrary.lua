@@ -2,6 +2,33 @@ return function(Core)
     local UILibrary = {}
     local Services = Core.Services
     local Utility = Core.Utility
+    local TweenService = game:GetService("TweenService")
+
+    local Theme = {
+        Background = Color3.fromRGB(22, 22, 28),
+        Header = Color3.fromRGB(15, 15, 20),
+        Stroke = Color3.fromRGB(60, 50, 90),
+        TextPrimary = Color3.fromRGB(255, 255, 255),
+        TextSecondary = Color3.fromRGB(150, 150, 150),
+        TextAccent = Color3.fromRGB(190, 170, 255),
+        ElementIdle = Color3.fromRGB(30, 30, 40),
+        ElementHover = Color3.fromRGB(50, 45, 70),
+        ElementActive = Color3.fromRGB(80, 70, 120),
+        Success = Color3.fromRGB(35, 120, 35),
+        SliderFill = Color3.fromRGB(120, 100, 200),
+        CloseButton = Color3.fromRGB(180, 50, 50),
+    }
+    UILibrary.Theme = Theme -- Expose theme for UI.lua
+
+    local function tween(object, properties, time, style, direction)
+        time = time or 0.2
+        style = style or Enum.EasingStyle.Sine
+        direction = direction or Enum.EasingDirection.Out
+        local tw = TweenService:Create(object, TweenInfo.new(time, style, direction), properties)
+        tw:Play()
+        return tw
+    end
+    UILibrary.Tween = tween
 
     -- State for dragging/resizing
     local floatDragging, floatHasMoved, floatDragStart, floatStartPos
@@ -11,8 +38,8 @@ return function(Core)
     local sliderCallbacks = {}
     local sliderIdCounter = 0
 
-    local IDLE_COLOR = Color3.fromRGB(40, 40, 50)
-    local HOVER_COLOR = Color3.fromRGB(60, 60, 75)
+    local activeKeybindBtn = nil
+    local activeKeybindCb = nil
 
     -- Shared Input handlers for entire UI
     function UILibrary:InitInputDispatchers()
@@ -44,11 +71,31 @@ return function(Core)
                 if floatDragging and not floatHasMoved then
                     self.FloatingCircle.Visible = false
                     self.MainContainer.Visible = true
+                    -- Animate open
+                    self.MainContainer.Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, 0)
+                    tween(self.MainContainer, {Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, self.MainContainer.Size.Y.Offset > 0 and self.MainContainer.Size.Y.Offset or 520)}, 0.3, Enum.EasingStyle.Back)
                 end
                 floatDragging = false
                 dragging = false
                 resizing = false
                 activeSliderId = nil
+            end
+        end))
+
+        Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input)
+            if activeKeybindBtn and input.UserInputType == Enum.UserInputType.Keyboard then
+                local key = input.KeyCode
+                if key == Enum.KeyCode.Escape then
+                    activeKeybindBtn.Text = "None"
+                    activeKeybindCb(nil)
+                else
+                    local keyName = key.Name
+                    activeKeybindBtn.Text = keyName
+                    activeKeybindCb(key)
+                end
+                tween(activeKeybindBtn, {BackgroundColor3 = Theme.ElementIdle})
+                activeKeybindBtn = nil
+                activeKeybindCb = nil
             end
         end))
     end
@@ -69,7 +116,7 @@ return function(Core)
         MainContainer.Parent = Interface
         MainContainer.Size = UDim2.new(0, 480, 0, 520)
         MainContainer.Position = UDim2.new(0.5, -240, 0.5, -260)
-        MainContainer.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+        MainContainer.BackgroundColor3 = Theme.Background
         MainContainer.BorderSizePixel = 0
         MainContainer.Active = true
         Instance.new("UICorner", MainContainer).CornerRadius = UDim.new(0, 10)
@@ -77,13 +124,13 @@ return function(Core)
 
         local UIStroke = Instance.new("UIStroke")
         UIStroke.Parent = MainContainer
-        UIStroke.Color = Color3.fromRGB(60, 50, 90)
+        UIStroke.Color = Theme.Stroke
         UIStroke.Thickness = 1.5
 
         local Header = Instance.new("Frame")
         Header.Parent = MainContainer
         Header.Size = UDim2.new(1, 0, 0, 38)
-        Header.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+        Header.BackgroundColor3 = Theme.Header
         Header.BorderSizePixel = 0
         Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
@@ -91,7 +138,7 @@ return function(Core)
         HeaderBottom.Parent = Header
         HeaderBottom.Size = UDim2.new(1, 0, 0, 10)
         HeaderBottom.Position = UDim2.new(0, 0, 1, -10)
-        HeaderBottom.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+        HeaderBottom.BackgroundColor3 = Theme.Header
         HeaderBottom.BorderSizePixel = 0
 
         local Title = Instance.new("TextLabel")
@@ -101,7 +148,7 @@ return function(Core)
         Title.BackgroundTransparency = 1
         Title.Font = Enum.Font.GothamBold
         Title.Text = titleText
-        Title.TextColor3 = Color3.fromRGB(190, 170, 255)
+        Title.TextColor3 = Theme.TextAccent
         Title.TextSize = 15
         Title.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -109,9 +156,9 @@ return function(Core)
         CloseBtn.Parent = Header
         CloseBtn.Size = UDim2.new(0, 28, 0, 28)
         CloseBtn.Position = UDim2.new(1, -33, 0, 5)
-        CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+        CloseBtn.BackgroundColor3 = Theme.CloseButton
         CloseBtn.Text = "X"
-        CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+        CloseBtn.TextColor3 = Theme.TextPrimary
         CloseBtn.Font = Enum.Font.GothamBold
         CloseBtn.TextSize = 13
         Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
@@ -126,7 +173,7 @@ return function(Core)
         RefreshBtn.Position = UDim2.new(1, -66, 0, 5)
         RefreshBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
         RefreshBtn.Text = "↻"
-        RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
+        RefreshBtn.TextColor3 = Theme.TextPrimary
         RefreshBtn.Font = Enum.Font.GothamBold
         RefreshBtn.TextSize = 16
         Instance.new("UICorner", RefreshBtn).CornerRadius = UDim.new(0, 6)
@@ -141,9 +188,7 @@ return function(Core)
                     loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/init.lua?nocache=" .. tostring(tick())))()
                 end
             end)
-            if not ok then
-                warn("[UILibrary] Refresh failed:", tostring(err))
-            end
+            if not ok then warn("[UILibrary] Refresh failed:", tostring(err)) end
         end))
 
         local MinimizeBtn = Instance.new("TextButton")
@@ -152,7 +197,7 @@ return function(Core)
         MinimizeBtn.Position = UDim2.new(1, -99, 0, 5)
         MinimizeBtn.BackgroundColor3 = Color3.fromRGB(150, 120, 50)
         MinimizeBtn.Text = "—"
-        MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+        MinimizeBtn.TextColor3 = Theme.TextPrimary
         MinimizeBtn.Font = Enum.Font.GothamBold
         MinimizeBtn.TextSize = 13
         Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 6)
@@ -162,7 +207,7 @@ return function(Core)
         FloatingCircle.Parent = Interface
         FloatingCircle.Size = UDim2.new(0, 50, 0, 50)
         FloatingCircle.Position = UDim2.new(0, 20, 0.5, -25)
-        FloatingCircle.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        FloatingCircle.BackgroundColor3 = Theme.ElementIdle
         FloatingCircle.Visible = false
         FloatingCircle.Active = true
         Instance.new("UICorner", FloatingCircle).CornerRadius = UDim.new(1, 0)
@@ -170,7 +215,7 @@ return function(Core)
         
         local FloatStroke = Instance.new("UIStroke")
         FloatStroke.Parent = FloatingCircle
-        FloatStroke.Color = Color3.fromRGB(190, 170, 255)
+        FloatStroke.Color = Theme.TextAccent
         FloatStroke.Thickness = 2
         self.FloatStroke = FloatStroke
         
@@ -180,20 +225,19 @@ return function(Core)
         FloatIcon.BackgroundTransparency = 1
         FloatIcon.Text = "⚡"
         FloatIcon.TextSize = 24
-        FloatIcon.TextColor3 = Color3.new(1, 1, 1)
+        FloatIcon.TextColor3 = Theme.TextPrimary
         FloatIcon.Font = Enum.Font.GothamBold
 
         Utility.RegisterConnection(MinimizeBtn.Activated:Connect(function()
+            local tw = tween(MainContainer, {Size = UDim2.new(0, MainContainer.Size.X.Offset, 0, 0)}, 0.2)
+            tw.Completed:Wait()
             MainContainer.Visible = false
             FloatingCircle.Visible = true
         end))
 
         Utility.RegisterConnection(FloatingCircle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                floatDragging = true
-                floatHasMoved = false
-                floatDragStart = input.Position
-                floatStartPos = FloatingCircle.Position
+                floatDragging = true; floatHasMoved = false; floatDragStart = input.Position; floatStartPos = FloatingCircle.Position
             end
         end))
 
@@ -209,7 +253,7 @@ return function(Core)
         ResizeBtn.Position = UDim2.new(1, -35, 1, -35)
         ResizeBtn.BackgroundTransparency = 1
         ResizeBtn.Text = "↘"
-        ResizeBtn.TextColor3 = Color3.fromRGB(100, 100, 120)
+        ResizeBtn.TextColor3 = Theme.TextSecondary
         ResizeBtn.Font = Enum.Font.GothamBold
         ResizeBtn.TextSize = 22
         ResizeBtn.ZIndex = 100
@@ -217,9 +261,7 @@ return function(Core)
 
         Utility.RegisterConnection(ResizeBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                resizing = true
-                resizeStart = input.Position
-                sizeStart = MainContainer.AbsoluteSize
+                resizing = true; resizeStart = input.Position; sizeStart = MainContainer.AbsoluteSize
             end
         end))
 
@@ -247,24 +289,11 @@ return function(Core)
         self.TabCount = 0
 
         self:InitInputDispatchers()
-
-        -- Single resize listener for tab widths (not per-tab to avoid jitter)
         Utility.RegisterConnection(self.TabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() self:UpdateTabWidths() end))
         
-        -- Window object to return
-        local Window = {
-            Library = self,
-            Tabs = {}
-        }
-        
-        function Window:AddTab(name)
-            return self.Library:CreateTab(name)
-        end
-        
-        function Window:SelectTab(name)
-            self.Library:SelectTab(name)
-        end
-
+        local Window = { Library = self, Tabs = {} }
+        function Window:AddTab(name) return self.Library:CreateTab(name) end
+        function Window:SelectTab(name) self.Library:SelectTab(name) end
         return Window
     end
 
@@ -279,12 +308,10 @@ return function(Core)
     function UILibrary:SelectTab(name)
         for tName, btn in pairs(self.Tabs) do
             if tName == name then
-                btn.BackgroundColor3 = Color3.fromRGB(80, 70, 120)
-                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                tween(btn, {BackgroundColor3 = Theme.ElementActive, TextColor3 = Theme.TextPrimary})
                 self.TabFrames[tName].Visible = true
             else
-                btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-                btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+                tween(btn, {BackgroundColor3 = Theme.ElementIdle, TextColor3 = Theme.TextSecondary})
                 self.TabFrames[tName].Visible = false
             end
         end
@@ -296,22 +323,22 @@ return function(Core)
         local btn = Instance.new("TextButton")
         btn.Parent = self.TabBar
         btn.Size = UDim2.new(0, 0, 1, 0)
-        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        btn.BackgroundColor3 = Theme.ElementIdle
         btn.Font = Enum.Font.GothamBold
         btn.Text = name
-        btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        btn.TextColor3 = Theme.TextSecondary
         btn.TextSize = 13
         btn.LayoutOrder = self.TabCount
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
         Utility.RegisterConnection(btn.MouseEnter:Connect(function()
             if self.TabFrames[name] and not self.TabFrames[name].Visible then
-                btn.BackgroundColor3 = Color3.fromRGB(50, 45, 70)
+                tween(btn, {BackgroundColor3 = Theme.ElementHover})
             end
         end))
         Utility.RegisterConnection(btn.MouseLeave:Connect(function()
             if self.TabFrames[name] and not self.TabFrames[name].Visible then
-                btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                tween(btn, {BackgroundColor3 = Theme.ElementIdle})
             end
         end))
 
@@ -323,7 +350,7 @@ return function(Core)
         frame.Size = UDim2.new(1, 0, 1, 0)
         frame.BackgroundTransparency = 1
         frame.ScrollBarThickness = 4
-        frame.ScrollBarImageColor3 = Color3.fromRGB(80, 70, 120)
+        frame.ScrollBarImageColor3 = Theme.ElementActive
         frame.CanvasSize = UDim2.new(0, 0, 0, 0)
         frame.BorderSizePixel = 0
         frame.Visible = false
@@ -343,43 +370,15 @@ return function(Core)
             frame.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
         end))
         
-        
         self.TabFrames[name] = frame
-        
         task.defer(function() self:UpdateTabWidths() end)
 
-        local TabObj = {
-            Frame = frame,
-            Library = self
-        }
-
-        function TabObj:AddSection(text)
-            return self.Library:CreateSection(self.Frame, text)
-        end
-        function TabObj:AddButton(text, callback)
-            return self.Library:CreateButton(self.Frame, text, callback)
-        end
-        function TabObj:AddToggle(text, initialState, callback)
-            -- Syntactic sugar over AddButton
-            local btn
-            btn = self.Library:CreateButton(self.Frame, text .. ": " .. (initialState and "ON" or "OFF"), function()
-                initialState = not initialState
-                btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
-                btn.BackgroundColor3 = initialState and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
-                callback(initialState)
-            end)
-            btn.BackgroundColor3 = initialState and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
-            return {
-                SetState = function(state)
-                    initialState = state
-                    btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
-                    btn.BackgroundColor3 = initialState and Color3.fromRGB(35, 120, 35) or IDLE_COLOR
-                end
-            }
-        end
-        function TabObj:AddSlider(text, default, min, max, callback)
-            return self.Library:CreateSlider(self.Frame, text, default, callback, min, max)
-        end
+        local TabObj = { Frame = frame, Library = self }
+        function TabObj:AddSection(text) return self.Library:CreateSection(self.Frame, text) end
+        function TabObj:AddButton(text, callback) return self.Library:CreateButton(self.Frame, text, callback) end
+        function TabObj:AddToggle(text, initialState, callback) return self.Library:CreateToggle(self.Frame, text, initialState, callback) end
+        function TabObj:AddSlider(text, default, min, max, callback) return self.Library:CreateSlider(self.Frame, text, default, callback, min, max) end
+        function TabObj:AddKeybind(text, defaultKey, callback) return self.Library:CreateKeybind(self.Frame, text, defaultKey, callback) end
 
         return TabObj
     end
@@ -399,7 +398,7 @@ return function(Core)
         local l = Instance.new("TextLabel")
         l.Parent = f; l.Size = UDim2.new(1,0,1,0); l.BackgroundTransparency = 1
         l.Text = "— " .. text .. " —"
-        l.TextColor3 = Color3.fromRGB(140, 130, 190)
+        l.TextColor3 = Theme.TextAccent
         l.Font = Enum.Font.GothamBold; l.TextSize = 11
     end
 
@@ -407,27 +406,59 @@ return function(Core)
         local btn = Instance.new("TextButton")
         btn.Parent = parent
         btn.Size = UDim2.new(0.9, 0, 0, 32)
-        btn.BackgroundColor3 = IDLE_COLOR
+        btn.BackgroundColor3 = Theme.ElementIdle
         btn.Font = Enum.Font.GothamBold
         btn.Text = text
-        btn.TextColor3 = Color3.new(1,1,1)
+        btn.TextColor3 = Theme.TextPrimary
         btn.TextSize = 13
         btn.LayoutOrder = NextOrder(parent)
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-        Utility.RegisterConnection(btn.MouseEnter:Connect(function()
-            if btn.BackgroundColor3 == IDLE_COLOR then
-                btn.BackgroundColor3 = HOVER_COLOR
-            end
+        Utility.RegisterConnection(btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = Theme.ElementHover}) end))
+        Utility.RegisterConnection(btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = Theme.ElementIdle}) end))
+        Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
+        
+        return btn
+    end
+
+    function UILibrary:CreateToggle(parent, text, initialState, callback)
+        local f = Instance.new("Frame")
+        f.Parent = parent
+        f.Size = UDim2.new(0.9, 0, 0, 32)
+        f.BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle
+        f.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", f).CornerRadius = UDim.new(0, 6)
+
+        local btn = Instance.new("TextButton")
+        btn.Parent = f
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
+        btn.Font = Enum.Font.GothamBold
+        btn.TextColor3 = Theme.TextPrimary
+        btn.TextSize = 13
+
+        Utility.RegisterConnection(btn.MouseEnter:Connect(function() 
+            if not initialState then tween(f, {BackgroundColor3 = Theme.ElementHover}) end
         end))
-        Utility.RegisterConnection(btn.MouseLeave:Connect(function()
-            if btn.BackgroundColor3 == HOVER_COLOR then
-                btn.BackgroundColor3 = IDLE_COLOR
-            end
+        Utility.RegisterConnection(btn.MouseLeave:Connect(function() 
+            if not initialState then tween(f, {BackgroundColor3 = Theme.ElementIdle}) end
         end))
 
-        Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
-        return btn
+        Utility.RegisterConnection(btn.Activated:Connect(function()
+            initialState = not initialState
+            btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
+            tween(f, {BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle}, 0.15)
+            callback(initialState)
+        end))
+
+        return {
+            SetState = function(state)
+                initialState = state
+                btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
+                tween(f, {BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle}, 0.15)
+            end
+        }
     end
 
     function UILibrary:CreateSlider(parent, text, default, cb, min, max)
@@ -448,32 +479,32 @@ return function(Core)
         local lbl = Instance.new("TextLabel")
         lbl.Parent = f; lbl.Size = UDim2.new(0.7,0,0,20)
         lbl.BackgroundTransparency = 1; lbl.Text = text
-        lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = Enum.Font.GothamBold
+        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamBold
         lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
 
         local valLbl = Instance.new("TextLabel")
         valLbl.Parent = f; valLbl.Size = UDim2.new(0.3,0,0,20)
         valLbl.Position = UDim2.new(0.7,0,0,0)
         valLbl.BackgroundTransparency = 1; valLbl.Text = tostring(default)
-        valLbl.TextColor3 = Color3.new(1,1,1); valLbl.Font = Enum.Font.Gotham
+        valLbl.TextColor3 = Theme.TextPrimary; valLbl.Font = Enum.Font.Gotham
         valLbl.TextSize = 13; valLbl.TextXAlignment = Enum.TextXAlignment.Right
 
         local sliderBG = Instance.new("TextButton")
         sliderBG.Parent = f; sliderBG.Size = UDim2.new(1,0,0,10)
         sliderBG.Position = UDim2.new(0,0,0,26)
-        sliderBG.BackgroundColor3 = Color3.fromRGB(30,30,40)
+        sliderBG.BackgroundColor3 = Theme.ElementIdle
         sliderBG.Text = ""; sliderBG.AutoButtonColor = false
         Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(1, 0)
 
         local sliderFill = Instance.new("Frame")
         sliderFill.Parent = sliderBG; sliderFill.Size = UDim2.new((default - min) / (max - min),0,1,0)
-        sliderFill.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
+        sliderFill.BackgroundColor3 = Theme.SliderFill
         Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
 
         local function updateSlider(input)
             local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, sliderBG.AbsoluteSize.X)
             local pct = posX / sliderBG.AbsoluteSize.X
-            sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+            tween(sliderFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.1)
             local val = min + ((max - min) * pct)
             val = math.floor(val * 100) / 100
             valLbl.Text = tostring(val)
@@ -487,6 +518,50 @@ return function(Core)
                 activeSliderId = sliderId
                 updateSlider(input)
             end
+        end))
+
+        return f
+    end
+
+    function UILibrary:CreateKeybind(parent, text, defaultKey, cb)
+        local f = Instance.new("Frame")
+        f.Parent = parent
+        f.Size = UDim2.new(0.9, 0, 0, 32)
+        f.BackgroundTransparency = 1
+        f.LayoutOrder = NextOrder(parent)
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Parent = f; lbl.Size = UDim2.new(0.6,0,1,0)
+        lbl.BackgroundTransparency = 1; lbl.Text = text
+        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local btn = Instance.new("TextButton")
+        btn.Parent = f; btn.Size = UDim2.new(0.4, 0, 0, 26)
+        btn.Position = UDim2.new(0.6, 0, 0, 3)
+        btn.BackgroundColor3 = Theme.ElementIdle
+        btn.Font = Enum.Font.GothamBold
+        btn.Text = defaultKey and defaultKey.Name or "None"
+        btn.TextColor3 = Theme.TextPrimary
+        btn.TextSize = 12
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+
+        Utility.RegisterConnection(btn.MouseEnter:Connect(function() 
+            if activeKeybindBtn ~= btn then tween(btn, {BackgroundColor3 = Theme.ElementHover}) end
+        end))
+        Utility.RegisterConnection(btn.MouseLeave:Connect(function() 
+            if activeKeybindBtn ~= btn then tween(btn, {BackgroundColor3 = Theme.ElementIdle}) end
+        end))
+
+        Utility.RegisterConnection(btn.Activated:Connect(function()
+            if activeKeybindBtn then
+                activeKeybindBtn.Text = "None"
+                tween(activeKeybindBtn, {BackgroundColor3 = Theme.ElementIdle})
+            end
+            activeKeybindBtn = btn
+            activeKeybindCb = cb
+            btn.Text = "..."
+            tween(btn, {BackgroundColor3 = Theme.ElementActive})
         end))
 
         return f
