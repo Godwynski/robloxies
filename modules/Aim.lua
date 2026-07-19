@@ -317,5 +317,119 @@ return function(Core)
         return bestPart, debugState
     end
 
+    function Aim.Init()
+        -- Register UI
+        if Core.UI and Core.UI.Window then
+            local CombatTab = Core.UI.Window:AddTab("Combat")
+            CombatTab:AddSection("AIM")
+            
+            Core.UI.SyncAutoAimButton = function() end -- Provide a fallback
+            
+            local aimBtn = CombatTab:AddToggle("Auto-Aim", Config.AutoAimEnabled, function(val)
+                Config.AutoAimEnabled = val
+                Core.Drawings.FOVCircle.Visible = val
+            end)
+            
+            Core.UI.SyncAutoAimButton = function()
+                aimBtn.SetState(Config.AutoAimEnabled)
+            end
+
+            CombatTab:AddSlider("FOV Radius", Config.ViewAngle, 10, 800, function(val)
+                Config.ViewAngle = val
+                Core.Drawings.FOVCircle.Radius = val
+            end)
+            
+            CombatTab:AddSlider("Smoothing", Config.Smoothing, 0.01, 30, function(val) Config.Smoothing = val end)
+
+            local focusBtn = CombatTab:AddButton("Focus: " .. Config.FocusPoint, function() end)
+            -- Hacky way to override the callback for a toggle-like text update
+            Utility.RegisterConnection(focusBtn.Activated:Connect(function()
+                Config.FocusPoint = Config.FocusPoint == "HumanoidRootPart" and "Head" or "HumanoidRootPart"
+                focusBtn.Text = "Focus: " .. Config.FocusPoint
+            end))
+
+            local methodBtn = CombatTab:AddButton("Method: " .. Config.TrackingMethod, function() end)
+            Utility.RegisterConnection(methodBtn.Activated:Connect(function()
+                Config.TrackingMethod = Config.TrackingMethod == "Camera" and "Mouse" or "Camera"
+                methodBtn.Text = "Method: " .. Config.TrackingMethod
+            end))
+
+            local targetBtn = CombatTab:AddButton("Target: " .. Config.TargetMode, function() end)
+            Utility.RegisterConnection(targetBtn.Activated:Connect(function()
+                if Config.TargetMode == "Players" then Config.TargetMode = "NPCs"
+                elseif Config.TargetMode == "NPCs" then Config.TargetMode = "Both"
+                else Config.TargetMode = "Players" end
+                targetBtn.Text = "Target: " .. Config.TargetMode
+            end))
+
+            local prioBtn = CombatTab:AddButton("Priority: " .. Config.PriorityMode, function() end)
+            Utility.RegisterConnection(prioBtn.Activated:Connect(function()
+                if Config.PriorityMode == "Distance" then Config.PriorityMode = "LowHP"
+                elseif Config.PriorityMode == "LowHP" then Config.PriorityMode = "Closest3D"
+                else Config.PriorityMode = "Distance" end
+                prioBtn.Text = "Priority: " .. Config.PriorityMode
+            end))
+
+            CombatTab:AddSection("ADVANCED")
+            CombatTab:AddToggle("Wall Check", Config.WallCheck, function(val) Config.WallCheck = val end)
+            CombatTab:AddToggle("Team Check", Config.TeamCheck, function(val) Config.TeamCheck = val end)
+            CombatTab:AddToggle("Sticky Target", Config.StickyTarget, function(val)
+                Config.StickyTarget = val
+                if not val then State.LockedTarget = nil; State.LockedCharacter = nil end
+            end)
+            CombatTab:AddToggle("Prediction", Config.Prediction, function(val) Config.Prediction = val end)
+            CombatTab:AddSlider("Predict Scale", Config.PredictionScale, 0, 1, function(val) Config.PredictionScale = val end)
+        end
+
+        -- Subscribe to Render Loop
+        Core.EventManager:Subscribe("OnRender", "AimBotRender", function(ctx)
+            if Core.Drawings.FOVCircle then
+                Core.Drawings.FOVCircle.Position = ctx.MouseLocation
+                Core.Drawings.FOVCircle.Radius = Config.ViewAngle
+            end
+
+            local target = nil
+            local aimState = "Disabled"
+
+            if Config.AutoAimEnabled then
+                target, aimState = Aim.GetTarget()
+
+                if target then
+                    Core.Drawings.FOVCircle.Color = Color3.fromRGB(50, 255, 50)
+                    
+                    local aimPos = target.Position
+                    if Config.Prediction then
+                        local vel = Vector3.zero
+                        pcall(function() vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero end)
+                        aimPos = aimPos + vel * Config.PredictionScale
+                    end
+
+                    if Config.TrackingMethod == "Mouse" then
+                        local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
+                        if onScreen then
+                            local dx = (sp.X - ctx.MouseLocation.X) / (Config.Smoothing + 1)
+                            local dy = (sp.Y - ctx.MouseLocation.Y) / (Config.Smoothing + 1)
+                            pcall(function() mousemoverel(dx, dy) end)
+                        end
+                    elseif Config.TrackingMethod == "Camera" then
+                        local curCF = ctx.Camera.CFrame
+                        local tgtCF = CFrame.new(curCF.Position, aimPos)
+                        local alpha = 1 / (Config.Smoothing + 1)
+                        ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                    end
+                else
+                    Core.Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+                end
+            else
+                if Core.Drawings.FOVCircle then
+                    Core.Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+                end
+            end
+            
+            State.AimState = aimState
+            State.CurrentTarget = target
+        end)
+    end
+
     return Aim
 end

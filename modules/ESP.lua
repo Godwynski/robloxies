@@ -203,5 +203,44 @@ return function(Core)
         end
     end
 
+    function ESP.Init()
+        if Core.UI and Core.UI.Window then
+            local VisualsTab = Core.UI.Window:AddTab("Visuals")
+            VisualsTab:AddSection("ESP OVERLAYS")
+            
+            VisualsTab:AddToggle("ESP", Config.ESPEnabled, function(val)
+                Config.ESPEnabled = val
+                if not val then
+                    for _, cache in pairs(State.ESPCache) do
+                        for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
+                    end
+                end
+            end)
+            
+            VisualsTab:AddToggle("ESP Boxes", Config.ESPBoxes, function(val) Config.ESPBoxes = val end)
+            VisualsTab:AddToggle("ESP Names", Config.ESPNames, function(val) Config.ESPNames = val end)
+            VisualsTab:AddToggle("ESP Health", Config.ESPHealth, function(val) Config.ESPHealth = val end)
+            VisualsTab:AddToggle("ESP Distance", Config.ESPDistance, function(val) Config.ESPDistance = val end)
+            VisualsTab:AddToggle("ESP Tracers", Config.ESPTracers, function(val) Config.ESPTracers = val end)
+            VisualsTab:AddToggle("ESP Team Color", Config.ESPTeamColor, function(val) Config.ESPTeamColor = val end)
+            VisualsTab:AddSlider("ESP Max Dist", Config.ESPMaxDist, 50, 5000, function(val) Config.ESPMaxDist = val end)
+            
+            VisualsTab:AddSection("OPTIMIZATION")
+            VisualsTab:AddButton("⚠ Apply FPS Boost (Irreversible)", function(btn)
+                Core.Utility.OptimizeFPS()
+            end)
+        end
+
+        Core.EventManager:Subscribe("OnRender", "ESPRender", function(ctx)
+            if Config.ESPEnabled then
+                pcall(ESP.UpdateESP)
+            else
+                for _, cache in pairs(State.ESPCache) do
+                    ESP.HideESPDrawings(cache)
+                end
+            end
+        end)
+    end
+
     return ESP
 end

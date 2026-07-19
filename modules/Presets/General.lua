@@ -1,11 +1,12 @@
 return function(Core)
     local Preset = {}
 
+    -- Provide configurations specific to this game
+    Preset.ConfigOverrides = {}
+
+    -- Optional: Set up custom event hooks or other logic
     function Preset.Init()
-        print("[General Preset] Initializing default settings.")
-        
-        -- No specific overrides needed for General, 
-        -- it just relies on the default Config.lua and base Hook.lua
+        print("[General Plugin] Initialized default settings.")
     end
 
     return Preset

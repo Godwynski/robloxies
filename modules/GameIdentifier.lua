@@ -1,40 +1,54 @@
 return function(Core, loadModuleFunc)
     local PlaceId = game.PlaceId
     
-    -- Mapping of game/place IDs to preset names
     local Games = {
-        [126042865144779] = "Rivals", -- From diagnostics
-        [71874690745115] = "Rivals",  -- Real Rivals PlaceID from updated scan
-        [17621415041] = "Rivals",     -- Known Rivals place ID
-        [17373859664] = "Rivals",     -- Another known Rivals place ID
+        [126042865144779] = "Rivals",
+        [71874690745115] = "Rivals",
+        [17621415041] = "Rivals",
+        [17373859664] = "Rivals",
     }
     
     local PresetName = Games[PlaceId] or "General"
     print("[GameIdentifier] Identified preset for PlaceId " .. tostring(PlaceId) .. ": " .. PresetName)
     
-    local success, presetFn = pcall(function()
-        return loadModuleFunc("Presets/" .. PresetName .. ".lua")
-    end)
-    
-    if success and type(presetFn) == "function" then
-        return presetFn(Core)
-    else
-        warn("[GameIdentifier] Failed to load preset:", PresetName, "| Error:", tostring(presetFn))
+    local function loadPreset(name)
+        local success, presetPlugin = pcall(function()
+            return loadModuleFunc("Presets/" .. name .. ".lua")
+        end)
+        
+        if success and type(presetPlugin) == "function" then
+            local Plugin = presetPlugin(Core)
+            
+            -- Merge Configurations
+            if Plugin.ConfigOverrides then
+                Core.Config:Merge(Plugin.ConfigOverrides)
+            end
+            
+            -- Inject Custom UI
+            if Plugin.BuildUITab and Core.UI and Core.UI.Window then
+                Plugin.BuildUITab(Core.UI.Window)
+            end
+            
+            -- Initialize Custom Logic / Event Hooks
+            if Plugin.Init then
+                Plugin.Init()
+            end
+            
+            return Plugin
+        end
+        return nil
+    end
 
-        -- Fix #18: wrap the General fallback in its own pcall so a network failure
-        -- doesn't leave the user with no UI at all
+    local Plugin = loadPreset(PresetName)
+    if not Plugin then
+        warn("[GameIdentifier] Failed to load preset:", PresetName)
         if PresetName ~= "General" then
-            local fbSuccess, fbResult = pcall(function()
-                return loadModuleFunc("Presets/General.lua")
-            end)
-            if fbSuccess and type(fbResult) == "function" then
-                return fbResult(Core)
-            else
-                warn("[GameIdentifier] General preset fallback also failed:", tostring(fbResult))
+            Plugin = loadPreset("General")
+            if not Plugin then
+                warn("[GameIdentifier] General preset fallback also failed.")
             end
         end
-
-        -- Last resort: return a minimal no-op preset so the rest of init can continue
-        return { Init = function() warn("[GameIdentifier] Running with no preset.") end }
     end
+    
+    return Plugin
 end

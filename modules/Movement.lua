@@ -16,6 +16,21 @@ return function(Core)
     local noClipCache = {}
 
     function Movement.Init()
+        if Core.UI and Core.UI.Window then
+            local MoveTab = Core.UI.Window:AddTab("Movement")
+            MoveTab:AddSection("PHYSICS OVERRIDES")
+            
+            MoveTab:AddToggle("Speed Hack", Config.WalkSpeedEnabled, function(val) Config.WalkSpeedEnabled = val end)
+            MoveTab:AddSlider("Walk Speed", Config.WalkSpeed, 16, 200, function(val) Config.WalkSpeed = val end)
+            
+            MoveTab:AddToggle("Jump Hack", Config.JumpPowerEnabled, function(val) Config.JumpPowerEnabled = val end)
+            MoveTab:AddSlider("Jump Power", Config.JumpPower, 50, 300, function(val) Config.JumpPower = val end)
+            
+            MoveTab:AddSection("UTILITY")
+            MoveTab:AddToggle("No-Clip", Config.NoClipEnabled, function(val) Config.NoClipEnabled = val end)
+            MoveTab:AddToggle("Infinite Jump", Config.InfiniteJumpEnabled, function(val) Config.InfiniteJumpEnabled = val end)
+        end
+
         -- Infinite Jump Logic
         Utility.RegisterConnection(UserInputService.JumpRequest:Connect(function()
             if Config.InfiniteJumpEnabled then
