@@ -5,18 +5,18 @@ return function(Core)
     local TweenService = game:GetService("TweenService")
 
     local Theme = {
-        Background = Color3.fromRGB(22, 22, 28),
-        Header = Color3.fromRGB(15, 15, 20),
-        Stroke = Color3.fromRGB(60, 50, 90),
-        TextPrimary = Color3.fromRGB(255, 255, 255),
-        TextSecondary = Color3.fromRGB(150, 150, 150),
-        TextAccent = Color3.fromRGB(190, 170, 255),
-        ElementIdle = Color3.fromRGB(30, 30, 40),
-        ElementHover = Color3.fromRGB(50, 45, 70),
-        ElementActive = Color3.fromRGB(80, 70, 120),
-        Success = Color3.fromRGB(35, 120, 35),
-        SliderFill = Color3.fromRGB(120, 100, 200),
-        CloseButton = Color3.fromRGB(180, 50, 50),
+        Background = Color3.fromRGB(14, 16, 22),
+        Header = Color3.fromRGB(10, 12, 16),
+        Stroke = Color3.fromRGB(38, 42, 58),
+        TextPrimary = Color3.fromRGB(240, 242, 248),
+        TextSecondary = Color3.fromRGB(140, 148, 168),
+        TextAccent = Color3.fromRGB(160, 140, 255),
+        ElementIdle = Color3.fromRGB(22, 26, 36),
+        ElementHover = Color3.fromRGB(34, 40, 56),
+        ElementActive = Color3.fromRGB(110, 86, 255),
+        Success = Color3.fromRGB(110, 86, 255),
+        SliderFill = Color3.fromRGB(124, 92, 255),
+        CloseButton = Color3.fromRGB(220, 60, 80),
     }
     UILibrary.Theme = Theme -- Expose theme for UI.lua
 
@@ -392,71 +392,118 @@ return function(Core)
     function UILibrary:CreateSection(parent, text)
         local f = Instance.new("Frame")
         f.Parent = parent
-        f.Size = UDim2.new(0.92, 0, 0, 22)
+        f.Size = UDim2.new(0.92, 0, 0, 26)
         f.BackgroundTransparency = 1
         f.LayoutOrder = NextOrder(parent)
+
+        local dot = Instance.new("Frame")
+        dot.Parent = f
+        dot.Size = UDim2.new(0, 6, 0, 6)
+        dot.Position = UDim2.new(0, 4, 0.5, -3)
+        dot.BackgroundColor3 = Theme.TextAccent
+        Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
         local l = Instance.new("TextLabel")
-        l.Parent = f; l.Size = UDim2.new(1,0,1,0); l.BackgroundTransparency = 1
-        l.Text = "— " .. text .. " —"
+        l.Parent = f; l.Size = UDim2.new(1, -16, 1, 0)
+        l.Position = UDim2.new(0, 16, 0, 0)
+        l.BackgroundTransparency = 1
+        l.Text = text:upper()
         l.TextColor3 = Theme.TextAccent
         l.Font = Enum.Font.GothamBold; l.TextSize = 11
+        l.TextXAlignment = Enum.TextXAlignment.Left
     end
 
     function UILibrary:CreateButton(parent, text, onClick)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 36)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
+
         local btn = Instance.new("TextButton")
-        btn.Parent = parent
-        btn.Size = UDim2.new(0.9, 0, 0, 32)
-        btn.BackgroundColor3 = Theme.ElementIdle
+        btn.Parent = card
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
         btn.Font = Enum.Font.GothamBold
         btn.Text = text
         btn.TextColor3 = Theme.TextPrimary
         btn.TextSize = 13
-        btn.LayoutOrder = NextOrder(parent)
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-        Utility.RegisterConnection(btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = Theme.ElementHover}) end))
-        Utility.RegisterConnection(btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = Theme.ElementIdle}) end))
+        Utility.RegisterConnection(btn.MouseEnter:Connect(function() tween(card, {BackgroundColor3 = Theme.ElementHover}) end))
+        Utility.RegisterConnection(btn.MouseLeave:Connect(function() tween(card, {BackgroundColor3 = Theme.ElementIdle}) end))
         Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
         
-        return btn
+        return card
     end
 
     function UILibrary:CreateToggle(parent, text, initialState, callback)
-        local f = Instance.new("Frame")
-        f.Parent = parent
-        f.Size = UDim2.new(0.9, 0, 0, 32)
-        f.BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle
-        f.LayoutOrder = NextOrder(parent)
-        Instance.new("UICorner", f).CornerRadius = UDim.new(0, 6)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 36)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Parent = card
+        lbl.Size = UDim2.new(1, -60, 1, 0)
+        lbl.Position = UDim2.new(0, 12, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.Font = Enum.Font.GothamMedium
+        lbl.TextColor3 = Theme.TextPrimary
+        lbl.TextSize = 13
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local track = Instance.new("Frame")
+        track.Parent = card
+        track.Size = UDim2.new(0, 38, 0, 20)
+        track.Position = UDim2.new(1, -50, 0.5, -10)
+        track.BackgroundColor3 = initialState and Theme.Success or Color3.fromRGB(36, 40, 54)
+        Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+        local knob = Instance.new("Frame")
+        knob.Parent = track
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = initialState and UDim2.new(0, 20, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+        knob.BackgroundColor3 = Color3.fromRGB(240, 242, 248)
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
 
         local btn = Instance.new("TextButton")
-        btn.Parent = f
+        btn.Parent = card
         btn.Size = UDim2.new(1, 0, 1, 0)
         btn.BackgroundTransparency = 1
-        btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
-        btn.Font = Enum.Font.GothamBold
-        btn.TextColor3 = Theme.TextPrimary
-        btn.TextSize = 13
+        btn.Text = ""
 
-        Utility.RegisterConnection(btn.MouseEnter:Connect(function() 
-            if not initialState then tween(f, {BackgroundColor3 = Theme.ElementHover}) end
-        end))
-        Utility.RegisterConnection(btn.MouseLeave:Connect(function() 
-            if not initialState then tween(f, {BackgroundColor3 = Theme.ElementIdle}) end
-        end))
+        local function updateVisuals(state)
+            tween(track, {BackgroundColor3 = state and Theme.Success or Color3.fromRGB(36, 40, 54)}, 0.2)
+            tween(knob, {Position = state and UDim2.new(0, 20, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}, 0.2, Enum.EasingStyle.Quad)
+        end
+
+        Utility.RegisterConnection(btn.MouseEnter:Connect(function() tween(card, {BackgroundColor3 = Theme.ElementHover}) end))
+        Utility.RegisterConnection(btn.MouseLeave:Connect(function() tween(card, {BackgroundColor3 = Theme.ElementIdle}) end))
 
         Utility.RegisterConnection(btn.Activated:Connect(function()
             initialState = not initialState
-            btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
-            tween(f, {BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle}, 0.15)
+            updateVisuals(initialState)
             callback(initialState)
         end))
 
         return {
             SetState = function(state)
                 initialState = state
-                btn.Text = text .. ": " .. (initialState and "ON" or "OFF")
-                tween(f, {BackgroundColor3 = initialState and Theme.Success or Theme.ElementIdle}, 0.15)
+                updateVisuals(initialState)
             end
         }
     end
@@ -470,29 +517,42 @@ return function(Core)
         sliderIdCounter = sliderIdCounter + 1
         local sliderId = sliderIdCounter
 
-        local f = Instance.new("Frame")
-        f.Parent = parent
-        f.Size = UDim2.new(0.9, 0, 0, 48)
-        f.BackgroundTransparency = 1
-        f.LayoutOrder = NextOrder(parent)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 50)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
 
         local lbl = Instance.new("TextLabel")
-        lbl.Parent = f; lbl.Size = UDim2.new(0.7,0,0,20)
+        lbl.Parent = card; lbl.Size = UDim2.new(0.7,0,0,22)
+        lbl.Position = UDim2.new(0, 12, 0, 4)
         lbl.BackgroundTransparency = 1; lbl.Text = text
-        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamBold
+        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamMedium
         lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
 
+        local valBadge = Instance.new("Frame")
+        valBadge.Parent = card
+        valBadge.Size = UDim2.new(0, 48, 0, 18)
+        valBadge.Position = UDim2.new(1, -60, 0, 6)
+        valBadge.BackgroundColor3 = Color3.fromRGB(32, 38, 54)
+        Instance.new("UICorner", valBadge).CornerRadius = UDim.new(0, 4)
+
         local valLbl = Instance.new("TextLabel")
-        valLbl.Parent = f; valLbl.Size = UDim2.new(0.3,0,0,20)
-        valLbl.Position = UDim2.new(0.7,0,0,0)
+        valLbl.Parent = valBadge; valLbl.Size = UDim2.new(1,0,1,0)
         valLbl.BackgroundTransparency = 1; valLbl.Text = tostring(default)
-        valLbl.TextColor3 = Theme.TextPrimary; valLbl.Font = Enum.Font.Gotham
-        valLbl.TextSize = 13; valLbl.TextXAlignment = Enum.TextXAlignment.Right
+        valLbl.TextColor3 = Theme.TextAccent; valLbl.Font = Enum.Font.GothamBold
+        valLbl.TextSize = 11; valLbl.TextXAlignment = Enum.TextXAlignment.Center
 
         local sliderBG = Instance.new("TextButton")
-        sliderBG.Parent = f; sliderBG.Size = UDim2.new(1,0,0,10)
-        sliderBG.Position = UDim2.new(0,0,0,26)
-        sliderBG.BackgroundColor3 = Theme.ElementIdle
+        sliderBG.Parent = card; sliderBG.Size = UDim2.new(1, -24, 0, 6)
+        sliderBG.Position = UDim2.new(0, 12, 0, 34)
+        sliderBG.BackgroundColor3 = Color3.fromRGB(36, 40, 54)
         sliderBG.Text = ""; sliderBG.AutoButtonColor = false
         Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(1, 0)
 
@@ -504,7 +564,7 @@ return function(Core)
         local function updateSlider(input)
             local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, sliderBG.AbsoluteSize.X)
             local pct = posX / sliderBG.AbsoluteSize.X
-            tween(sliderFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.1)
+            tween(sliderFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.05)
             local val = min + ((max - min) * pct)
             val = math.floor(val * 100) / 100
             valLbl.Text = tostring(val)
@@ -520,43 +580,50 @@ return function(Core)
             end
         end))
 
-        return f
+        return card
     end
 
     function UILibrary:CreateKeybind(parent, text, defaultKey, cb)
-        local f = Instance.new("Frame")
-        f.Parent = parent
-        f.Size = UDim2.new(0.9, 0, 0, 32)
-        f.BackgroundTransparency = 1
-        f.LayoutOrder = NextOrder(parent)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 36)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
 
         local lbl = Instance.new("TextLabel")
-        lbl.Parent = f; lbl.Size = UDim2.new(0.6,0,1,0)
+        lbl.Parent = card; lbl.Size = UDim2.new(0.6, 0, 1, 0)
+        lbl.Position = UDim2.new(0, 12, 0, 0)
         lbl.BackgroundTransparency = 1; lbl.Text = text
-        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamBold
+        lbl.TextColor3 = Theme.TextPrimary; lbl.Font = Enum.Font.GothamMedium
         lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left
 
         local btn = Instance.new("TextButton")
-        btn.Parent = f; btn.Size = UDim2.new(0.4, 0, 0, 26)
-        btn.Position = UDim2.new(0.6, 0, 0, 3)
-        btn.BackgroundColor3 = Theme.ElementIdle
+        btn.Parent = card; btn.Size = UDim2.new(0, 80, 0, 24)
+        btn.Position = UDim2.new(1, -92, 0.5, -12)
+        btn.BackgroundColor3 = Color3.fromRGB(32, 38, 54)
         btn.Font = Enum.Font.GothamBold
         btn.Text = defaultKey and defaultKey.Name or "None"
-        btn.TextColor3 = Theme.TextPrimary
-        btn.TextSize = 12
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        btn.TextColor3 = Theme.TextAccent
+        btn.TextSize = 11
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
         Utility.RegisterConnection(btn.MouseEnter:Connect(function() 
             if activeKeybindBtn ~= btn then tween(btn, {BackgroundColor3 = Theme.ElementHover}) end
         end))
         Utility.RegisterConnection(btn.MouseLeave:Connect(function() 
-            if activeKeybindBtn ~= btn then tween(btn, {BackgroundColor3 = Theme.ElementIdle}) end
+            if activeKeybindBtn ~= btn then tween(btn, {BackgroundColor3 = Color3.fromRGB(32, 38, 54)}) end
         end))
 
         Utility.RegisterConnection(btn.Activated:Connect(function()
             if activeKeybindBtn then
                 activeKeybindBtn.Text = "None"
-                tween(activeKeybindBtn, {BackgroundColor3 = Theme.ElementIdle})
+                tween(activeKeybindBtn, {BackgroundColor3 = Color3.fromRGB(32, 38, 54)})
             end
             activeKeybindBtn = btn
             activeKeybindCb = cb
@@ -564,7 +631,7 @@ return function(Core)
             tween(btn, {BackgroundColor3 = Theme.ElementActive})
         end))
 
-        return f
+        return card
     end
 
     return UILibrary

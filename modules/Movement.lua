@@ -13,7 +13,7 @@ return function(Core)
     local originalJumpHeight = nil
 
     -- Cache of parts whose CanCollide was changed by NoClip, for restoration (#6)
-    local noClipCache = {}
+    local noClipCache = setmetatable({}, {__mode = "k"})
 
     function Movement.Init()
         if Core.UI and Core.UI.Window then

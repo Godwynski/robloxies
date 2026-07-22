@@ -21,13 +21,13 @@ return function(Core)
         function UI.UpdateFloatStatus()
             if not UILibrary.FloatingCircle.Visible then return end
             if Config.AutoAimEnabled then
-                UILibrary.FloatStroke.Color = Theme.Success
-                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
-            elseif Config.ESPEnabled then
-                UILibrary.FloatStroke.Color = Color3.fromRGB(180, 50, 220)
-                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(40, 25, 45)
-            else
                 UILibrary.FloatStroke.Color = Theme.TextAccent
+                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(28, 22, 54)
+            elseif Config.ESPEnabled then
+                UILibrary.FloatStroke.Color = Color3.fromRGB(160, 140, 255)
+                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(34, 28, 66)
+            else
+                UILibrary.FloatStroke.Color = Theme.Stroke
                 UILibrary.FloatingCircle.BackgroundColor3 = Theme.ElementIdle
             end
         end

@@ -81,7 +81,10 @@ return function(Core)
         for k, v in pairs(data) do
             if type(v) == "table" and v.Type == "EnumItem" then
                 pcall(function()
-                    self[k] = Enum[tostring(v.EnumType):split(".")[2] or v.EnumType][v.Name]
+                    local enumName = tostring(v.EnumType):gsub("^Enum%.", "")
+                    if Enum[enumName] and Enum[enumName][v.Name] then
+                        self[k] = Enum[enumName][v.Name]
+                    end
                 end)
             else
                 self[k] = v

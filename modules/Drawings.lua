@@ -103,22 +103,26 @@ return function(Core)
                     local hp = hum and hum.Health or 0
                     local maxHp = hum and hum.MaxHealth or 100
 
+                    -- Clamp position within viewport bounds
+                    local clampedX = math.clamp(sp.X, 40, viewport.X - 40)
+                    local clampedY = math.clamp(sp.Y, 50, viewport.Y - 20)
+
                     -- Target name text
                     Drawings.TargetInfoText.Text = char.Name
-                    Drawings.TargetInfoText.Position = Vector2.new(sp.X, sp.Y - 50)
+                    Drawings.TargetInfoText.Position = Vector2.new(clampedX, clampedY - 50)
                     Drawings.TargetInfoText.Visible = true
 
                     -- Health bar background
                     local barW = 60
                     local barH = 5
                     Drawings.TargetHealthBG.Size = Vector2.new(barW, barH)
-                    Drawings.TargetHealthBG.Position = Vector2.new(sp.X - barW / 2, sp.Y - 38)
+                    Drawings.TargetHealthBG.Position = Vector2.new(clampedX - barW / 2, clampedY - 38)
                     Drawings.TargetHealthBG.Visible = true
 
                     -- Health bar fill
                     local hpPct = math.clamp(hp / math.max(maxHp, 1), 0, 1)
                     Drawings.TargetHealthFill.Size = Vector2.new(barW * hpPct, barH)
-                    Drawings.TargetHealthFill.Position = Vector2.new(sp.X - barW / 2, sp.Y - 38)
+                    Drawings.TargetHealthFill.Position = Vector2.new(clampedX - barW / 2, clampedY - 38)
                     if hpPct > 0.6 then
                         Drawings.TargetHealthFill.Color = Color3.fromRGB(50, 200, 50)
                     elseif hpPct > 0.3 then
@@ -129,7 +133,7 @@ return function(Core)
                     Drawings.TargetHealthFill.Visible = true
 
                     -- Lock indicator (diamond around target)
-                    Drawings.LockIndicator.Position = Vector2.new(sp.X, sp.Y)
+                    Drawings.LockIndicator.Position = Vector2.new(clampedX, clampedY)
                     Drawings.LockIndicator.Visible = true
                 else
                     Drawings.TargetInfoText.Visible = false
@@ -145,7 +149,7 @@ return function(Core)
             end
 
             -- ==================== HIT MARKER ====================
-            local hitAge = tick() - State.HitMarkerTime
+            local hitAge = os.clock() - State.HitMarkerTime
             if hitAge < 0.3 then
                 Drawings.HitMarker.Position = Vector2.new(viewport.X / 2, viewport.Y / 2)
                 Drawings.HitMarker.Visible = true
@@ -158,7 +162,7 @@ return function(Core)
             -- ==================== KILL FEED ====================
             if Config.KillFeedEnabled then
                 local maxFeed = Drawings.GetMaxKillFeed()
-                local now = tick()
+                local now = os.clock()
                 for i = 1, KILLFEED_MAX_SLOTS do
                     local entry = State.KillFeedEntries[i]
                     local drawing = Drawings.KillFeedDrawings[i]

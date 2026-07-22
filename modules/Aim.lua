@@ -80,13 +80,13 @@ return function(Core)
     end
 
     -- Enemy detection cache to avoid heavy GetDescendants() calls every frame
-    local enemyCache = {}
+    local enemyCache = setmetatable({}, {__mode = "k"})
     local ENEMY_CACHE_TTL = 0.5
     local lastCacheClean = 0
 
     function Aim.IsEnemy(char)
         -- Prune stale/destroyed entries every 2 seconds to prevent memory leaks (#14)
-        local now = tick()
+        local now = os.clock()
         if now - lastCacheClean > 2 then
             lastCacheClean = now
             for cachedChar, entry in pairs(enemyCache) do
@@ -364,7 +364,7 @@ return function(Core)
 
         local debugState = "Scanning..."
         local validCount, inFOV = 0, 0
-        local now = tick()
+        local now = os.clock()
 
         -- 1. Sticky Target Persistence check
         if Config.StickyTarget and State.LockedCharacter and State.LockedTarget then
@@ -560,7 +560,8 @@ return function(Core)
                                 if dist > Config.AimDeadzone then
                                     local factor = Config.Smoothing + 1
                                     if Config.SmoothingStyle == "Exponential" then
-                                        factor = factor * (1 + (dist / (Config.ViewAngle + 1)))
+                                        local denominator = math.max(Config.ViewAngle + 1, 1)
+                                        factor = factor * (1 + (dist / denominator))
                                     end
                                     pcall(function() mousemoverel(dx / factor, dy / factor) end)
                                 end
@@ -568,7 +569,7 @@ return function(Core)
                         elseif Config.TrackingMethod == "Camera" then
                             local curCF = ctx.Camera.CFrame
                             local tgtCF = CFrame.new(curCF.Position, aimPos)
-                            local alpha = 1 / (Config.Smoothing + 1)
+                            local alpha = math.clamp(1 / (Config.Smoothing + 1), 0, 1)
                             
                             -- Apply Deadzone check for Camera
                             local _, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
@@ -598,8 +599,8 @@ return function(Core)
                         -- Auto-Shoot (TriggerBot) Logic
                         if Config.AutoShoot and aimState == "Locked!" then
                             -- Debounce clicking so we don't spam it every frame
-                            if not State.LastAutoShoot or (tick() - State.LastAutoShoot) > 0.05 then
-                                State.LastAutoShoot = tick()
+                            if not State.LastAutoShoot or (os.clock() - State.LastAutoShoot) > 0.05 then
+                                State.LastAutoShoot = os.clock()
                                 pcall(function() mouse1click() end)
                             end
                         end

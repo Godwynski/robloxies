@@ -67,7 +67,7 @@ return function(Core)
         local State = Core.State
         table.insert(State.KillFeedEntries, 1, {
             text = text,
-            time = tick(),
+            time = os.clock(),
             color = color or Color3.new(1, 1, 1)
         })
         local MAX = Core.Config.MaxKillFeed or 6

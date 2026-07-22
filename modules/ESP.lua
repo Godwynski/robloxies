@@ -243,7 +243,7 @@ return function(Core)
                 Config.ESPEnabled = val
                 if not val then
                     for _, cache in pairs(State.ESPCache) do
-                        for _, d in pairs(cache) do pcall(function() d.Visible = false end) end
+                        ESP.HideESPDrawings(cache)
                     end
                 end
             end)

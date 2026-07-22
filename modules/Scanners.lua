@@ -267,7 +267,7 @@ return function(Core)
         end
         local r = string.rep("=", 40) .. "\nREMOTE ACTIVITY LOG\n" .. string.rep("=", 40) .. "\n\n"
         for i, entry in ipairs(State.RemoteLog) do
-            r = r .. string.format("[%d] %s  (%.1fs ago)\n", i, entry.name, tick() - entry.time)
+            r = r .. string.format("[%d] %s  (%.1fs ago)\n", i, entry.name, os.clock() - entry.time)
         end
         return r
     end

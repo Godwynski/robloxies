@@ -12,7 +12,7 @@ return function(Core)
         AssistCount = 0,
         AimState = "Disabled",
         CurrentTarget = nil,
-        ESPCache = {},
+        ESPCache = setmetatable({}, {__mode = "k"}),
         TeamData = {},
         TeamDataRaw = {},
         NPCCache = {},

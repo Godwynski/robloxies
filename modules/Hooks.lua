@@ -23,7 +23,7 @@ return function(Core)
             while Core.State.Running do
                 if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
                     local newCache = {}
-                    local now = tick()
+                    local now = os.clock()
                     local isFullScan = (now - lastFullScanAt) >= FULL_SCAN_INTERVAL or #State.NPCCache == 0
 
                     if isFullScan then
@@ -104,7 +104,7 @@ return function(Core)
                         Utility.AddKillFeedEntry(killer .. " ▸ " .. victim, color)
                     end)
                     if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "Killed", time = tick()})
+                        table.insert(State.RemoteLog, 1, {name = "Killed", time = os.clock()})
                         if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
@@ -121,9 +121,9 @@ return function(Core)
             local beDamagedRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "BeDamaged")
             if beDamagedRemote and beDamagedRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(beDamagedRemote.OnClientEvent:Connect(function(...)
-                    State.HitMarkerTime = tick()
+                    State.HitMarkerTime = os.clock()
                     if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "BeDamaged", time = tick()})
+                        table.insert(State.RemoteLog, 1, {name = "BeDamaged", time = os.clock()})
                         if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
@@ -137,7 +137,7 @@ return function(Core)
                         if typeof(args[1]) == "Instance" then
                             if args[1] == LocalPlayer.Character or args[1] == LocalPlayer then
                                 State.IsAlive = false
-                                State.DeathTime = tick()
+                                State.DeathTime = os.clock()
                             end
                         end
                     end)
@@ -217,7 +217,7 @@ return function(Core)
                         end
                     end)
                     if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "TeamService.UpdateData", time = tick(), argCount = #args})
+                        table.insert(State.RemoteLog, 1, {name = "TeamService.UpdateData", time = os.clock(), argCount = #args})
                         if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
@@ -227,7 +227,7 @@ return function(Core)
             if wsRemote and wsRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(wsRemote.OnClientEvent:Connect(function(...)
                     if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "WalkSpeed", time = tick()})
+                        table.insert(State.RemoteLog, 1, {name = "WalkSpeed", time = os.clock()})
                         if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
@@ -255,7 +255,7 @@ return function(Core)
                 State.IsAlive = hum.Health > 0
                 Utility.RegisterConnection(hum.Died:Connect(function()
                     State.IsAlive = false
-                    State.DeathTime = tick()
+                    State.DeathTime = os.clock()
                 end))
             end
             hookHumanoid()
@@ -271,7 +271,7 @@ return function(Core)
         -- Auto-respawn loop — guarded by State.Running (#2)
         task.spawn(function()
             while Core.State.Running do
-                if Config.AutoRespawn and not State.IsAlive and (tick() - State.DeathTime) > 2 then
+                if Config.AutoRespawn and not State.IsAlive and (os.clock() - State.DeathTime) > 2 then
                     pcall(function()
                         local r = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "Respawn")
                         if r and r:IsA("RemoteEvent") then

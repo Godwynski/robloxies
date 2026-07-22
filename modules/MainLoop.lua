@@ -8,7 +8,7 @@ return function(Core)
     local EventManager = Core.EventManager
 
     local NetworkPing = 0
-    local LastFrame = tick()
+    local LastFrame = os.clock()
     local FPS = 0
 
     function MainLoop.Init()
@@ -21,7 +21,7 @@ return function(Core)
         end)
 
         Services.RunService:BindToRenderStep("PureAutoAimLoop", Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
-            local now = tick()
+            local now = os.clock()
             FPS = math.floor(1 / math.max(now - LastFrame, 0.001))
             LastFrame = now
 
