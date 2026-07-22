@@ -24,6 +24,7 @@ return function(Core)
         MaxKillFeed = 6,
         TargetInfoEnabled = true,
         RemoteLogEnabled = false,
+        AutoFPSOptimizer = false,
         -- ESP
         ESPEnabled = false,
         ESPBoxes = true,

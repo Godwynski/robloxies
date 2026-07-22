@@ -10,51 +10,117 @@ return function(Core)
         return current
     end
 
-    function Utility.OptimizeFPS()
+    local autoFpsConn = nil
+
+    local function buildCharacterSet()
+        local set = {}
+        for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+            if plr.Character then set[plr.Character] = true end
+        end
+        return set
+    end
+
+    local function isCharacterPart(obj, charSet)
+        local current = obj
+        while current and current ~= workspace do
+            if charSet[current] then return true end
+            current = current.Parent
+        end
+        return false
+    end
+
+    local function optimizeObject(obj, level, charSet)
+        if not obj or not obj.Parent or isCharacterPart(obj, charSet) then return end
+
+        if level >= 1 then
+            if obj:IsA("PostEffect") or obj:IsA("BlurEffect") or obj:IsA("SunRaysEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("BloomEffect") or obj:IsA("DepthOfFieldEffect") then
+                pcall(function() obj.Enabled = false end)
+            end
+        end
+
+        if level >= 2 then
+            if obj:IsA("BasePart") then
+                pcall(function()
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Reflectance = 0
+                    obj.CastShadow = false
+                end)
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                pcall(function() obj.Transparency = 1 end)
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                pcall(function()
+                    obj.Enabled = false
+                    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
+                        obj.Lifetime = NumberRange.new(0)
+                    end
+                end)
+            elseif obj:IsA("Fire") or obj:IsA("SpotLight") or obj:IsA("Smoke") or obj:IsA("Sparkles") or obj:IsA("PointLight") or obj:IsA("SurfaceLight") then
+                pcall(function() obj.Enabled = false end)
+            end
+        end
+
+        if level >= 3 then
+            if obj:IsA("SurfaceAppearance") then
+                pcall(function() obj:Destroy() end)
+            elseif obj:IsA("MeshPart") then
+                pcall(function() obj.RenderFidelity = Enum.RenderFidelity.Performance end)
+            end
+        end
+    end
+
+    function Utility.OptimizeFPS(level)
+        level = level or 3
         local Lighting = game:GetService("Lighting")
         local Terrain = workspace:FindFirstChildOfClass('Terrain')
-        
+
+        -- 1. Lighting Optimizations
         Lighting.GlobalShadows = false
         Lighting.FogEnd = 9e9
         Lighting.ShadowSoftness = 0
+        pcall(function()
+            Lighting.EnvironmentSpecularScale = 0
+            Lighting.EnvironmentDiffuseScale = 0
+        end)
         if sethiddenproperty then
             pcall(function() sethiddenproperty(Lighting, "Technology", 2) end)
         end
 
+        -- 2. Terrain Optimizations
         if Terrain then
             Terrain.WaterWaveSize = 0
             Terrain.WaterWaveSpeed = 0
             Terrain.WaterReflectance = 0
             Terrain.WaterTransparency = 0
+            pcall(function() Terrain.Decoration = false end)
         end
 
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            -- Skip all player characters to avoid breaking gameplay/detection
-            local isCharPart = false
-            for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
-                if plr.Character and obj:IsDescendantOf(plr.Character) then
-                    isCharPart = true; break
-                end
-            end
-            if isCharPart then continue end
-
-            if obj:IsA("BasePart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                obj.Reflectance = 0
-                obj.CastShadow = false
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                obj.Transparency = 1
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
-                obj.Lifetime = NumberRange.new(0)
-            elseif obj:IsA("Fire") or obj:IsA("SpotLight") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
-                obj.Enabled = false
-            end
-        end
-
+        -- 3. Lighting Descendants (Post-processing)
         for _, obj in ipairs(Lighting:GetDescendants()) do
-            if obj:IsA("BlurEffect") or obj:IsA("SunRaysEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("BloomEffect") or obj:IsA("DepthOfFieldEffect") then
-                obj.Enabled = false
+            if obj:IsA("PostEffect") or obj:IsA("BlurEffect") or obj:IsA("SunRaysEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("BloomEffect") or obj:IsA("DepthOfFieldEffect") then
+                pcall(function() obj.Enabled = false end)
             end
+        end
+
+        -- 4. Workspace Descendants Optimization with O(1) Character Set lookup
+        local charSet = buildCharacterSet()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            optimizeObject(obj, level, charSet)
+        end
+    end
+
+    function Utility.EnableAutoFPSOptimizer(enabled)
+        if autoFpsConn then
+            pcall(function() autoFpsConn:Disconnect() end)
+            autoFpsConn = nil
+        end
+        if enabled then
+            autoFpsConn = workspace.DescendantAdded:Connect(function(obj)
+                task.defer(function()
+                    local charSet = buildCharacterSet()
+                    optimizeObject(obj, 3, charSet)
+                end)
+            end)
+            Utility.RegisterConnection(autoFpsConn)
         end
     end
 

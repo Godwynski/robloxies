@@ -257,9 +257,19 @@ return function(Core)
             VisualsTab:AddToggle("ESP Team Color", Config.ESPTeamColor, function(val) Config.ESPTeamColor = val end)
             VisualsTab:AddSlider("ESP Max Dist", Config.ESPMaxDist, 50, 5000, function(val) Config.ESPMaxDist = val end)
             
-            VisualsTab:AddSection("OPTIMIZATION")
-            VisualsTab:AddButton("⚠ Apply FPS Boost (Irreversible)", function(btn)
-                Core.Utility.OptimizeFPS()
+            VisualsTab:AddSection("FPS OPTIMIZER")
+            VisualsTab:AddButton("⚡ Light FPS Boost (Effects & Lighting)", function(btn)
+                Core.Utility.OptimizeFPS(1)
+            end)
+            VisualsTab:AddButton("🚀 Full Low-Poly Boost (World & Decals)", function(btn)
+                Core.Utility.OptimizeFPS(2)
+            end)
+            VisualsTab:AddButton("💥 Ultra FPS Boost (PBR Stripper & Meshes)", function(btn)
+                Core.Utility.OptimizeFPS(3)
+            end)
+            VisualsTab:AddToggle("Auto-Optimize New Map Chunks", Config.AutoFPSOptimizer, function(val)
+                Config.AutoFPSOptimizer = val
+                Core.Utility.EnableAutoFPSOptimizer(val)
             end)
         end
 
