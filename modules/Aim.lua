@@ -355,11 +355,11 @@ return function(Core)
         return score, screenDist
     end
 
-    function Aim.GetTarget()
-        local mouseLoc = UserInputService:GetMouseLocation()
+    function Aim.GetTarget(ctx)
+        local mouseLoc = ctx.MouseLocation
         local myChar = LocalPlayer.Character
         if not myChar then return nil, "No Character" end
-        local cam = workspace.CurrentCamera
+        local cam = ctx.Camera
         if not cam then return nil, "No Camera" end
 
         local debugState = "Scanning..."
@@ -500,6 +500,12 @@ return function(Core)
                 methodBtn.Text = "Method: " .. Config.TrackingMethod
             end))
 
+            local originBtn = CombatTab:AddButton("Aim Origin: " .. (Config.AimOrigin or "Center"), function() end)
+            Utility.RegisterConnection(originBtn.Activated:Connect(function()
+                Config.AimOrigin = (Config.AimOrigin == "Center") and "Mouse" or "Center"
+                originBtn.Text = "Aim Origin: " .. Config.AimOrigin
+            end))
+
             local targetBtn = CombatTab:AddButton("Target: " .. Config.TargetMode, function() end)
             Utility.RegisterConnection(targetBtn.Activated:Connect(function()
                 if Config.TargetMode == "Players" then Config.TargetMode = "NPCs"
@@ -541,7 +547,7 @@ return function(Core)
                 if not ctx.Camera then
                     aimState = "No Camera"
                 else
-                    target, aimState = Aim.GetTarget()
+                    target, aimState = Aim.GetTarget(ctx)
 
                     if target then
                         Core.Drawings.FOVCircle.Color = Color3.fromRGB(50, 255, 50)

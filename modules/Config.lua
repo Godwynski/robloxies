@@ -6,6 +6,7 @@ return function(Core)
         Smoothing = 0.01,
         FocusPoint = "HumanoidRootPart",
         TrackingMethod = "Camera", -- "Mouse" or "Camera"
+        AimOrigin = "Center",      -- "Mouse" or "Center"
         TargetMode = "Both",       -- "Players", "NPCs", "Both"
         TeamCheck = true,
         WallCheck = true,
