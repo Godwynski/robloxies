@@ -28,7 +28,7 @@ return function(Core)
             local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(0, 0)
             local mouseLoc = Services.UserInputService:GetMouseLocation()
             
-            if Config.AimOrigin == "Center" or (mouseLoc.X == 0 and mouseLoc.Y == 0 and vpSize.X > 0) then
+            if Config.AimOrigin == "Center" or (mouseLoc.X <= 5 and mouseLoc.Y <= 40 and vpSize.X > 0) then
                 mouseLoc = vpSize / 2
             end
 
