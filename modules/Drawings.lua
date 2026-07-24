@@ -8,12 +8,7 @@ return function(Core)
     Drawings.FOVCircle.Filled = false
     Drawings.FOVCircle.NumSides = 64
 
-    Drawings.DiagnosticText = Drawing.new("Text")
-    Drawings.DiagnosticText.Visible = false
-    Drawings.DiagnosticText.Size = 16
-    Drawings.DiagnosticText.Color = Color3.new(0, 1, 0)
-    Drawings.DiagnosticText.Outline = true
-    Drawings.DiagnosticText.Text = ""
+
 
     Drawings.TargetInfoText = Drawing.new("Text")
     Drawings.TargetInfoText.Visible = false
@@ -76,21 +71,7 @@ return function(Core)
             local State = Core.State
             local viewport = ctx.ViewportSize
 
-            -- ==================== DIAGNOSTICS OVERLAY ====================
-            if Config.DiagnosticsEnabled then
-                Drawings.DiagnosticText.Visible = true
-                Drawings.DiagnosticText.Position = Vector2.new(10, 10)
-                local diagLines = {
-                    string.format("FPS: %d | Ping: %dms", ctx.FPS, ctx.NetworkPing),
-                    "Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF") .. " | State: " .. tostring(State.AimState),
-                    "Method: " .. Config.TrackingMethod .. " | Focus: " .. Config.FocusPoint,
-                    string.format("Smooth: %.2f | FOV: %d", Config.Smoothing, Config.ViewAngle),
-                    string.format("K: %d  D: %d  A: %d", State.KillCount, State.DeathCount, State.AssistCount),
-                }
-                Drawings.DiagnosticText.Text = table.concat(diagLines, "\n")
-            else
-                Drawings.DiagnosticText.Visible = false
-            end
+
 
             -- ==================== TARGET INFO OVERLAY ====================
             if Config.TargetInfoEnabled and State.CurrentTarget and State.CurrentTarget.Parent and ctx.Camera then

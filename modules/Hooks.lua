@@ -112,9 +112,6 @@ return function(Core)
                         end
                         Utility.AddKillFeedEntry(killer .. " ▸ " .. victim, color)
                     end)
-                    if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "Killed", time = os.clock()})
-                        if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
             end
@@ -131,9 +128,6 @@ return function(Core)
             if beDamagedRemote and beDamagedRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(beDamagedRemote.OnClientEvent:Connect(function(...)
                     State.HitMarkerTime = os.clock()
-                    if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "BeDamaged", time = os.clock()})
-                        if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
             end
@@ -215,7 +209,6 @@ return function(Core)
             if teamUpdateRemote and teamUpdateRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(teamUpdateRemote.OnClientEvent:Connect(function(...)
                     local args = {...}
-                    State.TeamDataRaw = args
                     pcall(function()
                         if type(args[1]) == "table" then
                             for k, v in pairs(args[1]) do
@@ -225,9 +218,6 @@ return function(Core)
                             end
                         end
                     end)
-                    if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "TeamService.UpdateData", time = os.clock(), argCount = #args})
-                        if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
             end
@@ -235,9 +225,6 @@ return function(Core)
             local wsRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "WalkSpeed")
             if wsRemote and wsRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(wsRemote.OnClientEvent:Connect(function(...)
-                    if Config.RemoteLogEnabled then
-                        table.insert(State.RemoteLog, 1, {name = "WalkSpeed", time = os.clock()})
-                        if #State.RemoteLog > 50 then table.remove(State.RemoteLog, 51) end
                     end
                 end))
             end

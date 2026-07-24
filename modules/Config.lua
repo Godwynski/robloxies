@@ -19,12 +19,10 @@ return function(Core)
         PriorityMode = "Distance",   -- "Distance" | "LowHP" | "Closest3D"
         AutoShoot = false,           -- Automatically click when aimed at target
         -- Features
-        DiagnosticsEnabled = false,
         AutoRespawn = false,
         KillFeedEnabled = true,
         MaxKillFeed = 6,
         TargetInfoEnabled = true,
-        RemoteLogEnabled = false,
         AutoFPSOptimizer = false,
         -- ESP
         ESPEnabled = false,

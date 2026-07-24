@@ -55,7 +55,7 @@ Core.State = loadModule("State.lua")(Core)
 Core.Utility = loadModule("Utility.lua")(Core)
 Core.EventManager = loadModule("EventManager.lua")(Core)
 Core.Drawings = loadModule("Drawings.lua")(Core)
-Core.Scanners = loadModule("Scanners.lua")(Core)
+
 
 -- 3. Load UI Director (must load early so modules can inject tabs)
 Core.UI = loadModule("UI.lua")(Core)

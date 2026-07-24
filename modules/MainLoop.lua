@@ -7,23 +7,8 @@ return function(Core)
     local Services = Core.Services
     local EventManager = Core.EventManager
 
-    local NetworkPing = 0
-    local LastFrame = os.clock()
-    local FPS = 0
-
     function MainLoop.Init()
-        -- Ping polling loop
-        task.spawn(function()
-            while Core.State.Running do
-                pcall(function() NetworkPing = math.floor(Services.Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
-                task.wait(1)
-            end
-        end)
-
         Services.RunService:BindToRenderStep("PureAutoAimLoop", Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
-            local now = os.clock()
-            FPS = math.floor(1 / math.max(now - LastFrame, 0.001))
-            LastFrame = now
 
             local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(0, 0)
             local mouseLoc = Services.UserInputService:GetMouseLocation()
@@ -35,8 +20,6 @@ return function(Core)
             -- Prepare render context to pass to modules
             local context = {
                 deltaTime = deltaTime,
-                FPS = FPS,
-                NetworkPing = NetworkPing,
                 Camera = workspace.CurrentCamera,
                 MouseLocation = mouseLoc,
                 ViewportSize = vpSize
