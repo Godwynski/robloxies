@@ -10,9 +10,6 @@ return function(Core)
     function Hooks.Init()
         -- NPC scanner loop — guarded by State.Running (#2)
         task.spawn(function()
-            local FULL_SCAN_INTERVAL = 10
-            local lastFullScanAt = 0
-
             local function isNPCModel(obj)
                 if not obj or not obj.Parent or not obj:IsA("Model") then return false end
                 if obj == LocalPlayer.Character then return false end
@@ -20,35 +17,47 @@ return function(Core)
                 return obj:FindFirstChildOfClass("Humanoid") ~= nil
             end
 
+            -- Single startup scan
+            task.spawn(function()
+                local count = 0
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if not Core.State.Running then break end
+                    if isNPCModel(obj) then
+                        table.insert(State.NPCCache, obj)
+                    end
+                    count = count + 1
+                    if count % 1500 == 0 then task.wait() end
+                end
+            end)
+
+            -- Listen to new humanoids instead of polling GetDescendants constantly
+            Utility.RegisterConnection(workspace.DescendantAdded:Connect(function(obj)
+                if obj:IsA("Humanoid") then
+                    local model = obj.Parent
+                    if isNPCModel(model) then
+                        -- Check if not already in cache
+                        local exists = false
+                        for _, npc in ipairs(State.NPCCache) do
+                            if npc == model then exists = true; break end
+                        end
+                        if not exists then table.insert(State.NPCCache, model) end
+                    end
+                end
+            end))
+
+            -- Cleanup loop for destroyed/dead NPCs
             while Core.State.Running do
                 if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
                     local newCache = {}
-                    local now = os.clock()
-                    local isFullScan = (now - lastFullScanAt) >= FULL_SCAN_INTERVAL or #State.NPCCache == 0
-
-                    if isFullScan then
-                        local count = 0
-                        for _, obj in ipairs(workspace:GetDescendants()) do
-                            if not Core.State.Running then break end -- fast exit
-                            if isNPCModel(obj) then
-                                table.insert(newCache, obj)
-                            end
-                            count = count + 1
-                            if count % 1000 == 0 then task.wait() end
-                        end
-                        lastFullScanAt = now
-                    else
-                        for _, npc in ipairs(State.NPCCache) do
-                            if isNPCModel(npc) then
-                                table.insert(newCache, npc)
-                            end
+                    for _, npc in ipairs(State.NPCCache) do
+                        if isNPCModel(npc) then
+                            table.insert(newCache, npc)
                         end
                     end
-
                     State.NPCCache = newCache
-                    task.wait(isFullScan and 3 or 1)
+                    task.wait(2)
                 else
-                    task.wait(1)
+                    task.wait(2)
                 end
             end
         end)

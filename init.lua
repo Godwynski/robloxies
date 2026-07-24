@@ -20,7 +20,7 @@ end)
 
 local function loadModule(fileName)
     local success, result = pcall(function()
-        if isfile and isfile("modules/" .. fileName) then
+        if type(isfile) == "function" and type(readfile) == "function" and isfile("modules/" .. fileName) then
             return loadstring(readfile("modules/" .. fileName))()
         end
         local noCache = "?nocache=" .. tostring(tick())

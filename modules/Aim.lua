@@ -410,7 +410,7 @@ return function(Core)
             end
         end
 
-        local bestPart, bestScore = nil, math.huge
+        local candidates = {}
 
         for _, char in ipairs(targetsList) do
             if not Aim.IsValidTarget(char) then continue end
@@ -425,15 +425,18 @@ return function(Core)
             if not score then continue end
 
             inFOV = inFOV + 1
-
-            local inLoS = Aim.HasLoS(part)
-
-            if inLoS then
-                if score < bestScore then
-                    bestScore = score
-                    bestPart = part
-                    debugState = "Locked!"
-                end
+            table.insert(candidates, {score = score, part = part, char = char})
+        end
+        
+        table.sort(candidates, function(a, b) return a.score < b.score end)
+        
+        local bestPart, bestScore = nil, math.huge
+        for _, cand in ipairs(candidates) do
+            if Aim.HasLoS(cand.part) then
+                bestScore = cand.score
+                bestPart = cand.part
+                debugState = "Locked!"
+                break
             else
                 if not bestPart then debugState = "Blocked by Wall" end
             end

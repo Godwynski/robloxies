@@ -68,6 +68,8 @@ return function(Core)
             return
         end
         local viewport = cam.ViewportSize
+        local fov = math.rad(cam.FieldOfView / 2)
+        local fovTan = math.tan(fov)
 
         local activeModels = {}
         local targets = {}
@@ -144,8 +146,7 @@ return function(Core)
             -- Distance-based 2D box sizing (avoids 8x WorldToScreenPoint calls)
             local depth = sp.Z
             if depth <= 0 then depth = 0.01 end
-            local fov = math.rad(cam.FieldOfView / 2)
-            local scaleFactor = viewport.Y / (2 * depth * math.tan(fov))
+            local scaleFactor = viewport.Y / (2 * depth * fovTan)
 
             local boxW = size.X * scaleFactor
             local boxH = size.Y * scaleFactor

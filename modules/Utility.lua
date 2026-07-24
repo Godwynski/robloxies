@@ -20,6 +20,17 @@ return function(Core)
         return set
     end
 
+    local cachedCharSet = nil
+    local lastCharSetBuild = 0
+    local function getCharacterSet()
+        local now = os.clock()
+        if not cachedCharSet or now - lastCharSetBuild > 0.5 then
+            cachedCharSet = buildCharacterSet()
+            lastCharSetBuild = now
+        end
+        return cachedCharSet
+    end
+
     local function isCharacterPart(obj, charSet)
         local current = obj
         while current and current ~= workspace do
@@ -102,9 +113,12 @@ return function(Core)
         end
 
         -- 4. Workspace Descendants Optimization with O(1) Character Set lookup
-        local charSet = buildCharacterSet()
+        local charSet = getCharacterSet()
+        local count = 0
         for _, obj in ipairs(workspace:GetDescendants()) do
             optimizeObject(obj, level, charSet)
+            count = count + 1
+            if count % 1500 == 0 then task.wait() end
         end
     end
 
@@ -116,7 +130,7 @@ return function(Core)
         if enabled then
             autoFpsConn = workspace.DescendantAdded:Connect(function(obj)
                 task.defer(function()
-                    local charSet = buildCharacterSet()
+                    local charSet = getCharacterSet()
                     optimizeObject(obj, 3, charSet)
                 end)
             end)
