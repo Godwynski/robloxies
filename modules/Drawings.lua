@@ -6,7 +6,7 @@ return function(Core)
     Drawings.FOVCircle.Thickness = 1.5
     Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
     Drawings.FOVCircle.Filled = false
-    Drawings.FOVCircle.NumSides = 64
+
 
 
 
@@ -42,7 +42,6 @@ return function(Core)
     Drawings.LockIndicator.Thickness = 2
     Drawings.LockIndicator.Color = Color3.fromRGB(255, 50, 50)
     Drawings.LockIndicator.Filled = false
-    Drawings.LockIndicator.NumSides = 4
     Drawings.LockIndicator.Radius = 12
 
     -- Pre-allocate kill feed slots at a safe max; actual count is read live from Config (#16)

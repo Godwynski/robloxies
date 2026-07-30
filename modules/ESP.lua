@@ -42,7 +42,7 @@ return function(Core)
     function ESP.RemoveESPDrawings(cache)
         for _, d in pairs(cache) do 
             pcall(function() 
-                if typeof(d) == "Instance" then d:Destroy() else d:Remove() end 
+                d:Destroy()
             end) 
         end
     end

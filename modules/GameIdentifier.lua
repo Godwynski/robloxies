@@ -1,4 +1,4 @@
-return function(Core, loadModuleFunc)
+return function(Core)
     local PlaceId = game.PlaceId
     
     local Games = {

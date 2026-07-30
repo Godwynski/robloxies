@@ -19,9 +19,8 @@ pcall(function()
     end
 end)
 
-local function loadModule(fileName)
-    return require("modules." .. fileName:gsub("%.lua$", ""))
-end
+
+
 
 print("Initializing project...")
 

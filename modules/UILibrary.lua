@@ -73,7 +73,7 @@ return function(Core)
                     self.MainContainer.Visible = true
                     -- Animate open
                     self.MainContainer.Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, 0)
-                    tween(self.MainContainer, {Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, self.MainContainer.Size.Y.Offset > 0 and self.MainContainer.Size.Y.Offset or 520)}, 0.3, Enum.EasingStyle.Back)
+                    tween(self.MainContainer, {Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
                 end
                 floatDragging = false
                 dragging = false
@@ -106,7 +106,14 @@ return function(Core)
         Interface.ResetOnSpawn = false
         Interface.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-        pcall(function() Interface.Parent = Services.CoreGui end)
+        local hiddenContainer = (gethui and gethui()) or nil
+        pcall(function()
+            if hiddenContainer then
+                Interface.Parent = hiddenContainer
+            else
+                Interface.Parent = Services.CoreGui
+            end
+        end)
         if not Interface.Parent then
             Interface.Parent = Services.Players.LocalPlayer:WaitForChild("PlayerGui")
         end
@@ -181,14 +188,16 @@ return function(Core)
             Utility.Terminate()
             Interface:Destroy()
             task.wait(0.1)
-                task.spawn(function()
+            task.spawn(function()
+                local ok, err = pcall(function()
                     if isfile and isfile("dist/main.lua") then
                         loadstring(readfile("dist/main.lua"))()
                     else
                         loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/dist/main.lua?nocache=" .. tostring(tick())))()
                     end
                 end)
-            if not ok then warn("[UILibrary] Refresh failed:", tostring(err)) end
+                if not ok then warn("[UILibrary] Refresh failed:", tostring(err)) end
+            end)
         end))
 
         local MinimizeBtn = Instance.new("TextButton")
@@ -439,7 +448,7 @@ return function(Core)
         Utility.RegisterConnection(btn.MouseLeave:Connect(function() tween(card, {BackgroundColor3 = Theme.ElementIdle}) end))
         Utility.RegisterConnection(btn.Activated:Connect(function() onClick(btn) end))
         
-        return card
+        return btn
     end
 
     function UILibrary:CreateToggle(parent, text, initialState, callback)

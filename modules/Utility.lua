@@ -176,13 +176,13 @@ return function(Core)
                 Drawings.TargetHealthBG, Drawings.TargetHealthFill, Drawings.HitMarker, 
                 Drawings.LockIndicator
             }
-            for _, d in ipairs(allDrawings) do pcall(function() d:Remove() end) end
-            for _, d in ipairs(Drawings.KillFeedDrawings) do pcall(function() d:Remove() end) end
+            for _, d in ipairs(allDrawings) do pcall(function() d:Destroy() end) end
+            for _, d in ipairs(Drawings.KillFeedDrawings) do pcall(function() d:Destroy() end) end
         end
 
         for plr, cache in pairs(State.ESPCache) do
             for _, drawing in pairs(cache) do
-                pcall(function() drawing:Remove() end)
+                pcall(function() drawing:Destroy() end)
             end
         end
         table.clear(State.ESPCache)
