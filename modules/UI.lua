@@ -4,12 +4,7 @@ return function(Core)
 
     function UI.Init()
         -- Load the UI Library
-        local UILibrary
-        if isfile and isfile("modules/UILibrary.lua") then
-            UILibrary = loadstring(readfile("modules/UILibrary.lua"))()(Core)
-        else
-            UILibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/modules/UILibrary.lua?nocache=" .. tostring(tick())))()(Core)
-        end
+        local UILibrary = require("modules.UILibrary")(Core)
 
         local Theme = UILibrary.Theme or {}
 

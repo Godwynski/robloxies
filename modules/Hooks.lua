@@ -112,7 +112,6 @@ return function(Core)
                         end
                         Utility.AddKillFeedEntry(killer .. " ▸ " .. victim, color)
                     end)
-                    end
                 end))
             end
 
@@ -128,7 +127,6 @@ return function(Core)
             if beDamagedRemote and beDamagedRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(beDamagedRemote.OnClientEvent:Connect(function(...)
                     State.HitMarkerTime = os.clock()
-                    end
                 end))
             end
 
@@ -218,14 +216,12 @@ return function(Core)
                             end
                         end
                     end)
-                    end
                 end))
             end
 
             local wsRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "WalkSpeed")
             if wsRemote and wsRemote:IsA("RemoteEvent") then
                 Utility.RegisterConnection(wsRemote.OnClientEvent:Connect(function(...)
-                    end
                 end))
             end
 

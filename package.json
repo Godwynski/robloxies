@@ -1,0 +1,14 @@
+{
+  "name": "pure-auto-aim",
+  "version": "2.2.0",
+  "description": "A modular Roblox auto-aim script",
+  "main": "init.lua",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "luabundler": "^1.2.3"
+  },
+  "author": "",
+  "license": "MIT"
+}

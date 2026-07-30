@@ -181,13 +181,13 @@ return function(Core)
             Utility.Terminate()
             Interface:Destroy()
             task.wait(0.1)
-            local ok, err = pcall(function()
-                if isfile and isfile("init.lua") then
-                    loadstring(readfile("init.lua"))()
-                else
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/init.lua?nocache=" .. tostring(tick())))()
-                end
-            end)
+                task.spawn(function()
+                    if isfile and isfile("dist/main.lua") then
+                        loadstring(readfile("dist/main.lua"))()
+                    else
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/main/dist/main.lua?nocache=" .. tostring(tick())))()
+                    end
+                end)
             if not ok then warn("[UILibrary] Refresh failed:", tostring(err)) end
         end))
 

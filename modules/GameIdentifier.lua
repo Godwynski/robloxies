@@ -11,9 +11,17 @@ return function(Core, loadModuleFunc)
     local PresetName = Games[PlaceId] or "General"
     print("[GameIdentifier] Identified preset for PlaceId " .. tostring(PlaceId) .. ": " .. PresetName)
     
+    local preset_rivals = require("modules.Presets.Rivals")
+    local preset_general = require("modules.Presets.General")
+
+    local PresetPlugins = {
+        Rivals = preset_rivals,
+        General = preset_general
+    }
+    
     local function loadPreset(name)
         local success, presetPlugin = pcall(function()
-            return loadModuleFunc("Presets/" .. name .. ".lua")
+            return PresetPlugins[name]
         end)
         
         if success and type(presetPlugin) == "function" then
