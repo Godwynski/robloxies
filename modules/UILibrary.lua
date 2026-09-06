@@ -44,7 +44,7 @@ return function(Core)
     -- Shared Input handlers for entire UI
     function UILibrary:InitInputDispatchers()
         Utility.RegisterConnection(Services.UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
             
             if floatDragging then
                 local delta = input.Position - floatDragStart
@@ -67,7 +67,7 @@ return function(Core)
         end))
 
         Utility.RegisterConnection(Services.UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 if floatDragging and not floatHasMoved then
                     self.FloatingCircle.Visible = false
                     self.MainContainer.Visible = true

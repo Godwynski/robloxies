@@ -4,10 +4,19 @@
     A developer diagnostic and architecture analysis suite for Roblox experiences and Studio.
 ]]
 
+if _G.__LuauLens_Running and _G.__LuauLens_Terminate then
+    pcall(function() _G.__LuauLens_Terminate() end)
+end
+_G.__LuauLens_Running = true
+
 local UserInputService = game:GetService("UserInputService")
 
 -- Module dependency resolver (handles Studio script hierarchy, bundles, and direct paths)
 local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
     local success, res = pcall(function()
         if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
             return require(script.modules[modName])
@@ -17,7 +26,12 @@ local function resolveModule(modName)
         end
     end)
     if success and res then return res end
-    return require("LuauLens.modules." .. modName)
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
 local LuauLens = {}
@@ -87,6 +101,9 @@ Hotkey: RightControl or F4 to toggle in-game dashboard
     end)
 
     _G.LuauLens = self
+    _G.__LuauLens_Terminate = function()
+        self:Terminate()
+    end
     return self
 end
 
@@ -133,9 +150,12 @@ end
 
 -- Terminate and clean up suite
 function LuauLens:Terminate()
-    if inputConnection then inputConnection:Disconnect() end
+    if inputConnection then inputConnection:Disconnect(); inputConnection = nil end
     if self.NetworkMonitor then self.NetworkMonitor.Stop() end
+    if self.UI and self.UI.Destroy then pcall(function() self.UI.Destroy() end) end
     isInitialized = false
+    _G.__LuauLens_Running = false
+    _G.__LuauLens_Terminate = nil
     _G.LuauLens = nil
     print("[LuauLens] Suite terminated.")
 end

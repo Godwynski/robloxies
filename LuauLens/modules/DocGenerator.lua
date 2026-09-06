@@ -7,13 +7,25 @@
 local DocGenerator = {}
 
 local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
     local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
         if script and script.Parent and script.Parent:FindFirstChild(modName) then
             return require(script.Parent[modName])
         end
     end)
     if success and res then return res end
-    return require("LuauLens.modules." .. modName)
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
 local Utility = resolveModule("Utility")
@@ -260,6 +272,14 @@ function DocGenerator.GenerateTutorial(topic)
     }
 
     return table.concat(lines, "\n")
+end
+
+-- Architecture report generator alias
+function DocGenerator.GenerateArchitectureReport(data)
+    data = data or {}
+    local codeData = data.CodeAnalysis or {}
+    local netLogs = data.NetworkStats or data.NetworkTrafficSample or {}
+    return DocGenerator.GenerateFullReport(codeData, netLogs)
 end
 
 return DocGenerator

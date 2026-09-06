@@ -79,15 +79,17 @@ return function(Core)
         if not ok or type(data) ~= "table" then return false end
 
         for k, v in pairs(data) do
-            if type(v) == "table" and v.Type == "EnumItem" then
-                pcall(function()
-                    local enumName = tostring(v.EnumType):gsub("^Enum%.", "")
-                    if Enum[enumName] and Enum[enumName][v.Name] then
-                        self[k] = Enum[enumName][v.Name]
-                    end
-                end)
-            else
-                self[k] = v
+            if type(self[k]) ~= "function" then
+                if type(v) == "table" and v.Type == "EnumItem" then
+                    pcall(function()
+                        local enumName = tostring(v.EnumType):gsub("^Enum%.", "")
+                        if Enum[enumName] and Enum[enumName][v.Name] then
+                            self[k] = Enum[enumName][v.Name]
+                        end
+                    end)
+                else
+                    self[k] = v
+                end
             end
         end
         return true
@@ -99,10 +101,12 @@ return function(Core)
         
         local function deepMerge(t1, t2)
             for k, v in pairs(t2) do
-                if type(v) == "table" and type(t1[k]) == "table" then
-                    deepMerge(t1[k], v)
-                else
-                    t1[k] = v
+                if type(t1[k]) ~= "function" then
+                    if type(v) == "table" and type(t1[k]) == "table" then
+                        deepMerge(t1[k], v)
+                    else
+                        t1[k] = v
+                    end
                 end
             end
         end

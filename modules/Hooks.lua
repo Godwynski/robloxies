@@ -121,8 +121,10 @@ return function(Core)
                         Utility.RegisterConnection(stat.Changed:Connect(function(newVal)
                             if newVal > lastVal then
                                 local diff = newVal - lastVal
-                                State.KillCount = State.KillCount + diff
-                                Utility.AddKillFeedEntry("KILL (+" .. diff .. ")", Color3.fromRGB(50, 255, 50))
+                                if (os.clock() - (State.LastKillTime or 0)) > 1.0 then
+                                    State.KillCount = State.KillCount + diff
+                                    Utility.AddKillFeedEntry("KILL (+" .. diff .. ")", Color3.fromRGB(50, 255, 50))
+                                end
                             end
                             lastVal = newVal
                         end))
@@ -150,12 +152,11 @@ return function(Core)
             local function hookPlayer(plr)
                 if plr == LocalPlayer then return end
 
-                local lastHealth = 100
                 local function hookChar(char)
                     local hum = char:WaitForChild("Humanoid", 3) or char:FindFirstChildOfClass("Humanoid")
                     if not hum then return end
 
-                    lastHealth = hum.Health
+                    local lastHealth = hum.Health
 
                     -- Hitmarker detection: trigger when locked target loses health
                     Utility.RegisterConnection(hum.HealthChanged:Connect(function(hp)
@@ -170,11 +171,10 @@ return function(Core)
                         local pName = plr.DisplayName or plr.Name
                         if State.LockedCharacter == char then
                             State.KillCount = State.KillCount + 1
+                            State.LastKillTime = os.clock()
                             Utility.AddKillFeedEntry("Eliminated " .. pName, Color3.fromRGB(50, 255, 50))
                             State.LockedTarget = nil
                             State.LockedCharacter = nil
-                        else
-                            Utility.AddKillFeedEntry(pName .. " died", Color3.fromRGB(180, 180, 180))
                         end
                     end))
                 end

@@ -51,12 +51,14 @@ return function(Core)
                         end
                     elseif lib.MainContainer then
                         if lib.MainContainer.Visible then
-                            if lib.Tween then
-                                local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
-                                tw.Completed:Wait()
-                            end
-                            lib.MainContainer.Visible = false
-                            lib.FloatingCircle.Visible = true
+                            task.spawn(function()
+                                if lib.Tween then
+                                    local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
+                                    pcall(function() tw.Completed:Wait() end)
+                                end
+                                lib.MainContainer.Visible = false
+                                lib.FloatingCircle.Visible = true
+                            end)
                         else
                             lib.MainContainer.Visible = true
                             lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)

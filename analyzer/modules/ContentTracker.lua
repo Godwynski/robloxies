@@ -1,10 +1,34 @@
--- analyzer/modules/ContentTracker.lua
--- Content Tracking System: Track game assets, scripts, attributes, and remotes over time
-
-local Utility = require("analyzer.modules.Utility")
-local Serializer = require("analyzer.modules.Serializer")
+--[[
+    LuauLens/modules/ContentTracker.lua
+    Captures hierarchical snapshots of key DataModel components and computes structural diffs over time.
+]]
 
 local ContentTracker = {}
+
+local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
+    local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
+        if script and script.Parent and script.Parent:FindFirstChild(modName) then
+            return require(script.Parent[modName])
+        end
+    end)
+    if success and res then return res end
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
+end
+
+local Utility = resolveModule("Utility")
+local Serializer = resolveModule("Serializer")
 
 local Services = {
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
@@ -17,12 +41,12 @@ local Services = {
 }
 
 local snapshotStore = {}
-local snapshotCounter = 0
+local snapshotCount = 0
 
--- Extract asset IDs from an instance if applicable
-local function extractAssetIds(inst, assetMap)
-    local assetProps = { "MeshId", "TextureID", "TextureId", "SoundId", "AnimationId" }
-    for _, prop in ipairs(assetProps) do
+-- Extract asset IDs from an instance
+local function extractAssets(inst, assetMap)
+    local props = { "MeshId", "TextureID", "TextureId", "SoundId", "AnimationId" }
+    for _, prop in ipairs(props) do
         pcall(function()
             local val = inst[prop]
             if val and type(val) == "string" and #val > 0 then
@@ -32,7 +56,7 @@ local function extractAssetIds(inst, assetMap)
                         Property = prop,
                         SampleHost = inst.Name,
                         HostClass = inst.ClassName,
-                        Count = 0,
+                        Count = 0
                     }
                 end
                 assetMap[val].Count = assetMap[val].Count + 1
@@ -41,8 +65,8 @@ local function extractAssetIds(inst, assetMap)
     end
 end
 
--- Scan containers and collect fingerprints
-local function scanHierarchy(container, remotes, scripts, assetMap, attributesMap)
+-- Scan a container and record instances, attributes, remotes, and scripts
+local function scanContainer(container, remotes, scripts, assetMap, attributesMap)
     if not container then return end
 
     local success, descendants = pcall(function()
@@ -51,30 +75,32 @@ local function scanHierarchy(container, remotes, scripts, assetMap, attributesMa
     if not success or not descendants then return end
 
     for _, inst in ipairs(descendants) do
-        local path = Utility.GetInstancePath(inst)
+        local path = Utility and Utility.GetInstancePath(inst) or inst:GetFullName()
 
-        -- Track Remotes
-        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") then
+        -- Remotes
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst:IsA("UnreliableRemoteEvent") then
             remotes[path] = {
                 Name = inst.Name,
                 ClassName = inst.ClassName,
-                Path = path,
+                Path = path
             }
         end
 
-        -- Track Client Scripts
+        -- Client Scripts
         if inst:IsA("LocalScript") or inst:IsA("ModuleScript") then
             scripts[path] = {
                 Name = inst.Name,
                 ClassName = inst.ClassName,
-                Path = path,
+                Path = path
             }
         end
 
-        -- Track Assets
-        extractAssetIds(inst, assetMap)
+        -- Assets: filter by known asset container classes to prevent thousands of redundant pcalls on BaseParts
+        if inst:IsA("MeshPart") or inst:IsA("SpecialMesh") or inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("Sound") or inst:IsA("Animation") then
+            extractAssets(inst, assetMap)
+        end
 
-        -- Track Attributes
+        -- Attributes
         pcall(function()
             local attrs = inst:GetAttributes()
             local hasAttr = false
@@ -83,17 +109,24 @@ local function scanHierarchy(container, remotes, scripts, assetMap, attributesMa
                 break
             end
             if hasAttr then
-                attributesMap[path] = Serializer.Serialize(attrs, 2)
+                if Serializer and Serializer.Serialize then
+                    attributesMap[path] = Serializer.Serialize(attrs, 2)
+                else
+                    attributesMap[path] = attrs
+                end
             end
         end)
     end
 end
 
--- Capture full game structural fingerprint
-function ContentTracker.TakeSnapshot(label)
-    snapshotCounter = snapshotCounter + 1
-    local snapId = "snap_" .. tostring(snapshotCounter) .. "_" .. tostring(os.time())
-    label = label or ("Snapshot #" .. snapshotCounter)
+--[[
+    ContentTracker.CreateSnapshot(label)
+    Serializes key parts of the DataModel (Workspace, ReplicatedStorage, PlayerScripts, etc.),
+    including Instance properties, attributes, and CollectionService tags.
+]]
+function ContentTracker.CreateSnapshot(label)
+    snapshotCount = snapshotCount + 1
+    label = label or ("Snapshot #" .. snapshotCount)
 
     local remotes = {}
     local scripts = {}
@@ -117,10 +150,10 @@ function ContentTracker.TakeSnapshot(label)
     end
 
     for _, container in ipairs(targets) do
-        scanHierarchy(container, remotes, scripts, assetMap, attributesMap)
+        scanContainer(container, remotes, scripts, assetMap, attributesMap)
     end
 
-    -- Capture CollectionService tags
+    -- CollectionService tags
     local tagsMap = {}
     pcall(function()
         for _, tag in ipairs(Services.CollectionService:GetAllTags()) do
@@ -132,14 +165,15 @@ function ContentTracker.TakeSnapshot(label)
     local placeVersion = 0
     pcall(function() placeVersion = game.PlaceVersion end)
 
+    local timeStr = Utility and Utility.GetFormattedTime and Utility.GetFormattedTime() or os.date("%H:%M:%S")
+
     local snapshot = {
-        Id = snapId,
+        Id = "snap_" .. tostring(snapshotCount) .. "_" .. tostring(os.time()),
         Label = label,
         Timestamp = os.time(),
-        FormattedTime = Utility.GetFormattedTime(),
+        FormattedTime = timeStr,
         PlaceId = game.PlaceId,
         PlaceVersion = placeVersion,
-        JobId = game.JobId,
         Remotes = remotes,
         Scripts = scripts,
         Assets = assetMap,
@@ -150,7 +184,7 @@ function ContentTracker.TakeSnapshot(label)
             Scripts = 0,
             Assets = 0,
             Tags = 0,
-            Attributes = 0,
+            Attributes = 0
         }
     }
 
@@ -164,16 +198,19 @@ function ContentTracker.TakeSnapshot(label)
     return snapshot
 end
 
--- Compare two snapshots and produce detailed diffs
-function ContentTracker.CompareSnapshots(oldSnap, newSnap)
-    if not oldSnap or not newSnap then
-        return { Error = "Invalid snapshots provided for comparison" }
+--[[
+    ContentTracker.CompareSnapshots(snapshot1, snapshot2)
+    Compares two snapshots and generates a comprehensive structural diff report.
+]]
+function ContentTracker.CompareSnapshots(snapshot1, snapshot2)
+    if not snapshot1 or not snapshot2 then
+        return { Error = "Two valid snapshots are required for comparison." }
     end
 
     local diff = {
-        BaselineLabel = oldSnap.Label,
-        CurrentLabel = newSnap.Label,
-        TimeDeltaSeconds = newSnap.Timestamp - oldSnap.Timestamp,
+        Baseline = snapshot1.Label,
+        Current = snapshot2.Label,
+        TimeDelta = snapshot2.Timestamp - snapshot1.Timestamp,
         AddedRemotes = {},
         RemovedRemotes = {},
         AddedScripts = {},
@@ -185,131 +222,135 @@ function ContentTracker.CompareSnapshots(oldSnap, newSnap)
         ChangedAttributes = {},
         Summary = {
             TotalChanges = 0,
-            NewFeaturesIdentified = 0,
+            NewFeatures = 0
         }
     }
 
     -- 1. Compare Remotes
-    for path, remote in pairs(newSnap.Remotes) do
-        if not oldSnap.Remotes[path] then
-            table.insert(diff.AddedRemotes, remote)
+    for path, r in pairs(snapshot2.Remotes) do
+        if not snapshot1.Remotes[path] then
+            table.insert(diff.AddedRemotes, r)
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
-    for path, remote in pairs(oldSnap.Remotes) do
-        if not newSnap.Remotes[path] then
-            table.insert(diff.RemovedRemotes, remote)
+    for path, r in pairs(snapshot1.Remotes) do
+        if not snapshot2.Remotes[path] then
+            table.insert(diff.RemovedRemotes, r)
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
 
     -- 2. Compare Scripts
-    for path, sc in pairs(newSnap.Scripts) do
-        if not oldSnap.Scripts[path] then
-            table.insert(diff.AddedScripts, sc)
+    for path, s in pairs(snapshot2.Scripts) do
+        if not snapshot1.Scripts[path] then
+            table.insert(diff.AddedScripts, s)
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
-    for path, sc in pairs(oldSnap.Scripts) do
-        if not newSnap.Scripts[path] then
-            table.insert(diff.RemovedScripts, sc)
+    for path, s in pairs(snapshot1.Scripts) do
+        if not snapshot2.Scripts[path] then
+            table.insert(diff.RemovedScripts, s)
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
 
     -- 3. Compare Tags
-    for tag, count in pairs(newSnap.Tags) do
-        if not oldSnap.Tags[tag] then
+    for tag, count in pairs(snapshot2.Tags) do
+        if not snapshot1.Tags[tag] then
             table.insert(diff.AddedTags, { Tag = tag, Count = count })
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
-        elseif oldSnap.Tags[tag] ~= count then
-            table.insert(diff.ChangedTags, { Tag = tag, OldCount = oldSnap.Tags[tag], NewCount = count })
+        elseif snapshot1.Tags[tag] ~= count then
+            table.insert(diff.ChangedTags, { Tag = tag, Old = snapshot1.Tags[tag], New = count })
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
-    for tag, count in pairs(oldSnap.Tags) do
-        if not newSnap.Tags[tag] then
-            table.insert(diff.RemovedTags, { Tag = tag, PreviousCount = count })
+    for tag, count in pairs(snapshot1.Tags) do
+        if not snapshot2.Tags[tag] then
+            table.insert(diff.RemovedTags, { Tag = tag, Previous = count })
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
 
     -- 4. Compare Assets
-    for id, asset in pairs(newSnap.Assets) do
-        if not oldSnap.Assets[id] then
-            table.insert(diff.AddedAssets, asset)
+    for id, a in pairs(snapshot2.Assets) do
+        if not snapshot1.Assets[id] then
+            table.insert(diff.AddedAssets, a)
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
 
-    diff.Summary.NewFeaturesIdentified = #diff.AddedRemotes + #diff.AddedScripts + #diff.AddedTags
+    -- 5. Compare Attributes (Added and Removed)
+    for path, attrs in pairs(snapshot2.Attributes) do
+        if not snapshot1.Attributes[path] then
+            table.insert(diff.ChangedAttributes, { Path = path, Action = "AddedAttributes" })
+            diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
+        end
+    end
+    for path, attrs in pairs(snapshot1.Attributes) do
+        if not snapshot2.Attributes[path] then
+            table.insert(diff.ChangedAttributes, { Path = path, Action = "RemovedAttributes" })
+            diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
+        end
+    end
 
+    diff.Summary.NewFeatures = #diff.AddedRemotes + #diff.AddedScripts + #diff.AddedTags
     return diff
 end
 
--- Generate educational changelog based on snapshot differences
+-- Generate a readable Markdown changelog from diff
 function ContentTracker.GenerateChangelog(diff)
     local lines = {}
-    table.insert(lines, "# 🔄 Game Content Evolution & Changelog")
-    table.insert(lines, string.format("**Baseline:** %s | **Comparison:** %s", diff.BaselineLabel, diff.CurrentLabel))
-    table.insert(lines, string.format("**Time Delta:** %d seconds | **Total Structural Changes:** %d", diff.TimeDeltaSeconds or 0, diff.Summary.TotalChanges or 0))
+    table.insert(lines, "# 🔄 Game Structural Evolution & Changelog")
+    table.insert(lines, string.format("**Baseline:** %s | **Comparison:** %s", diff.Baseline, diff.Current))
+    table.insert(lines, string.format("**Time Delta:** %d seconds | **Total Changes:** %d", diff.TimeDelta or 0, diff.Summary.TotalChanges or 0))
     table.insert(lines, "")
 
-    -- Added Remotes
     if #diff.AddedRemotes > 0 then
-        table.insert(lines, "### 📡 Discovered New Remotes & Communication Endpoints")
-        table.insert(lines, "New network communication points indicate newly implemented gameplay features or server capabilities:")
+        table.insert(lines, "### 📡 Newly Discovered Remotes")
         for _, r in ipairs(diff.AddedRemotes) do
             table.insert(lines, string.format("- **`%s`** (`%s`): `%s`", r.Name, r.ClassName, r.Path))
         end
         table.insert(lines, "")
     end
 
-    -- Added Scripts
     if #diff.AddedScripts > 0 then
-        table.insert(lines, "### 📜 Discovered New Client Scripts & Modules")
-        table.insert(lines, "New client-side logic controllers or shared libraries:")
+        table.insert(lines, "### 📜 Newly Added Scripts & Modules")
         for _, s in ipairs(diff.AddedScripts) do
             table.insert(lines, string.format("- **`%s`** (`%s`): `%s`", s.Name, s.ClassName, s.Path))
         end
         table.insert(lines, "")
     end
 
-    -- Added Tags
     if #diff.AddedTags > 0 then
-        table.insert(lines, "### 🏷️ New CollectionService Tags")
-        table.insert(lines, "New component tags for dynamic entity binding:")
+        table.insert(lines, "### 🏷️ New CollectionService Component Tags")
         for _, t in ipairs(diff.AddedTags) do
             table.insert(lines, string.format("- **Tag:** `%s` (Applied to %d instances)", t.Tag, t.Count))
         end
         table.insert(lines, "")
     end
 
-    -- Added Assets
     if #diff.AddedAssets > 0 then
-        table.insert(lines, string.format("### 🎨 Newly Loaded Assets (%d items)", #diff.AddedAssets))
-        table.insert(lines, "| Asset ID | Type | Sample Host | Instances |")
-        table.insert(lines, "| --- | --- | --- | --- |")
-        for i = 1, math.min(#diff.AddedAssets, 15) do
+        table.insert(lines, string.format("### 🎨 Newly Loaded Game Assets (%d items)", #diff.AddedAssets))
+        for i = 1, math.min(#diff.AddedAssets, 10) do
             local a = diff.AddedAssets[i]
-            table.insert(lines, string.format("| `%s` | %s | %s | %d |", Utility.Truncate(a.Id, 25), a.Property, a.SampleHost, a.Count))
-        end
-        if #diff.AddedAssets > 15 then
-            table.insert(lines, string.format("*...and %d more newly introduced assets.*", #diff.AddedAssets - 15))
+            table.insert(lines, string.format("- **`%s`** (`%s` on `%s`)", Utility and Utility.Truncate(a.Id, 30) or a.Id, a.Property, a.SampleHost))
         end
         table.insert(lines, "")
     end
 
     if diff.Summary.TotalChanges == 0 then
-        table.insert(lines, "> **No structural changes detected between snapshots.** The game hierarchy and network endpoints remained static.")
+        table.insert(lines, "> **No structural changes detected.** The DataModel remained identical between snapshots.")
     end
 
     return table.concat(lines, "\n")
 end
 
--- Get all stored snapshots
+-- Get stored snapshots
 function ContentTracker.GetSnapshots()
     return snapshotStore
 end
+
+-- Aliases for API compatibility
+ContentTracker.TakeSnapshot = ContentTracker.CreateSnapshot
 
 return ContentTracker

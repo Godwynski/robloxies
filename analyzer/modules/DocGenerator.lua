@@ -1,79 +1,81 @@
--- analyzer/modules/DocGenerator.lua
--- Educational Documentation Generator: Generates architecture specs, Mermaid diagrams, and Luau tutorials
-
-local Utility = require("analyzer.modules.Utility")
+--[[
+    LuauLens/modules/DocGenerator.lua
+    Generates developer-facing Markdown documentation, system architecture specifications,
+    and Mermaid sequence/flow diagrams from analyzed game data.
+]]
 
 local DocGenerator = {}
 
--- Generates a Mermaid architecture diagram representing component relationships
+local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
+    local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
+        if script and script.Parent and script.Parent:FindFirstChild(modName) then
+            return require(script.Parent[modName])
+        end
+    end)
+    if success and res then return res end
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
+end
+
+local Utility = resolveModule("Utility")
+
+--[[
+    DocGenerator.GenerateArchitectureDiagram(analysisData)
+    Constructs a Mermaid graph TD diagram mapping client controllers, services, and remotes.
+]]
 function DocGenerator.GenerateArchitectureDiagram(analysisData)
     local lines = {}
     table.insert(lines, "```mermaid")
     table.insert(lines, "graph TD")
     table.insert(lines, "    subgraph Client [Client Runtime Environment]")
-    table.insert(lines, "        PlayerInput[User Input & Camera]")
-    table.insert(lines, "        UI[PlayerGui / HUD Views]")
+    table.insert(lines, "        PlayerInput[User Input & Movement]")
+    table.insert(lines, "        HUDView[PlayerGui / HUD Presentation]")
 
-    local scriptNodes = {}
-    local categories = analysisData.CodeAnalysis and analysisData.CodeAnalysis.Categories or {}
-
-    -- Group controllers
-    if categories["Controller"] and #categories["Controller"] > 0 then
+    local categories = analysisData and analysisData.Categories or {}
+    if categories["Controllers"] and #categories["Controllers"] > 0 then
         table.insert(lines, "        subgraph Controllers [Client Controllers]")
-        for i = 1, math.min(#categories["Controller"], 4) do
-            local s = categories["Controller"][i]
-            local id = "Ctrl_" .. i
-            table.insert(lines, string.format('            %s["%s"]', id, s.Name))
-            table.insert(scriptNodes, id)
+        for i = 1, math.min(#categories["Controllers"], 4) do
+            local c = categories["Controllers"][i]
+            table.insert(lines, string.format('            Ctrl_%d["%s"]', i, c.Name))
         end
         table.insert(lines, "        end")
     end
 
-    -- Group mechanics
-    if categories["Game Mechanic"] and #categories["Game Mechanic"] > 0 then
+    if categories["Mechanics"] and #categories["Mechanics"] > 0 then
         table.insert(lines, "        subgraph Mechanics [Game Mechanics]")
-        for i = 1, math.min(#categories["Game Mechanic"], 4) do
-            local s = categories["Game Mechanic"][i]
-            local id = "Mech_" .. i
-            table.insert(lines, string.format('            %s["%s"]', id, s.Name))
-            table.insert(scriptNodes, id)
+        for i = 1, math.min(#categories["Mechanics"], 4) do
+            local m = categories["Mechanics"][i]
+            table.insert(lines, string.format('            Mech_%d["%s"]', i, m.Name))
         end
         table.insert(lines, "        end")
     end
 
     table.insert(lines, "        PlayerInput --> Controllers")
-    table.insert(lines, "        Controllers --> UI")
+    table.insert(lines, "        Controllers --> HUDView")
     table.insert(lines, "    end")
 
-    -- Shared / Network remotes
+    -- Network layer
     table.insert(lines, "    subgraph ReplicatedStorage [ReplicatedStorage / Network Layer]")
-    local netStats = analysisData.NetworkStats or {}
-    local remoteCount = 0
-    for path, stat in pairs(netStats) do
-        remoteCount = remoteCount + 1
-        if remoteCount <= 5 then
-            local rId = "Rem_" .. remoteCount
-            table.insert(lines, string.format('        %s["%s (%s)"]', rId, stat.Name, stat.System or "Remote"))
-            table.insert(lines, string.format("        Controllers -.->|Fire/Invoke| %s", rId))
-        end
-    end
-    if remoteCount == 0 then
-        table.insert(lines, '        Rem_Default["RemoteEvents & RemoteFunctions"]')
-        table.insert(lines, "        Controllers -.->|FireServer| Rem_Default")
-    end
+    table.insert(lines, '        RemoteLayer["RemoteEvents & RemoteFunctions"]')
+    table.insert(lines, "        Controllers -.->|FireServer / InvokeServer| RemoteLayer")
     table.insert(lines, "    end")
 
-    -- Server
-    table.insert(lines, "    subgraph Server [Roblox Server Services]")
-    table.insert(lines, "        ServerLogic[Server Authority & Validation]")
-    table.insert(lines, "        DataStore[(PlayerData & DataStores)]")
-    if remoteCount > 0 then
-        for i = 1, math.min(remoteCount, 5) do
-            table.insert(lines, string.format("        Rem_%d --> ServerLogic", i))
-        end
-    else
-        table.insert(lines, "        Rem_Default --> ServerLogic")
-    end
+    -- Server layer
+    table.insert(lines, "    subgraph Server [Roblox Authoritative Server]")
+    table.insert(lines, "        ServerLogic[Server Authority & Combat Formulas]")
+    table.insert(lines, "        DataStore[(PlayerData / DataStores)]")
+    table.insert(lines, "        RemoteLayer --> ServerLogic")
     table.insert(lines, "        ServerLogic --> DataStore")
     table.insert(lines, "    end")
 
@@ -81,41 +83,44 @@ function DocGenerator.GenerateArchitectureDiagram(analysisData)
     return table.concat(lines, "\n")
 end
 
--- Generates a Mermaid sequence diagram showing typical gameplay interaction loops
+--[[
+    DocGenerator.GenerateSequenceDiagram(systemName, sampleRemote)
+    Generates a Mermaid sequenceDiagram illustrating the client prediction & server validation flow.
+]]
 function DocGenerator.GenerateSequenceDiagram(systemName, sampleRemote)
-    systemName = systemName or "Combat"
-    sampleRemote = sampleRemote or "AttackEvent"
+    systemName = systemName or "Gameplay"
+    sampleRemote = sampleRemote or "ActionRequest"
 
     local lines = {
         "```mermaid",
         "sequenceDiagram",
         "    autonumber",
-        "    actor Player as Player / Local Client",
+        "    actor Player as Player Client",
         "    participant Controller as Client Controller",
-        "    participant UI as HUD / Feedback UI",
-        "    participant Remote as ReplicatedStorage." .. sampleRemote,
-        "    participant Server as Server Authoritative Logic",
-        "    participant DB as Server DataStore / MemoryCache",
+        "    participant HUD as Player HUD View",
+        "    participant Remote as " .. sampleRemote,
+        "    participant Server as Server Authoritative Handler",
+        "    participant Store as Server DataStore",
         "",
-        "    Player->>Controller: Triggers Input Action (e.g. Click / Keypress)",
+        "    Player->>Controller: Triggers Input (Keybind / Click)",
         "    activate Controller",
-        "    Note over Controller: Perform client prediction & instant local VFX",
-        "    Controller->>UI: Show immediate local animation/sound",
-        "    Controller->>Remote: FireServer(ActionData, TargetId, Timestamp)",
+        "    Note over Controller: Client Prediction:<br/>Play local animation & sound immediately",
+        "    Controller->>HUD: Update cooldown and crosshair",
+        "    Controller->>Remote: FireServer(ActionIntent, TargetId, Timestamp)",
         "    deactivate Controller",
         "",
         "    activate Remote",
-        "    Remote->>Server: Deliver Packet over Network Layer",
+        "    Remote->>Server: Network Packet Transmission",
         "    deactivate Remote",
         "",
         "    activate Server",
-        "    Note over Server: Server Security & Sanity Checks:<br/>1. Verify Player distance & Line-of-Sight<br/>2. Validate Cooldowns & Stamina<br/>3. Verify inventory/equipped weapon",
+        "    Note over Server: Authoritative Verification:<br/>1. Check cooldown timers<br/>2. Verify player-to-target distance<br/>3. Verify state permissions",
         "    alt Valid Request",
-        "        Server->>DB: Mutate Game State (Deduct HP, Award XP)",
-        "        Server-->>Remote: Replicate State / Broadcast Effects to Clients",
-        "        Remote-->>Player: Confirm State Update (Reliable Replication)",
-        "    else Invalid or Desynchronized Request",
-        "        Server-->>Player: Reconcile / Reject Action",
+        "        Server->>Store: Persist State Change (XP, HP, Gold)",
+        "        Server-->>Remote: Replicate State Broadcast",
+        "        Remote-->>Player: Confirm Action Outcome",
+        "    else Invalid / Out of Sync",
+        "        Server-->>Player: Trigger State Reconciliation / Reject",
         "    end",
         "    deactivate Server",
         "```"
@@ -124,62 +129,62 @@ function DocGenerator.GenerateSequenceDiagram(systemName, sampleRemote)
     return table.concat(lines, "\n")
 end
 
--- Generates the comprehensive Educational Architecture Document
-function DocGenerator.GenerateArchitectureReport(analysisData)
+--[[
+    DocGenerator.GenerateFullReport(analysisData, networkData)
+    Compiles code analysis and network data into a single, comprehensive Markdown document.
+]]
+function DocGenerator.GenerateFullReport(analysisData, networkData)
     local lines = {}
     local timeStr = os.date("%Y-%m-%d %H:%M:%S")
 
-    table.insert(lines, "# 🎓 Educational Game Architecture & Systems Specification")
-    table.insert(lines, string.format("*Generated by LuauLens on %s | PlaceId: %s | Engine Memory: %.1f MB*",
+    analysisData = analysisData or {}
+    networkData = networkData or {}
+
+    table.insert(lines, "# 🎓 LuauLens Diagnostic & Architecture Report")
+    table.insert(lines, string.format("*Generated on %s | PlaceId: %s | Environment Memory: %.1f MB*",
         timeStr, tostring(game.PlaceId), Utility.GetMemoryUsageMB()))
     table.insert(lines, "")
 
-    -- Section 1: Executive Architectural Overview
-    table.insert(lines, "## 1. Architectural Overview & Design Patterns")
-    local frameworks = analysisData.CodeAnalysis and analysisData.CodeAnalysis.Frameworks or {}
-    local fwNames = {}
-    for _, fw in ipairs(frameworks) do
-        table.insert(fwNames, string.format("**%s** (%s confidence)", fw.Name, fw.Confidence))
+    -- 1. Architecture Overview
+    table.insert(lines, "## 1. High-Level Architecture & Frameworks")
+    local frameworks = analysisData.Frameworks or {}
+    local fwStrings = {}
+    for _, f in ipairs(frameworks) do
+        table.insert(fwStrings, string.format("**%s** (%s confidence)", f.Name, f.Confidence))
     end
-
-    table.insert(lines, string.format("- **Primary Framework / Pattern:** %s", table.concat(fwNames, ", ")))
-    table.insert(lines, string.format("- **Total Discovered Client Scripts:** %d", analysisData.CodeAnalysis and analysisData.CodeAnalysis.TotalScripts or 0))
-    table.insert(lines, string.format("- **Active Network Endpoints:** %d Remotes Monitored", analysisData.TotalRemotes or 0))
+    table.insert(lines, string.format("- **Primary Framework:** %s", #fwStrings > 0 and table.concat(fwStrings, ", ") or "Modular Luau"))
+    table.insert(lines, string.format("- **Total Client Scripts:** %d", analysisData.TotalScripts or 0))
+    table.insert(lines, string.format("- **Network Remotes Logged:** %d events", #networkData))
     table.insert(lines, "")
-    table.insert(lines, "### System Architecture Diagram")
+    table.insert(lines, "### System Architecture Flow")
     table.insert(lines, DocGenerator.GenerateArchitectureDiagram(analysisData))
     table.insert(lines, "")
 
-    -- Section 2: Component Breakdown & Categorization
-    table.insert(lines, "## 2. Client-Side Component Breakdown")
-    table.insert(lines, "The client experience is decomposed into discrete architectural layers:")
-    table.insert(lines, "")
-
-    local categories = analysisData.CodeAnalysis and analysisData.CodeAnalysis.Categories or {}
+    -- 2. Client Scripts Breakdown
+    table.insert(lines, "## 2. Client Component Decomposition")
+    local categories = analysisData.Categories or {}
     for catName, scripts in pairs(categories) do
         table.insert(lines, string.format("### %s (%d modules)", catName, #scripts))
-        table.insert(lines, string.format("*%s*", scripts[1].Description or "Client logic module"))
+        table.insert(lines, string.format("*%s*", scripts[1] and scripts[1].Role or "Module component"))
         table.insert(lines, "")
-        table.insert(lines, "| Script Name | Class | Service Location | Attributes/Tags |")
+        table.insert(lines, "| Script Name | Class | Hierarchy Path | Tags |")
         table.insert(lines, "| --- | --- | --- | --- |")
-        for i = 1, math.min(#scripts, 8) do
+        for i = 1, math.min(#scripts, 10) do
             local s = scripts[i]
             local tagCount = s.Tags and #s.Tags or 0
-            table.insert(lines, string.format("| `%s` | %s | `%s` | %d tags |", s.Name, s.ClassName, Utility.Truncate(s.FullName, 35), tagCount))
+            table.insert(lines, string.format("| `%s` | %s | `%s` | %d |", s.Name, s.ClassName, Utility.Truncate(s.FullName, 40), tagCount))
         end
-        if #scripts > 8 then
-            table.insert(lines, string.format("*...and %d more modules in this category.*", #scripts - 8))
+        if #scripts > 10 then
+            table.insert(lines, string.format("*...and %d more modules in %s.*", #scripts - 10, catName))
         end
         table.insert(lines, "")
     end
 
-    -- Section 3: CollectionService Tags & Composition
-    local tags = analysisData.CodeAnalysis and analysisData.CodeAnalysis.Tags or {}
+    -- 3. CollectionService Tags
+    local tags = analysisData.Tags or {}
     if #tags > 0 then
-        table.insert(lines, "## 3. Entity-Component Composition (CollectionService)")
-        table.insert(lines, "Rather than hardcoding script logic onto individual Workspace objects, modern Roblox experiences use `CollectionService` tags to bind behavior declaratively:")
-        table.insert(lines, "")
-        table.insert(lines, "| Component Tag | Active Instances | Target Classes | Educational Role |")
+        table.insert(lines, "## 3. Entity-Component System (CollectionService)")
+        table.insert(lines, "| Tag Name | Instance Count | Class Distribution | Role |")
         table.insert(lines, "| --- | --- | --- | --- |")
         for _, t in ipairs(tags) do
             table.insert(lines, string.format("| `%s` | %d | %s | %s |", t.TagName, t.Count, Utility.Truncate(t.ClassDistribution, 25), t.EducationalNote))
@@ -187,161 +192,94 @@ function DocGenerator.GenerateArchitectureReport(analysisData)
         table.insert(lines, "")
     end
 
-    -- Section 4: Network Communication Specification
-    table.insert(lines, "## 4. Network Communication Specification & Remote Contracts")
-    table.insert(lines, "The client-server boundary is defined by RemoteEvents and RemoteFunctions:")
-    table.insert(lines, "")
-    table.insert(lines, "| Remote Name | Classification | Direction | Observed Signatures | Calls | Security Validation Considerations |")
+    -- 4. Network Contracts
+    table.insert(lines, "## 4. Network Remote Contracts & Security Analysis")
+    table.insert(lines, "| Timestamp | Method | Remote Name | System | Caller Script | Arguments Signature |")
     table.insert(lines, "| --- | --- | --- | --- | --- | --- |")
-
-    local netStats = analysisData.NetworkStats or {}
-    for path, stat in pairs(netStats) do
-        local sigs = {}
-        for sig, _ in pairs(stat.ArgSignatures or {}) do
-            table.insert(sigs, "(" .. (sig == "" and "void" or sig) .. ")")
-        end
-        local sigStr = #sigs > 0 and table.concat(sigs, " <br> ") or "(void)"
-
-        local secNote = "Validate caller distance and state permissions"
-        if stat.System:find("Combat") then
-            secNote = "⚠️ **Crucial:** Server must compute damage and verify hitbox line-of-sight"
-        elseif stat.System:find("Economy") then
-            secNote = "🔒 **Strict:** Never trust price from client; query server item catalog"
-        elseif stat.System:find("Movement") then
-            secNote = "⏱️ **Anti-Exploit:** Enforce maximum velocity and sanity-check delta time"
-        end
-
-        table.insert(lines, string.format("| `%s` | %s | %s | %s | %d | %s |",
-            stat.Name, stat.System or "General", "Bidirectional", sigStr, stat.Count, secNote))
+    for i = 1, math.min(#networkData, 15) do
+        local pkt = networkData[i]
+        local sig = "(" .. table.concat(pkt.ArgTypes, ", ") .. ")"
+        table.insert(lines, string.format("| %s | `%s` | **`%s`** | %s | `%s` | `%s` |",
+            pkt.Timestamp, pkt.Method, pkt.RemoteName, pkt.System, Utility.Truncate(pkt.Caller, 25), sig))
+    end
+    if #networkData == 0 then
+        table.insert(lines, "> *No network traffic captured yet. Interact with the experience to log remote calls.*")
     end
     table.insert(lines, "")
 
-    -- Section 5: Interaction Flow Diagram
-    table.insert(lines, "## 5. Client-Server Interaction Sequence")
-    table.insert(lines, DocGenerator.GenerateSequenceDiagram("Gameplay", "GameplayEvent"))
+    -- 5. Interaction Sequence Flow
+    table.insert(lines, "## 5. Interaction Sequence Flow (Client Prediction & Server Authority)")
+    table.insert(lines, DocGenerator.GenerateSequenceDiagram("Gameplay", "GameplayRemote"))
     table.insert(lines, "")
 
     return table.concat(lines, "\n")
 end
 
--- Generates a step-by-step educational tutorial teaching observed patterns
+--[[
+    DocGenerator.GenerateTutorial(topic)
+    Generates a comprehensive educational Luau code tutorial.
+]]
 function DocGenerator.GenerateTutorial(topic)
-    topic = topic or "Architecture"
-
-    local tutorial = {
-        "# 📚 Educational Guide: Modern Roblox Software Architecture",
+    local lines = {
+        "# 📚 Educational Guide: Writing Secure, Scalable Luau Systems",
         "",
-        "## Overview",
-        "Studying real-world Roblox experiences reveals crucial software design principles necessary for scalable, secure, and maintainable multiplayer games.",
+        "## Principle 1: The Client-Server Security Boundary (Never Trust the Client)",
+        "Because client memory is in the hands of the user, client-side calculations must never dictate server authority.",
         "",
-        "---",
-        "",
-        "## Core Concept 1: The Client-Server Security Boundary (Never Trust the Client)",
-        "",
-        "### ❌ The Vulnerable Anti-Pattern",
-        "Many beginner developers mistakenly allow the client to determine game outcomes directly (e.g. sending damage values or item prices over RemoteEvents):",
-        "",
+        "### ❌ Vulnerable Pattern (Client decides damage)",
         "```lua",
-        "-- CLIENT (Vulnerable)",
-        "local DamageRemote = game:GetService('ReplicatedStorage').DealDamage",
-        "DamageRemote:FireServer(enemyHumanoid, 50) -- Client decides damage number!",
-        "",
-        "-- SERVER (Vulnerable)",
-        "DamageRemote.OnServerEvent:Connect(function(player, targetHumanoid, damage)",
-        "    targetHumanoid:TakeDamage(damage) -- Server blindly trusts client!",
-        "end)",
+        "-- CLIENT",
+        "Remote:FireServer(targetEnemy, 50) -- Exploitable: Client controls the damage number!",
         "```",
         "",
-        "### ✅ The Robust Authoritative Pattern",
-        "In professional experiences, the client only sends *intent*, while the server calculates and enforces the outcome:",
-        "",
+        "### ✅ Secure Authoritative Pattern (Server validates and computes)",
         "```lua",
-        "-- CLIENT (Intent-Only)",
-        "local AttackRemote = game:GetService('ReplicatedStorage').PerformAttack",
-        "AttackRemote:FireServer(targetCharacter) -- Client simply requests the attack",
-        "",
-        "-- SERVER (Authoritative Validation)",
-        "AttackRemote.OnServerEvent:Connect(function(player, targetCharacter)",
-        "    -- 1. Verify Player state",
+        "-- SERVER",
+        "Remote.OnServerEvent:Connect(function(player, targetEnemy)",
         "    local char = player.Character",
         "    if not char or not char:FindFirstChild('Humanoid') or char.Humanoid.Health <= 0 then return end",
-        "",
-        "    -- 2. Verify cooldown & stamina",
+        "    ",
+        "    -- 1. Anti-spam & Cooldown check",
         "    if not CombatManager.CanAttack(player) then return end",
-        "",
-        "    -- 3. Verify spatial distance (sanity check against teleport/range exploits)",
-        "    local dist = (char.PrimaryPart.Position - targetCharacter.PrimaryPart.Position).Magnitude",
+        "    ",
+        "    -- 2. Spatial distance check",
+        "    local dist = (char.PrimaryPart.Position - targetEnemy.PrimaryPart.Position).Magnitude",
         "    if dist > CombatConfig.MAX_WEAPON_RANGE then return end",
-        "",
-        "    -- 4. Server computes authentic damage from inventory stats",
+        "    ",
+        "    -- 3. Calculate damage server-side",
         "    local weapon = InventoryManager.GetEquippedWeapon(player)",
-        "    local finalDamage = CombatFormula.Calculate(weapon, targetCharacter)",
-        "    targetCharacter.Humanoid:TakeDamage(finalDamage)",
+        "    local damage = CombatFormula.Calculate(weapon, targetEnemy)",
+        "    targetEnemy.Humanoid:TakeDamage(damage)",
         "end)",
         "```",
         "",
-        "---",
-        "",
-        "## Core Concept 2: Component-Driven Design with CollectionService",
-        "",
-        "Instead of pasting scripts into hundreds of parts or models, modern Roblox developers use **Tags** and a single centralized component controller.",
-        "",
-        "### Component Implementation Example",
+        "## Principle 2: Component-Driven Architecture via CollectionService",
+        "Instead of duplicating scripts inside hundreds of instances, bind behavior dynamically using Tags:",
         "```lua",
-        "-- ReplicatedStorage.Components.ChestComponent",
         "local CollectionService = game:GetService('CollectionService')",
-        "local TAG_NAME = 'LootChest'",
+        "local TAG = 'InteractableChest'",
         "",
-        "local ChestComponent = {}",
-        "ChestComponent.__index = ChestComponent",
-        "",
-        "function ChestComponent.new(instance)",
-        "    local self = setmetatable({}, ChestComponent)",
-        "    self.Instance = instance",
-        "    self.Prompt = instance:WaitForChild('ProximityPrompt')",
-        "",
-        "    self.Connection = self.Prompt.Triggered:Connect(function(player)",
-        "        self:OnTriggered(player)",
+        "local function onChestAdded(chestModel)",
+        "    local prompt = chestModel:WaitForChild('ProximityPrompt')",
+        "    prompt.Triggered:Connect(function(player)",
+        "        print(player.Name .. ' opened ' .. chestModel.Name)",
         "    end)",
-        "    return self",
         "end",
         "",
-        "function ChestComponent:OnTriggered(player)",
-        "    print(player.Name .. ' opened chest: ' .. self.Instance.Name)",
-        "end",
-        "",
-        "function ChestComponent:Destroy()",
-        "    if self.Connection then self.Connection:Disconnect() end",
-        "end",
-        "",
-        "-- Centralized lifecycle binding",
-        "for _, inst in ipairs(CollectionService:GetTagged(TAG_NAME)) do",
-        "    ChestComponent.new(inst)",
-        "end",
-        "",
-        "CollectionService:GetInstanceAddedSignal(TAG_NAME):Connect(function(inst)",
-        "    ChestComponent.new(inst)",
-        "end)",
-        "```",
-        "",
-        "---",
-        "",
-        "## Core Concept 3: Client Prediction & Responsiveness",
-        "",
-        "Because network packets take 30–150ms to reach the server and return, waiting for server confirmation before showing any visual feedback creates perceptible input lag.",
-        "- **Immediate Local Feedback:** Play swing animation and sound effects instantly on the client when the key is pressed.",
-        "- **Authoritative Reconciliation:** If the server rejects the action (e.g. cooldown was active), gently revert or reset the client's visual state.",
-        "",
-        "---",
-        "",
-        "## Summary Checklist for Robust Game Development",
-        "1. **Single Source of Truth:** Never store master inventory, money, or stats on the client.",
-        "2. **Rate Limiting:** Throttle incoming RemoteEvents on the server to prevent packet flooding.",
-        "3. **Decoupled Architecture:** Use Signals, Controllers, and Components rather than monolithic spaghetti scripts.",
-        "4. **Memory Hygiene:** Always clean up Connections using Maid, Trove, or Janitor patterns when instances are destroyed."
+        "for _, inst in ipairs(CollectionService:GetTagged(TAG)) do onChestAdded(inst) end",
+        "CollectionService:GetInstanceAddedSignal(TAG):Connect(onChestAdded)",
+        "```"
     }
 
-    return table.concat(tutorial, "\n")
+    return table.concat(lines, "\n")
+end
+
+-- Architecture report generator alias
+function DocGenerator.GenerateArchitectureReport(data)
+    data = data or {}
+    local codeData = data.CodeAnalysis or {}
+    local netLogs = data.NetworkStats or data.NetworkTrafficSample or {}
+    return DocGenerator.GenerateFullReport(codeData, netLogs)
 end
 
 return DocGenerator

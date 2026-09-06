@@ -8,6 +8,7 @@ local Serializer = {}
 
 -- String escaper for robust JSON encoding
 local function escapeString(str)
+    if type(str) ~= "string" then str = tostring(str or "") end
     local s = str:gsub('\\', '\\\\')
     s = s:gsub('"', '\\"')
     s = s:gsub('\n', '\\n')
@@ -267,14 +268,15 @@ function Serializer.ToJSON(data, indentLevel)
             end
             return "[\n" .. table.concat(lines, ",\n") .. "\n" .. indentStr .. "]"
         else
-            local keys = {}
-            for k, _ in pairs(data) do table.insert(keys, tostring(k)) end
-            table.sort(keys)
+            local keyPairs = {}
+            for k, v in pairs(data) do
+                table.insert(keyPairs, { KeyStr = tostring(k), Val = v })
+            end
+            table.sort(keyPairs, function(a, b) return a.KeyStr < b.KeyStr end)
 
             local lines = {}
-            for _, k in ipairs(keys) do
-                local val = data[k]
-                local line = nextIndentStr .. '"' .. escapeString(k) .. '": ' .. Serializer.ToJSON(val, indentLevel + 1)
+            for _, pair in ipairs(keyPairs) do
+                local line = nextIndentStr .. '"' .. escapeString(pair.KeyStr) .. '": ' .. Serializer.ToJSON(pair.Val, indentLevel + 1)
                 table.insert(lines, line)
             end
             return "{\n" .. table.concat(lines, ",\n") .. "\n" .. indentStr .. "}"

@@ -6,30 +6,55 @@ return function(Core)
     local LocalPlayer = Core.Services.Players.LocalPlayer
     local Aim = Core.Aim
 
+    local function safeDrawingNew(drawingType)
+        if type(Drawing) == "table" and type(Drawing.new) == "function" then
+            local ok, obj = pcall(Drawing.new, drawingType)
+            if ok and obj then return obj end
+        end
+        return {
+            Visible = false,
+            Transparency = 1,
+            Color = Color3.new(1, 1, 1),
+            Thickness = 1,
+            Position = Vector2.zero,
+            Size = Vector2.zero,
+            Radius = 0,
+            Filled = false,
+            Text = "",
+            Center = false,
+            Outline = false,
+            From = Vector2.zero,
+            To = Vector2.zero,
+            TextBounds = Vector2.new(50, 14),
+            Destroy = function() end,
+            Remove = function() end,
+        }
+    end
+
     function ESP.CreateESPDrawings()
-        local box = Drawing.new("Square")
+        local box = safeDrawingNew("Square")
         box.Visible = false; box.Color = Color3.fromRGB(255, 50, 50)
         box.Thickness = 1.5; box.Filled = false
 
-        local nameTag = Drawing.new("Text")
+        local nameTag = safeDrawingNew("Text")
         nameTag.Visible = false; nameTag.Size = 13
         nameTag.Color = Color3.new(1,1,1); nameTag.Outline = true
         nameTag.Center = true; nameTag.Text = ""
 
-        local healthBG = Drawing.new("Square")
+        local healthBG = safeDrawingNew("Square")
         healthBG.Visible = false; healthBG.Color = Color3.fromRGB(30,30,30)
         healthBG.Filled = true; healthBG.Transparency = 0.5
 
-        local healthFill = Drawing.new("Square")
+        local healthFill = safeDrawingNew("Square")
         healthFill.Visible = false; healthFill.Color = Color3.fromRGB(50,200,50)
         healthFill.Filled = true
 
-        local distTag = Drawing.new("Text")
+        local distTag = safeDrawingNew("Text")
         distTag.Visible = false; distTag.Size = 12
         distTag.Color = Color3.fromRGB(200,200,200); distTag.Outline = true
         distTag.Center = true; distTag.Text = ""
 
-        local tracer = Drawing.new("Line")
+        local tracer = safeDrawingNew("Line")
         tracer.Visible = false; tracer.Color = Color3.fromRGB(255,50,50)
         tracer.Thickness = 1
 

@@ -1,16 +1,38 @@
 return function(Core)
     local Drawings = {}
 
-    Drawings.FOVCircle = Drawing.new("Circle")
+    local function safeDrawingNew(drawingType)
+        if type(Drawing) == "table" and type(Drawing.new) == "function" then
+            local ok, obj = pcall(Drawing.new, drawingType)
+            if ok and obj then return obj end
+        end
+        return {
+            Visible = false,
+            Transparency = 1,
+            Color = Color3.new(1, 1, 1),
+            Thickness = 1,
+            Position = Vector2.zero,
+            Size = Vector2.zero,
+            Radius = 0,
+            Filled = false,
+            Text = "",
+            Center = false,
+            Outline = false,
+            From = Vector2.zero,
+            To = Vector2.zero,
+            TextBounds = Vector2.new(50, 14),
+            Destroy = function() end,
+            Remove = function() end,
+        }
+    end
+
+    Drawings.FOVCircle = safeDrawingNew("Circle")
     Drawings.FOVCircle.Visible = false
     Drawings.FOVCircle.Thickness = 1.5
     Drawings.FOVCircle.Color = Color3.fromRGB(255, 255, 255)
     Drawings.FOVCircle.Filled = false
 
-
-
-
-    Drawings.TargetInfoText = Drawing.new("Text")
+    Drawings.TargetInfoText = safeDrawingNew("Text")
     Drawings.TargetInfoText.Visible = false
     Drawings.TargetInfoText.Size = 14
     Drawings.TargetInfoText.Color = Color3.fromRGB(255, 200, 50)
@@ -18,18 +40,18 @@ return function(Core)
     Drawings.TargetInfoText.Center = true
     Drawings.TargetInfoText.Text = ""
 
-    Drawings.TargetHealthBG = Drawing.new("Square")
+    Drawings.TargetHealthBG = safeDrawingNew("Square")
     Drawings.TargetHealthBG.Visible = false
     Drawings.TargetHealthBG.Color = Color3.fromRGB(30, 30, 30)
     Drawings.TargetHealthBG.Filled = true
     Drawings.TargetHealthBG.Transparency = 0.4
 
-    Drawings.TargetHealthFill = Drawing.new("Square")
+    Drawings.TargetHealthFill = safeDrawingNew("Square")
     Drawings.TargetHealthFill.Visible = false
     Drawings.TargetHealthFill.Color = Color3.fromRGB(50, 200, 50)
     Drawings.TargetHealthFill.Filled = true
 
-    Drawings.HitMarker = Drawing.new("Text")
+    Drawings.HitMarker = safeDrawingNew("Text")
     Drawings.HitMarker.Visible = false
     Drawings.HitMarker.Size = 30
     Drawings.HitMarker.Color = Color3.fromRGB(255, 60, 60)
@@ -37,7 +59,7 @@ return function(Core)
     Drawings.HitMarker.Center = true
     Drawings.HitMarker.Text = "×"
 
-    Drawings.LockIndicator = Drawing.new("Circle")
+    Drawings.LockIndicator = safeDrawingNew("Circle")
     Drawings.LockIndicator.Visible = false
     Drawings.LockIndicator.Thickness = 2
     Drawings.LockIndicator.Color = Color3.fromRGB(255, 50, 50)
@@ -50,17 +72,13 @@ return function(Core)
     Drawings.MAX_KILLFEED = KILLFEED_MAX_SLOTS -- kept for backwards compat; use GetMaxKillFeed() for live value
     Drawings.KillFeedDrawings = {}
     for i = 1, KILLFEED_MAX_SLOTS do
-        local txt = Drawing.new("Text")
+        local txt = safeDrawingNew("Text")
         txt.Visible = false
         txt.Size = 14
         txt.Color = Color3.new(1, 1, 1)
         txt.Outline = true
         txt.Center = false
         txt.Text = ""
-        -- In some executors, there isn't a direct TextXAlignment for Drawings.Text
-        -- But for those that support it or custom wrappers, we could set it. 
-        -- However, Drawing API usually expects us to calculate text bounds ourselves if we want true right-align.
-        -- For now we just position it by its top-left and let it flow right. To right align, we need to subtract TextBounds.X from the position later in the render loop.
         Drawings.KillFeedDrawings[i] = txt
     end
 

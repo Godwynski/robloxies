@@ -1,19 +1,32 @@
 --[[
     LuauLens/modules/NetworkMonitor.lua
-    Hooks and logs RemoteEvent and RemoteFunction traffic for developer diagnostics and security analysis.
+    Hooks and logs RemoteEvent, RemoteFunction, and UnreliableRemoteEvent traffic
+    for developer diagnostics and security analysis.
 ]]
 
 local NetworkMonitor = {}
 
 -- Module dependency resolvers (Studio and bundle compatible)
 local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
     local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
         if script and script.Parent and script.Parent:FindFirstChild(modName) then
             return require(script.Parent[modName])
         end
     end)
     if success and res then return res end
-    return require("LuauLens.modules." .. modName)
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
 local Serializer = resolveModule("Serializer")
@@ -52,24 +65,42 @@ end
 
 -- Process and record an intercepted packet
 local function recordCall(remoteInst, method, direction, callerPath, rawArgs)
-    if not isRunning or not remoteInst or not remoteInst.Name then return end
+    if not isRunning or typeof(remoteInst) ~= "Instance" or not remoteInst.Name then return end
 
-    local remotePath = Utility.GetInstancePath(remoteInst)
+    local remotePath = Utility and Utility.GetInstancePath(remoteInst) or remoteInst:GetFullName()
     local system, sysDesc = classifySystem(remoteInst.Name, remotePath)
 
     local argTypes = {}
     local serializedArgs = {}
+    local payloadSize = 0
 
     for _, arg in ipairs(rawArgs) do
-        table.insert(argTypes, typeof(arg))
-        table.insert(serializedArgs, Serializer.Serialize(arg, 3))
+        local t = typeof(arg)
+        table.insert(argTypes, t)
+        if Serializer and Serializer.Serialize then
+            table.insert(serializedArgs, Serializer.Serialize(arg, 3))
+        else
+            table.insert(serializedArgs, tostring(arg))
+        end
+
+        if t == "string" then
+            payloadSize = payloadSize + #arg
+        elseif t == "number" or t == "boolean" then
+            payloadSize = payloadSize + 8
+        elseif t == "Vector3" or t == "CFrame" then
+            payloadSize = payloadSize + 32
+        elseif t == "table" then
+            payloadSize = payloadSize + 64
+        else
+            payloadSize = payloadSize + 16
+        end
     end
 
-    local payloadSize = #Serializer.ToJSON(serializedArgs)
+    local timeStr = Utility and Utility.GetFormattedTime and Utility.GetFormattedTime() or os.date("%H:%M:%S")
 
     local packet = {
         Id = #packetLogs + 1,
-        Timestamp = Utility.GetFormattedTime(),
+        Timestamp = timeStr,
         Clock = os.clock(),
         Method = method,
         Direction = direction,
@@ -117,24 +148,28 @@ end
 
 -- Hook metamethod __namecall for outbound FireServer & InvokeServer
 local function hookNamecall()
-    local env = Utility.GetEnvironment()
+    local env = Utility and Utility.GetEnvironment() or {}
     if not env.HasHookMeta then return false end
+    if originalNamecall then return true end
 
     local success = pcall(function()
         local oldNamecall
         oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            if not isRunning then return oldNamecall(self, ...) end
             local method = getnamecallmethod()
-            if (method == "FireServer" or method == "InvokeServer") then
-                local caller = "Unknown Caller"
-                pcall(function()
-                    if type(getcallingscript) == "function" then
-                        local cs = getcallingscript()
-                        if cs then caller = cs:GetFullName() end
-                    end
-                end)
+            if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+                if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") or self:IsA("UnreliableRemoteEvent") then
+                    local caller = "Unknown Caller"
+                    pcall(function()
+                        if type(getcallingscript) == "function" then
+                            local cs = getcallingscript()
+                            if cs then caller = cs:GetFullName() end
+                        end
+                    end)
 
-                local args = { ... }
-                recordCall(self, method, "Client -> Server", caller, args)
+                    local args = { ... }
+                    recordCall(self, method, "Client -> Server", caller, args)
+                end
             end
             return oldNamecall(self, ...)
         end)
@@ -147,7 +182,7 @@ end
 -- Attach passive listeners to incoming Remotes (Server -> Client)
 local function attachInboundListeners()
     local function bindRemote(inst)
-        if inst:IsA("RemoteEvent") then
+        if inst:IsA("RemoteEvent") or inst:IsA("UnreliableRemoteEvent") then
             local conn
             pcall(function()
                 conn = inst.OnClientEvent:Connect(function(...)
@@ -162,7 +197,9 @@ local function attachInboundListeners()
     local function scan(container)
         pcall(function()
             for _, d in ipairs(container:GetDescendants()) do
-                bindRemote(d)
+                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("UnreliableRemoteEvent") then
+                    bindRemote(d)
+                end
             end
         end)
     end
@@ -170,7 +207,11 @@ local function attachInboundListeners()
     scan(Services.ReplicatedStorage)
     scan(Services.Workspace)
 
-    local addedConn = Services.ReplicatedStorage.DescendantAdded:Connect(bindRemote)
+    local addedConn = Services.ReplicatedStorage.DescendantAdded:Connect(function(inst)
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst:IsA("UnreliableRemoteEvent") then
+            bindRemote(inst)
+        end
+    end)
     table.insert(activeConnections, addedConn)
 end
 
@@ -213,6 +254,10 @@ end
 function NetworkMonitor.GetStatistics()
     return remoteStatistics
 end
+
+-- Aliases for API parity
+NetworkMonitor.GetStats = NetworkMonitor.GetStatistics
+NetworkMonitor.GetHistory = NetworkMonitor.GetNetworkLog
 
 -- Clear network logs
 function NetworkMonitor.Clear()

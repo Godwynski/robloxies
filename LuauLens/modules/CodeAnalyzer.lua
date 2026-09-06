@@ -210,9 +210,9 @@ local function scanContainer(container, results, visited)
             })
         end
 
-        -- Recurse unless large non-script 3D terrain
+        -- Recurse unless large non-script 3D terrain/geometry or depth limit reached
         if not (child:IsA("Terrain") or child:IsA("MeshPart") or child:IsA("BasePart")) then
-            scanContainer(child, results, visited)
+            scanContainer(child, results, visited, (depth or 0) + 1)
         end
     end
 end
@@ -243,7 +243,7 @@ function CodeAnalyzer.ScanGameHierarchy()
     end
 
     for _, target in ipairs(targets) do
-        scanContainer(target.Container, scriptsList, visited)
+        scanContainer(target.Container, scriptsList, visited, 0)
     end
 
     -- Group scripts by category
@@ -265,5 +265,8 @@ function CodeAnalyzer.ScanGameHierarchy()
         Tags = tags,
     }
 end
+
+-- Public API alias
+CodeAnalyzer.RunAnalysis = CodeAnalyzer.ScanGameHierarchy
 
 return CodeAnalyzer

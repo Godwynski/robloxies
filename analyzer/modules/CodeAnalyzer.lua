@@ -1,5 +1,7 @@
--- analyzer/modules/CodeAnalyzer.lua
--- Client-Side Code Analysis: Script extraction, structural decomposition, framework detection, and component relationships
+--[[
+    LuauLens/modules/CodeAnalyzer.lua
+    Script hierarchy crawler, framework detection, and component relationship mapping.
+]]
 
 local CodeAnalyzer = {}
 
@@ -15,163 +17,68 @@ local Services = {
 
 local CATEGORY_RULES = {
     {
-        Category = "Controller",
-        Matches = { "controller$", "client$", "input$", "movement$", "camera$", "character$" },
-        Description = "Client-side controller coordinating user inputs, camera, and local actor behavior"
+        Category = "Controllers",
+        Patterns = { "controller$", "client$", "input$", "movement$", "camera$" },
+        Role = "Coordinates user input, camera manipulation, and local actor behavior."
     },
     {
-        Category = "Game Mechanic",
-        Matches = { "combat", "inventory", "shop", "quest", "skill", "weapon", "ability", "crafting", "mining", "building", "racing", "dialog" },
-        Description = "Core gameplay mechanic orchestrator"
+        Category = "Services",
+        Patterns = { "service$", "manager$", "handler$", "network$", "packet$" },
+        Role = "Manages gameplay state, remote communication, and centralized subsystem APIs."
     },
     {
-        Category = "Network Adapter",
-        Matches = { "network", "remote", "packet", "eventhandler", "clientcomm", "replicaclient", "bridge" },
-        Description = "Handles client-server remote communication and packet serialization"
+        Category = "UI",
+        Patterns = { "component$", "view$", "screen$", "hud$", "window$", "modal$", "frame$", "gui$" },
+        Role = "User interface presentation, HUD elements, and view-controller binding."
     },
     {
-        Category = "UI Component",
-        Matches = { "component$", "view$", "screen$", "hud$", "window$", "modal$", "frame$", "gui$" },
-        Description = "User interface rendering, HUD elements, and view-controller binding"
+        Category = "Mechanics",
+        Patterns = { "combat", "inventory", "shop", "quest", "skill", "weapon", "ability", "crafting" },
+        Role = "Specific core gameplay loops and interactive game mechanics."
     },
     {
-        Category = "State Store",
-        Matches = { "store$", "state$", "reducer$", "action$", "rodux", "replica", "atom" },
-        Description = "Client-side state management, centralized data store, or replicated cache"
+        Category = "State",
+        Patterns = { "store$", "state$", "reducer$", "action$", "rodux", "replica" },
+        Role = "Centralized state containers and client-server replicated data stores."
     },
     {
-        Category = "Utility & Helper",
-        Matches = { "util", "helper", "maid", "trove", "promise", "signal", "fastsignal", "goodsignal", "timer" },
-        Description = "General-purpose utility library or memory management helper"
+        Category = "Utilities",
+        Patterns = { "util", "helper", "maid", "trove", "promise", "signal", "timer" },
+        Role = "Reusable libraries, signal emitters, and memory lifecycle helpers."
     },
     {
-        Category = "Config & Data",
-        Matches = { "config", "setting", "constant", "definition", "itemdata", "types", "table" },
-        Description = "Static game configuration, asset tables, or constant definitions"
-    },
+        Category = "Configs",
+        Patterns = { "config", "setting", "constant", "definition", "itemdata", "types" },
+        Role = "Static definitions, game balances, item catalogs, and type annotations."
+    }
 }
 
--- Classify a script based on its name and parent hierarchy
+-- Classify script based on naming patterns and parent service location
 local function classifyScript(inst)
     local name = inst.Name:lower()
-    local parentPath = inst:GetFullName():lower()
+    local path = inst:GetFullName():lower()
 
-    -- Check if inside PlayerGui or StarterGui
-    if parentPath:find("playergui") or parentPath:find("startergui") then
-        return "UI Component", "Located inside GUI tree; manages visual interface and user HUD"
+    if path:find("playergui") or path:find("startergui") then
+        return "UI", "Located inside GUI hierarchy; renders visual elements and binds HUD."
     end
 
     for _, rule in ipairs(CATEGORY_RULES) do
-        for _, pattern in ipairs(rule.Matches) do
-            if name:find(pattern) then
-                return rule.Category, rule.Description
+        for _, pat in ipairs(rule.Patterns) do
+            if name:find(pat) then
+                return rule.Category, rule.Role
             end
         end
     end
 
     if inst:IsA("LocalScript") then
-        return "Local Controller", "Standard client script executing local logic"
-    elseif inst:IsA("ModuleScript") then
-        return "Shared Module", "Reusable module exposing functions, classes, or state"
+        return "Controllers", "Standard client script executing local actor logic."
     else
-        return "Client Script", "Client-executing script instance"
+        return "Shared Modules", "Reusable ModuleScript exposing functions, classes, or state."
     end
 end
 
--- Inspect source code or decompile if permitted (for educational AST / pattern detection)
-local function getScriptSourceInfo(inst)
-    local hasSource = false
-    local lineCount = 0
-    local sourcePreview = ""
-
-    pcall(function()
-        -- In Roblox Studio, script.Source is directly readable
-        if inst.Source and type(inst.Source) == "string" and #inst.Source > 0 then
-            hasSource = true
-            local lines = inst.Source:split("\n")
-            lineCount = #lines
-            sourcePreview = inst.Source:sub(1, 200)
-        end
-    end)
-
-    if not hasSource and type(decompile) == "function" then
-        pcall(function()
-            local decomp = decompile(inst)
-            if decomp and type(decomp) == "string" and #decomp > 0 then
-                hasSource = true
-                local lines = decomp:split("\n")
-                lineCount = #lines
-                sourcePreview = decomp:sub(1, 200)
-            end
-        end)
-    end
-
-    return {
-        HasSource = hasSource,
-        LineCount = lineCount,
-        SourcePreview = sourcePreview,
-    }
-end
-
--- Scan a container recursively for script instances
-local function scanContainer(container, results, visited)
-    if not container then return end
-    if visited[container] then return end
-    visited[container] = true
-
-    local success, children = pcall(function()
-        return container:GetChildren()
-    end)
-    if not success or not children then return end
-
-    for _, child in ipairs(children) do
-        local isClientScript = false
-        if child:IsA("LocalScript") or child:IsA("ModuleScript") then
-            isClientScript = true
-        elseif child:IsA("Script") then
-            pcall(function()
-                if child.RunContext == Enum.RunContext.Client then
-                    isClientScript = true
-                end
-            end)
-        end
-
-        if isClientScript then
-            local category, catDesc = classifyScript(child)
-            local srcInfo = getScriptSourceInfo(child)
-            local tags = {}
-            pcall(function()
-                tags = Services.CollectionService:GetTags(child)
-            end)
-
-            local attributes = {}
-            pcall(function()
-                attributes = child:GetAttributes()
-            end)
-
-            table.insert(results, {
-                Instance = child,
-                Name = child.Name,
-                ClassName = child.ClassName,
-                FullName = child:GetFullName(),
-                Category = category,
-                Description = catDesc,
-                Tags = tags,
-                Attributes = attributes,
-                ParentName = child.Parent and child.Parent.Name or "None",
-                SourceInfo = srcInfo,
-            })
-        end
-
-        -- Recurse unless it's a huge non-script hierarchy
-        if not (child:IsA("Terrain") or child:IsA("MeshPart") or child:IsA("BasePart")) then
-            scanContainer(child, results, visited)
-        end
-    end
-end
-
--- Detect prominent Roblox frameworks used in the experience
-function CodeAnalyzer.DetectFrameworks(scriptsList)
+-- Detect prominent Roblox frameworks used in the project
+local function detectFrameworks(scriptsList)
     local frameworks = {}
 
     local checks = {
@@ -180,48 +87,53 @@ function CodeAnalyzer.DetectFrameworks(scriptsList)
         Roact = { Count = 0, Indicators = { "roact", "rodux", "roactrodux", "roact-spring" } },
         ReplicaService = { Count = 0, Indicators = { "replica", "replicaclient", "replicacontroller" } },
         MatterECS = { Count = 0, Indicators = { "matter", "ecs", "world.spawn", "system" } },
-        RedNetworking = { Count = 0, Indicators = { "red", "red.client", "red.server" } },
     }
 
-    for _, item in ipairs(scriptsList) do
-        local nameLower = item.Name:lower()
-        local pathLower = item.FullName:lower()
+    -- Check global namespace
+    pcall(function()
+        if _G.Knit or (shared and shared.Knit) then checks.Knit.Count = checks.Knit.Count + 10 end
+        if _G.Flamework or (shared and shared.Flamework) then checks.Flamework.Count = checks.Flamework.Count + 10 end
+    end)
 
-        for fwName, fwData in pairs(checks) do
-            for _, ind in ipairs(fwData.Indicators) do
-                if nameLower:find(ind) or pathLower:find(ind) then
-                    fwData.Count = fwData.Count + 1
+    -- Check script names and paths
+    for _, s in ipairs(scriptsList) do
+        local n = s.Name:lower()
+        local p = s.FullName:lower()
+        for fw, data in pairs(checks) do
+            for _, ind in ipairs(data.Indicators) do
+                if n:find(ind) or p:find(ind) then
+                    data.Count = data.Count + 1
                     break
                 end
             end
         end
     end
 
-    for fwName, fwData in pairs(checks) do
-        if fwData.Count > 0 then
+    for fw, data in pairs(checks) do
+        if data.Count > 0 then
             table.insert(frameworks, {
-                Name = fwName,
-                Confidence = fwData.Count >= 3 and "High" or (fwData.Count >= 1 and "Moderate" or "Low"),
-                Occurrences = fwData.Count,
+                Name = fw,
+                Confidence = (data.Count >= 5) and "High" or ((data.Count >= 2) and "Moderate" or "Low"),
+                Occurrences = data.Count
             })
         end
     end
 
     if #frameworks == 0 then
         table.insert(frameworks, {
-            Name = "Standard Modular Luau / Custom OOP",
+            Name = "Modular Luau / Custom OOP",
             Confidence = "High",
             Occurrences = #scriptsList,
-            Description = "Standard Roblox module hierarchy using ModuleScripts, LocalScripts, and metatables"
+            Description = "Standard modular architecture using ModuleScripts and object-oriented metatables."
         })
     end
 
     return frameworks
 end
 
--- Analyze CollectionService tags and component bindings
-function CodeAnalyzer.AnalyzeTags()
-    local tagReport = {}
+-- Inspect CollectionService tags and component instances
+local function analyzeTags()
+    local tagsData = {}
     local tags = {}
     pcall(function()
         tags = Services.CollectionService:GetAllTags()
@@ -243,29 +155,79 @@ function CodeAnalyzer.AnalyzeTags()
             table.insert(classSummary, string.format("%s (%d)", cls, count))
         end
 
-        table.insert(tagReport, {
+        table.insert(tagsData, {
             TagName = tag,
             Count = #instances,
             SampleClass = instances[1] and instances[1].ClassName or "None",
             ClassDistribution = table.concat(classSummary, ", "),
-            EducationalNote = string.format("Component tag '%s' applied to %d instances for dynamic behavior binding", tag, #instances)
+            EducationalNote = string.format("Component tag '%s' applied to %d entities for dynamic behavior binding.", tag, #instances)
         })
     end
 
-    table.sort(tagReport, function(a, b)
-        return a.Count > b.Count
-    end)
-
-    return tagReport
+    table.sort(tagsData, function(a, b) return a.Count > b.Count end)
+    return tagsData
 end
 
--- Perform complete client-side code analysis across all accessible services
-function CodeAnalyzer.RunAnalysis()
+-- Recursively scan a container for script objects
+local function scanContainer(container, results, visited)
+    if not container then return end
+    if visited[container] then return end
+    visited[container] = true
+
+    local success, children = pcall(function()
+        return container:GetChildren()
+    end)
+    if not success or not children then return end
+
+    for _, child in ipairs(children) do
+        local isScript = false
+        if child:IsA("LocalScript") or child:IsA("ModuleScript") then
+            isScript = true
+        elseif child:IsA("Script") then
+            pcall(function()
+                if child.RunContext == Enum.RunContext.Client then isScript = true end
+            end)
+        end
+
+        if isScript then
+            local category, role = classifyScript(child)
+            local tags = {}
+            pcall(function() tags = Services.CollectionService:GetTags(child) end)
+
+            local attributes = {}
+            pcall(function() attributes = child:GetAttributes() end)
+
+            table.insert(results, {
+                Instance = child,
+                Name = child.Name,
+                ClassName = child.ClassName,
+                FullName = child:GetFullName(),
+                Category = category,
+                Role = role,
+                Tags = tags,
+                Attributes = attributes,
+                ParentName = child.Parent and child.Parent.Name or "None"
+            })
+        end
+
+        -- Recurse unless large non-script 3D terrain/geometry or depth limit reached
+        if not (child:IsA("Terrain") or child:IsA("MeshPart") or child:IsA("BasePart")) then
+            scanContainer(child, results, visited, (depth or 0) + 1)
+        end
+    end
+end
+
+--[[
+    CodeAnalyzer.ScanGameHierarchy()
+    Recursively scans services (ReplicatedStorage, PlayerScripts, StarterGui, etc.),
+    categorizes discovered scripts, detects active frameworks, and builds an architectural map.
+]]
+function CodeAnalyzer.ScanGameHierarchy()
     local scriptsList = {}
     local visited = {}
 
     local localPlayer = Services.Players.LocalPlayer
-    local scanTargets = {
+    local targets = {
         { Name = "ReplicatedStorage", Container = Services.ReplicatedStorage },
         { Name = "ReplicatedFirst", Container = Services.ReplicatedFirst },
         { Name = "StarterPlayer", Container = Services.StarterPlayer },
@@ -274,38 +236,37 @@ function CodeAnalyzer.RunAnalysis()
     }
 
     if localPlayer then
-        local playerScripts = localPlayer:FindFirstChild("PlayerScripts")
-        if playerScripts then
-            table.insert(scanTargets, 1, { Name = "PlayerScripts", Container = playerScripts })
-        end
-        local playerGui = localPlayer:FindFirstChild("PlayerGui")
-        if playerGui then
-            table.insert(scanTargets, 2, { Name = "PlayerGui", Container = playerGui })
-        end
+        local ps = localPlayer:FindFirstChild("PlayerScripts")
+        if ps then table.insert(targets, 1, { Name = "PlayerScripts", Container = ps }) end
+        local pg = localPlayer:FindFirstChild("PlayerGui")
+        if pg then table.insert(targets, 2, { Name = "PlayerGui", Container = pg }) end
     end
 
-    for _, target in ipairs(scanTargets) do
-        scanContainer(target.Container, scriptsList, visited)
+    for _, target in ipairs(targets) do
+        scanContainer(target.Container, scriptsList, visited, 0)
     end
 
-    -- Group by category
-    local categoryGroups = {}
+    -- Group scripts by category
+    local categories = {}
     for _, s in ipairs(scriptsList) do
-        categoryGroups[s.Category] = categoryGroups[s.Category] or {}
-        table.insert(categoryGroups[s.Category], s)
+        categories[s.Category] = categories[s.Category] or {}
+        table.insert(categories[s.Category], s)
     end
 
-    local frameworks = CodeAnalyzer.DetectFrameworks(scriptsList)
-    local tags = CodeAnalyzer.AnalyzeTags()
+    local frameworks = detectFrameworks(scriptsList)
+    local tags = analyzeTags()
 
     return {
         Timestamp = os.time(),
         TotalScripts = #scriptsList,
         Scripts = scriptsList,
-        Categories = categoryGroups,
+        Categories = categories,
         Frameworks = frameworks,
         Tags = tags,
     }
 end
+
+-- Public API alias
+CodeAnalyzer.RunAnalysis = CodeAnalyzer.ScanGameHierarchy
 
 return CodeAnalyzer

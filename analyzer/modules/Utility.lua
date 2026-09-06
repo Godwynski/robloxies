@@ -1,5 +1,7 @@
--- analyzer/modules/Utility.lua
--- General utilities, environment detection, file exports, and reflection helpers
+--[[
+    LuauLens/modules/Utility.lua
+    Environment detection, file/clipboard export abstraction, and reflection helper functions.
+]]
 
 local Utility = {}
 
@@ -7,94 +9,58 @@ local Services = {
     RunService = game:GetService("RunService"),
     Players = game:GetService("Players"),
     Stats = game:GetService("Stats"),
-    HttpService = game:GetService("HttpService"),
 }
 
 Utility.Services = Services
 
--- Environment capabilities detection
-function Utility.GetEnvironment()
+--[[
+    Utility.IsStudio()
+    Returns true if the current environment is running inside Roblox Studio.
+]]
+function Utility.IsStudio()
     local isStudio = false
     pcall(function()
         isStudio = Services.RunService:IsStudio()
     end)
+    return isStudio
+end
 
-    local hasWritefile = type(writefile) == "function"
-    local hasClipboard = (type(setclipboard) == "function") or (type(toclipboard) == "function")
-    local hasHookMeta = type(hookmetamethod) == "function"
-    local hasGetGC = type(getgc) == "function"
-    local hasDecompile = type(decompile) == "function"
-    local hasGetHui = type(gethui) == "function"
-
+--[[
+    Utility.GetEnvironment()
+    Discovers available runtime APIs and execution capabilities.
+]]
+function Utility.GetEnvironment()
     return {
-        IsStudio = isStudio,
-        HasWritefile = hasWritefile,
-        HasClipboard = hasClipboard,
-        HasHookMeta = hasHookMeta,
-        HasGetGC = hasGetGC,
-        HasDecompile = hasDecompile,
-        HasGetHui = hasGetHui,
+        IsStudio = Utility.IsStudio(),
+        HasWritefile = type(writefile) == "function",
+        HasClipboard = (type(setclipboard) == "function") or (type(toclipboard) == "function"),
+        HasHookMeta = type(hookmetamethod) == "function",
+        HasGetHui = type(gethui) == "function",
     }
 end
 
--- Safely copy text to clipboard or fallback
-function Utility.SetClipboard(text)
-    if type(setclipboard) == "function" then
-        local success = pcall(function() setclipboard(text) end)
-        if success then return true, "Copied to clipboard (setclipboard)" end
-    end
-    if type(toclipboard) == "function" then
-        local success = pcall(function() toclipboard(text) end)
-        if success then return true, "Copied to clipboard (toclipboard)" end
-    end
-    return false, "Clipboard API not available in current environment"
-end
+--[[
+    Utility.GetInstancePath(instance)
+    Computes the canonical game hierarchy path of an Instance.
+    Example: game:GetService("ReplicatedStorage").Remotes.AttackEvent
+]]
+function Utility.GetInstancePath(instance)
+    if not instance then return "nil" end
 
--- Safely export data to file or return content
-function Utility.SaveFile(filename, content)
-    if type(writefile) == "function" then
-        local success, err = pcall(function()
-            writefile(filename, content)
-        end)
-        if success then
-            return true, "Saved to " .. filename
-        else
-            return false, "writefile error: " .. tostring(err)
-        end
-    end
-    return false, "writefile API not available (fallback to clipboard or UI export)"
-end
-
--- Formatted timestamp: HH:MM:SS.mmm
-function Utility.GetFormattedTime()
-    local clock = os.clock()
-    local sec = math.floor(clock)
-    local millis = math.floor((clock - sec) * 1000)
-    local dateTable = os.date("*t")
-    return string.format("%02d:%02d:%02d.%03d", dateTable.hour, dateTable.min, dateTable.sec, millis)
-end
-
--- Formats a clean Lua access path for an instance
-function Utility.GetInstancePath(inst)
-    if not inst then return "nil" end
     local success, path = pcall(function()
-        local current = inst
         local segments = {}
+        local current = instance
         while current and current ~= game do
             table.insert(segments, 1, current.Name)
             current = current.Parent
         end
 
-        if #segments == 0 then
-            return "game"
-        end
+        if #segments == 0 then return "game" end
 
         local serviceName = segments[1]
         local isKnownService = false
         pcall(function()
-            if game:GetService(serviceName) then
-                isKnownService = true
-            end
+            if game:GetService(serviceName) then isKnownService = true end
         end)
 
         local result = ""
@@ -118,20 +84,102 @@ function Utility.GetInstancePath(inst)
     if success then
         return path
     else
-        return inst.Name or "UnknownInstance"
+        return instance.Name or "UnknownInstance"
     end
 end
 
--- Get parent service name
-function Utility.GetServiceRoot(inst)
-    local current = inst
-    while current and current.Parent and current.Parent ~= game do
-        current = current.Parent
+-- Module dependency resolver (handles bundles, Studio script hierarchy, and direct paths)
+local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
     end
-    return current and current.Name or "UnknownService"
+    local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
+        if script and script.Parent and script.Parent:FindFirstChild(modName) then
+            return require(script.Parent[modName])
+        end
+    end)
+    if success and res then return res end
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
--- Memory usage in MB
+--[[
+    Utility.Export(data, filename)
+    Handles saving data. Uses writefile if available, and setclipboard as a graceful fallback.
+    Automatically serializes tables to JSON if passed a table.
+    Returns (success: boolean, message: string).
+]]
+function Utility.Export(data, filename)
+    filename = filename or ("LuauLens_Export_" .. tostring(os.time()) .. ".txt")
+    local strContent = ""
+    if type(data) == "table" then
+        local Serializer = resolveModule("Serializer")
+        if Serializer and type(Serializer.ToJSON) == "function" then
+            local ok, json = pcall(function()
+                return Serializer.ToJSON(Serializer.Serialize(data, 5), 0)
+            end)
+            if ok and json then strContent = json end
+        end
+        if #strContent == 0 then
+            local ok, json = pcall(function()
+                return game:GetService("HttpService"):JSONEncode(data)
+            end)
+            strContent = (ok and json) or tostring(data)
+        end
+    else
+        strContent = tostring(data)
+    end
+
+    -- 1. Try writefile (Studio plugins, local environments, or supported tools)
+    if type(writefile) == "function" then
+        local success, err = pcall(function()
+            writefile(filename, strContent)
+        end)
+        if success then
+            return true, "Successfully saved to file: " .. filename
+        end
+    end
+
+    -- 2. Fallback: Copy to system clipboard
+    if type(setclipboard) == "function" then
+        local success = pcall(function() setclipboard(strContent) end)
+        if success then
+            return true, "Exported to clipboard (via setclipboard)"
+        end
+    end
+
+    if type(toclipboard) == "function" then
+        local success = pcall(function() toclipboard(strContent) end)
+        if success then
+            return true, "Exported to clipboard (via toclipboard)"
+        end
+    end
+
+    return false, "Neither writefile nor clipboard API available in this environment."
+end
+
+-- Formatted timestamp: HH:MM:SS.mmm
+function Utility.GetFormattedTime()
+    local ok, formatted = pcall(function()
+        return DateTime.now():FormatLocalTime("HH:mm:ss.SSS", "en-us")
+    end)
+    if ok and formatted then return formatted end
+
+    local clock = os.clock()
+    local millis = math.floor((clock % 1) * 1000)
+    local dateTable = os.date("*t")
+    return string.format("%02d:%02d:%02d.%03d", dateTable.hour, dateTable.min, dateTable.sec, millis)
+end
+
+-- Total memory usage in MB
 function Utility.GetMemoryUsageMB()
     local mem = 0
     pcall(function()
@@ -140,7 +188,7 @@ function Utility.GetMemoryUsageMB()
     return math.floor(mem * 10) / 10
 end
 
--- Truncate string for compact table/list previews
+-- String truncation helper
 function Utility.Truncate(str, maxLen)
     maxLen = maxLen or 40
     if not str then return "" end
@@ -148,15 +196,6 @@ function Utility.Truncate(str, maxLen)
         return str:sub(1, maxLen - 3) .. "..."
     end
     return str
-end
-
--- Simple table clone (shallow)
-function Utility.ShallowClone(tbl)
-    local copy = {}
-    for k, v in pairs(tbl) do
-        copy[k] = v
-    end
-    return copy
 end
 
 return Utility

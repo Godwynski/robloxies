@@ -6,13 +6,25 @@
 local ContentTracker = {}
 
 local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
     local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
         if script and script.Parent and script.Parent:FindFirstChild(modName) then
             return require(script.Parent[modName])
         end
     end)
     if success and res then return res end
-    return require("LuauLens.modules." .. modName)
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
 local Utility = resolveModule("Utility")
@@ -63,10 +75,10 @@ local function scanContainer(container, remotes, scripts, assetMap, attributesMa
     if not success or not descendants then return end
 
     for _, inst in ipairs(descendants) do
-        local path = Utility.GetInstancePath(inst)
+        local path = Utility and Utility.GetInstancePath(inst) or inst:GetFullName()
 
         -- Remotes
-        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") then
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst:IsA("UnreliableRemoteEvent") then
             remotes[path] = {
                 Name = inst.Name,
                 ClassName = inst.ClassName,
@@ -83,8 +95,10 @@ local function scanContainer(container, remotes, scripts, assetMap, attributesMa
             }
         end
 
-        -- Assets
-        extractAssets(inst, assetMap)
+        -- Assets: filter by known asset container classes to prevent thousands of redundant pcalls on BaseParts
+        if inst:IsA("MeshPart") or inst:IsA("SpecialMesh") or inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("Sound") or inst:IsA("Animation") then
+            extractAssets(inst, assetMap)
+        end
 
         -- Attributes
         pcall(function()
@@ -95,7 +109,11 @@ local function scanContainer(container, remotes, scripts, assetMap, attributesMa
                 break
             end
             if hasAttr then
-                attributesMap[path] = Serializer.Serialize(attrs, 2)
+                if Serializer and Serializer.Serialize then
+                    attributesMap[path] = Serializer.Serialize(attrs, 2)
+                else
+                    attributesMap[path] = attrs
+                end
             end
         end)
     end
@@ -147,11 +165,13 @@ function ContentTracker.CreateSnapshot(label)
     local placeVersion = 0
     pcall(function() placeVersion = game.PlaceVersion end)
 
+    local timeStr = Utility and Utility.GetFormattedTime and Utility.GetFormattedTime() or os.date("%H:%M:%S")
+
     local snapshot = {
         Id = "snap_" .. tostring(snapshotCount) .. "_" .. tostring(os.time()),
         Label = label,
         Timestamp = os.time(),
-        FormattedTime = Utility.GetFormattedTime(),
+        FormattedTime = timeStr,
         PlaceId = game.PlaceId,
         PlaceVersion = placeVersion,
         Remotes = remotes,
@@ -259,10 +279,16 @@ function ContentTracker.CompareSnapshots(snapshot1, snapshot2)
         end
     end
 
-    -- 5. Compare Attributes
+    -- 5. Compare Attributes (Added and Removed)
     for path, attrs in pairs(snapshot2.Attributes) do
         if not snapshot1.Attributes[path] then
             table.insert(diff.ChangedAttributes, { Path = path, Action = "AddedAttributes" })
+            diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
+        end
+    end
+    for path, attrs in pairs(snapshot1.Attributes) do
+        if not snapshot2.Attributes[path] then
+            table.insert(diff.ChangedAttributes, { Path = path, Action = "RemovedAttributes" })
             diff.Summary.TotalChanges = diff.Summary.TotalChanges + 1
         end
     end
@@ -307,7 +333,7 @@ function ContentTracker.GenerateChangelog(diff)
         table.insert(lines, string.format("### 🎨 Newly Loaded Game Assets (%d items)", #diff.AddedAssets))
         for i = 1, math.min(#diff.AddedAssets, 10) do
             local a = diff.AddedAssets[i]
-            table.insert(lines, string.format("- **`%s`** (`%s` on `%s`)", Utility.Truncate(a.Id, 30), a.Property, a.SampleHost))
+            table.insert(lines, string.format("- **`%s`** (`%s` on `%s`)", Utility and Utility.Truncate(a.Id, 30) or a.Id, a.Property, a.SampleHost))
         end
         table.insert(lines, "")
     end
@@ -323,5 +349,8 @@ end
 function ContentTracker.GetSnapshots()
     return snapshotStore
 end
+
+-- Aliases for API compatibility
+ContentTracker.TakeSnapshot = ContentTracker.CreateSnapshot
 
 return ContentTracker

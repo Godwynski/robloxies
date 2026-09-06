@@ -1,182 +1,175 @@
--- analyzer/modules/NetworkMonitor.lua
--- Network Communication Analysis: Monitor, document, and analyze client-server remote patterns
-
-local Serializer = require("analyzer.modules.Serializer")
-local Utility = require("analyzer.modules.Utility")
+--[[
+    LuauLens/modules/NetworkMonitor.lua
+    Hooks and logs RemoteEvent, RemoteFunction, and UnreliableRemoteEvent traffic
+    for developer diagnostics and security analysis.
+]]
 
 local NetworkMonitor = {}
+
+-- Module dependency resolvers (Studio and bundle compatible)
+local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
+    local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
+        if script and script.Parent and script.Parent:FindFirstChild(modName) then
+            return require(script.Parent[modName])
+        end
+    end)
+    if success and res then return res end
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
+end
+
+local Serializer = resolveModule("Serializer")
+local Utility = resolveModule("Utility")
 
 local Services = {
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
     Workspace = game:GetService("Workspace"),
-    RunService = game:GetService("RunService"),
 }
 
-local packetCounter = 0
-local history = {}
-local MAX_HISTORY = 300
-
-local remoteStats = {} -- [remotePath] = { Count = 0, LastCall = 0, Directions = {}, TotalBytes = 0 }
-local listeners = {}
-local isMonitoring = false
+local packetLogs = {}
+local MAX_LOG_SIZE = 400
+local isRunning = false
 local originalNamecall = nil
 local activeConnections = {}
+local packetListeners = {}
+local remoteStatistics = {}
 
--- Classify remote into functional game system based on name and path
-local function classifyRemoteSystem(remoteName, remotePath)
-    local n = (remoteName .. " " .. remotePath):lower()
-
-    if n:find("attack") or n:find("damage") or n:find("hit") or n:find("combat") or n:find("shoot") or n:find("skill") or n:find("parry") or n:find("block") then
-        return "Combat System", "Handles real-time attacks, hitbox confirmation, damage calculation, or defensive mechanics"
-    elseif n:find("buy") or n:find("sell") or n:find("shop") or n:find("purchase") or n:find("trade") or n:find("currency") or n:find("gold") or n:find("gem") then
-        return "Economy & Shop", "Facilitates in-game transactions, merchant interactions, and currency exchanges"
-    elseif n:find("inventory") or n:find("equip") or n:find("unequip") or n:find("drop") or n:find("item") or n:find("bag") or n:find("stash") then
-        return "Inventory & Equipment", "Coordinates item slots, equipment state changes, and inventory replication"
-    elseif n:find("move") or n:find("dash") or n:find("sprint") or n:find("teleport") or n:find("position") or n:find("velocity") or n:find("state") then
-        return "Movement & Replication", "Replicates character kinematic state, custom movement skills, or server position checks"
-    elseif n:find("quest") or n:find("dialog") or n:find("npc") or n:find("interact") or n:find("level") or n:find("xp") or n:find("stat") then
-        return "Progression & Story", "Manages mission objectives, NPC dialogue trees, and player stat progression"
-    elseif n:find("chat") or n:find("message") or n:find("party") or n:find("guild") or n:find("clan") or n:find("friend") then
-        return "Social & Chat", "Multiplayer social networking, party synchronization, and text messaging"
+-- Classify remote into functional game system
+local function classifySystem(name, path)
+    local combined = (name .. " " .. path):lower()
+    if combined:find("attack") or combined:find("damage") or combined:find("hit") or combined:find("combat") or combined:find("skill") then
+        return "Combat", "Real-time attacks, hitbox confirmation, and damage calculation."
+    elseif combined:find("buy") or combined:find("sell") or combined:find("shop") or combined:find("purchase") or combined:find("currency") or combined:find("trade") then
+        return "Economy", "In-game store transactions and currency operations."
+    elseif combined:find("inventory") or combined:find("equip") or combined:find("item") or combined:find("bag") or combined:find("drop") then
+        return "Inventory", "Item equipment state, hotbar slots, and bag storage."
+    elseif combined:find("move") or combined:find("dash") or combined:find("teleport") or combined:find("position") or combined:find("velocity") then
+        return "Movement", "Character kinematics replication and spatial movement skills."
+    elseif combined:find("quest") or combined:find("dialog") or combined:find("npc") or combined:find("level") or combined:find("xp") then
+        return "Progression", "Quests, NPC dialogue branches, and character progression."
     else
-        return "General Core", "General engine communication or unclassified gameplay remote"
+        return "Core / Gameplay", "General engine communication or unclassified gameplay remote."
     end
 end
 
--- Estimate payload size in bytes
-local function estimateSize(args)
-    local jsonStr = Serializer.ToJSON(args)
-    return #jsonStr
-end
+-- Process and record an intercepted packet
+local function recordCall(remoteInst, method, direction, callerPath, rawArgs)
+    if not isRunning or typeof(remoteInst) ~= "Instance" or not remoteInst.Name then return end
 
--- Record a network packet
-local function recordPacket(packetData)
-    packetCounter = packetCounter + 1
-    packetData.Id = packetCounter
-
-    local rPath = packetData.RemotePath
-    if not remoteStats[rPath] then
-        remoteStats[rPath] = {
-            Name = packetData.RemoteName,
-            Path = rPath,
-            System = packetData.System,
-            Count = 0,
-            LastCall = os.clock(),
-            Directions = {},
-            TotalBytes = 0,
-            ArgSignatures = {},
-        }
-    end
-
-    local stat = remoteStats[rPath]
-    stat.Count = stat.Count + 1
-    stat.LastCall = os.clock()
-    stat.Directions[packetData.Direction] = (stat.Directions[packetData.Direction] or 0) + 1
-    stat.TotalBytes = stat.TotalBytes + (packetData.PayloadBytes or 0)
-
-    -- Record signature
-    local sig = table.concat(packetData.ArgTypes, ", ")
-    stat.ArgSignatures[sig] = (stat.ArgSignatures[sig] or 0) + 1
-
-    table.insert(history, packetData)
-    if #history > MAX_HISTORY then
-        table.remove(history, 1)
-    end
-
-    -- Notify subscribers
-    for _, callback in ipairs(listeners) do
-        pcall(function() callback(packetData) end)
-    end
-end
-
--- Intercept and inspect remote calls
-function NetworkMonitor.ProcessCall(remoteInst, method, direction, callerScript, rawArgs)
-    if not isMonitoring then return end
-    if not remoteInst or not remoteInst.Name then return end
+    local remotePath = Utility and Utility.GetInstancePath(remoteInst) or remoteInst:GetFullName()
+    local system, sysDesc = classifySystem(remoteInst.Name, remotePath)
 
     local argTypes = {}
     local serializedArgs = {}
+    local payloadSize = 0
 
-    for i, arg in ipairs(rawArgs) do
-        table.insert(argTypes, typeof(arg))
-        table.insert(serializedArgs, Serializer.Serialize(arg, 3))
+    for _, arg in ipairs(rawArgs) do
+        local t = typeof(arg)
+        table.insert(argTypes, t)
+        if Serializer and Serializer.Serialize then
+            table.insert(serializedArgs, Serializer.Serialize(arg, 3))
+        else
+            table.insert(serializedArgs, tostring(arg))
+        end
+
+        if t == "string" then
+            payloadSize = payloadSize + #arg
+        elseif t == "number" or t == "boolean" then
+            payloadSize = payloadSize + 8
+        elseif t == "Vector3" or t == "CFrame" then
+            payloadSize = payloadSize + 32
+        elseif t == "table" then
+            payloadSize = payloadSize + 64
+        else
+            payloadSize = payloadSize + 16
+        end
     end
 
-    local remotePath = Utility.GetInstancePath(remoteInst)
-    local system, sysDesc = classifyRemoteSystem(remoteInst.Name, remotePath)
-    local payloadBytes = estimateSize(serializedArgs)
+    local timeStr = Utility and Utility.GetFormattedTime and Utility.GetFormattedTime() or os.date("%H:%M:%S")
 
     local packet = {
-        Timestamp = Utility.GetFormattedTime(),
+        Id = #packetLogs + 1,
+        Timestamp = timeStr,
         Clock = os.clock(),
-        Direction = direction,
         Method = method,
+        Direction = direction,
         RemoteName = remoteInst.Name,
         RemoteClass = remoteInst.ClassName,
         RemotePath = remotePath,
-        Caller = callerScript or "Unknown Caller",
+        Caller = callerPath or "Unknown Script",
         ArgTypes = argTypes,
         Arguments = serializedArgs,
-        PayloadBytes = payloadBytes,
+        PayloadBytes = payloadSize,
         System = system,
         SystemDescription = sysDesc,
     }
 
-    recordPacket(packet)
-end
-
--- Discover and attach listeners to all existing and future Remotes
-local function attachRemoteListeners()
-    local function hookRemote(remote)
-        if not remote:IsA("RemoteEvent") and not remote:IsA("RemoteFunction") then return end
-
-        if remote:IsA("RemoteEvent") then
-            local conn
-            pcall(function()
-                conn = remote.OnClientEvent:Connect(function(...)
-                    local args = { ... }
-                    NetworkMonitor.ProcessCall(remote, "OnClientEvent", "Server -> Client", "Server", args)
-                end)
-                table.insert(activeConnections, conn)
-            end)
-        end
+    -- Record in chronological table
+    table.insert(packetLogs, packet)
+    if #packetLogs > MAX_LOG_SIZE then
+        table.remove(packetLogs, 1)
     end
 
-    -- Scan ReplicatedStorage and Workspace for remotes
-    local function scanForRemotes(parent)
-        pcall(function()
-            for _, desc in ipairs(parent:GetDescendants()) do
-                hookRemote(desc)
-            end
-        end)
+    -- Update statistics
+    if not remoteStatistics[remotePath] then
+        remoteStatistics[remotePath] = {
+            Name = remoteInst.Name,
+            Path = remotePath,
+            System = system,
+            Count = 0,
+            LastCall = os.clock(),
+            Signatures = {},
+            TotalBytes = 0
+        }
     end
+    local stat = remoteStatistics[remotePath]
+    stat.Count = stat.Count + 1
+    stat.LastCall = os.clock()
+    stat.TotalBytes = stat.TotalBytes + payloadSize
+    local sig = table.concat(argTypes, ", ")
+    stat.Signatures[sig] = (stat.Signatures[sig] or 0) + 1
 
-    scanForRemotes(Services.ReplicatedStorage)
-    scanForRemotes(Services.Workspace)
-
-    -- Listen for newly added remotes
-    local descConn = Services.ReplicatedStorage.DescendantAdded:Connect(hookRemote)
-    table.insert(activeConnections, descConn)
+    -- Notify live subscribers (UI)
+    for _, cb in ipairs(packetListeners) do
+        pcall(function() cb(packet) end)
+    end
 end
 
--- Initialize metamethod hooks if executor environment allows
-local function setupMetamethodHook()
-    local env = Utility.GetEnvironment()
+-- Hook metamethod __namecall for outbound FireServer & InvokeServer
+local function hookNamecall()
+    local env = Utility and Utility.GetEnvironment() or {}
     if not env.HasHookMeta then return false end
+    if originalNamecall then return true end
 
     local success = pcall(function()
         local oldNamecall
         oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            if not isRunning then return oldNamecall(self, ...) end
             local method = getnamecallmethod()
-            if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
-                local caller = "Unknown"
-                pcall(function()
-                    local src = getcallingscript()
-                    if src then caller = src:GetFullName() end
-                end)
+            if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+                if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") or self:IsA("UnreliableRemoteEvent") then
+                    local caller = "Unknown Caller"
+                    pcall(function()
+                        if type(getcallingscript) == "function" then
+                            local cs = getcallingscript()
+                            if cs then caller = cs:GetFullName() end
+                        end
+                    end)
 
-                local args = { ... }
-                NetworkMonitor.ProcessCall(self, method, "Client -> Server", caller, args)
+                    local args = { ... }
+                    recordCall(self, method, "Client -> Server", caller, args)
+                end
             end
             return oldNamecall(self, ...)
         end)
@@ -186,47 +179,95 @@ local function setupMetamethodHook()
     return success
 end
 
--- Start monitoring
-function NetworkMonitor.Start()
-    if isMonitoring then return end
-    isMonitoring = true
+-- Attach passive listeners to incoming Remotes (Server -> Client)
+local function attachInboundListeners()
+    local function bindRemote(inst)
+        if inst:IsA("RemoteEvent") or inst:IsA("UnreliableRemoteEvent") then
+            local conn
+            pcall(function()
+                conn = inst.OnClientEvent:Connect(function(...)
+                    local args = { ... }
+                    recordCall(inst, "OnClientEvent", "Server -> Client", "Server Authority", args)
+                end)
+                table.insert(activeConnections, conn)
+            end)
+        end
+    end
 
-    -- 1. Metamethod hook for outbound calls
-    setupMetamethodHook()
+    local function scan(container)
+        pcall(function()
+            for _, d in ipairs(container:GetDescendants()) do
+                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("UnreliableRemoteEvent") then
+                    bindRemote(d)
+                end
+            end
+        end)
+    end
 
-    -- 2. Passive listeners for inbound Remotes
-    attachRemoteListeners()
+    scan(Services.ReplicatedStorage)
+    scan(Services.Workspace)
+
+    local addedConn = Services.ReplicatedStorage.DescendantAdded:Connect(function(inst)
+        if inst:IsA("RemoteEvent") or inst:IsA("RemoteFunction") or inst:IsA("UnreliableRemoteEvent") then
+            bindRemote(inst)
+        end
+    end)
+    table.insert(activeConnections, addedConn)
 end
 
--- Stop monitoring and clean up connections
+--[[
+    NetworkMonitor.Start()
+    Activates the __namecall hook and remote event listeners to monitor traffic.
+]]
+function NetworkMonitor.Start()
+    if isRunning then return end
+    isRunning = true
+
+    -- Hook outbound calls
+    hookNamecall()
+
+    -- Listen to inbound calls
+    attachInboundListeners()
+end
+
+--[[
+    NetworkMonitor.Stop()
+    Halts network monitoring and disconnects event connections.
+]]
 function NetworkMonitor.Stop()
-    isMonitoring = false
+    isRunning = false
     for _, conn in ipairs(activeConnections) do
         pcall(function() conn:Disconnect() end)
     end
     activeConnections = {}
 end
 
--- Subscribe to packet reception events
-function NetworkMonitor.OnPacket(callback)
-    table.insert(listeners, callback)
+--[[
+    NetworkMonitor.GetNetworkLog()
+    Returns the complete chronological table of captured network calls.
+]]
+function NetworkMonitor.GetNetworkLog()
+    return packetLogs
 end
 
--- Get complete recorded history
-function NetworkMonitor.GetHistory()
-    return history
+-- Returns aggregated remote statistics
+function NetworkMonitor.GetStatistics()
+    return remoteStatistics
 end
 
--- Get aggregated remote statistics
-function NetworkMonitor.GetStats()
-    return remoteStats
-end
+-- Aliases for API parity
+NetworkMonitor.GetStats = NetworkMonitor.GetStatistics
+NetworkMonitor.GetHistory = NetworkMonitor.GetNetworkLog
 
--- Clear history
+-- Clear network logs
 function NetworkMonitor.Clear()
-    history = {}
-    remoteStats = {}
-    packetCounter = 0
+    packetLogs = {}
+    remoteStatistics = {}
+end
+
+-- Subscribe to packet arrival events
+function NetworkMonitor.OnPacket(callback)
+    table.insert(packetListeners, callback)
 end
 
 return NetworkMonitor

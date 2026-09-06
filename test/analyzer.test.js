@@ -138,6 +138,72 @@ runTest('Offline Markdown & HTML Report Generator', () => {
     assert(html.includes('mermaid.min.js'), 'HTML missing mermaid script import');
 });
 
+// 6. API Aliases & Parity Verification
+runTest('API aliases & parity verification across LuauLens suite', () => {
+    const root = path.join(__dirname, '..', 'LuauLens', 'modules');
+    const ct = fs.readFileSync(path.join(root, 'ContentTracker.lua'), 'utf8');
+    assert(ct.includes('ContentTracker.TakeSnapshot = ContentTracker.CreateSnapshot'), 'Missing ContentTracker.TakeSnapshot alias');
+
+    const ca = fs.readFileSync(path.join(root, 'CodeAnalyzer.lua'), 'utf8');
+    assert(ca.includes('CodeAnalyzer.RunAnalysis = CodeAnalyzer.ScanGameHierarchy'), 'Missing CodeAnalyzer.RunAnalysis alias');
+
+    const nm = fs.readFileSync(path.join(root, 'NetworkMonitor.lua'), 'utf8');
+    assert(nm.includes('NetworkMonitor.GetStats = NetworkMonitor.GetStatistics'), 'Missing NetworkMonitor.GetStats alias');
+    assert(nm.includes('NetworkMonitor.GetHistory = NetworkMonitor.GetNetworkLog'), 'Missing NetworkMonitor.GetHistory alias');
+
+    const dg = fs.readFileSync(path.join(root, 'DocGenerator.lua'), 'utf8');
+    assert(dg.includes('DocGenerator.GenerateArchitectureReport'), 'Missing DocGenerator.GenerateArchitectureReport alias');
+
+    const ui = fs.readFileSync(path.join(root, 'UI.lua'), 'utf8');
+    assert(ui.includes('UI.Init = UI.CreateDashboard'), 'Missing UI.Init alias');
+    assert(ui.includes('UI.Destroy'), 'Missing UI.Destroy function');
+});
+
+// 7. Bundle module resolution without global script
+runTest('Bundle contains __require resolution in all module resolvers', () => {
+    const bundlePath = path.join(__dirname, '..', 'dist', 'LuauLens.bundle.lua');
+    const bundle = fs.readFileSync(bundlePath, 'utf8');
+
+    // Ensure resolveModule checks __require first
+    assert(bundle.includes('if type(__require) == "function" then'), 'Bundle missing __require check in resolveModule');
+    assert(!bundle.includes('return require("LuauLens.modules." .. modName)'), 'Dangling unconditional string require in bundle');
+});
+
+// 8. AST Syntax integrity verification on all LuauLens and core modules
+runTest('AST Syntax validation using luaparse', () => {
+    const luaparse = require('moonsharp-luaparse');
+    const testFiles = [
+        'LuauLens/init.lua',
+        'LuauLens/modules/Serializer.lua',
+        'LuauLens/modules/Utility.lua',
+        'LuauLens/modules/CodeAnalyzer.lua',
+        'LuauLens/modules/NetworkMonitor.lua',
+        'LuauLens/modules/ContentTracker.lua',
+        'LuauLens/modules/DocGenerator.lua',
+        'LuauLens/modules/UI.lua',
+        'modules/Config.lua',
+        'modules/State.lua',
+        'modules/Utility.lua',
+        'modules/EventManager.lua',
+        'modules/Drawings.lua',
+        'modules/Movement.lua',
+        'modules/Hooks.lua',
+        'modules/MainLoop.lua',
+        'modules/UI.lua',
+        'modules/UILibrary.lua',
+    ];
+
+    for (const rel of testFiles) {
+        const full = path.join(__dirname, '..', rel);
+        const code = fs.readFileSync(full, 'utf8');
+        try {
+            luaparse.parse(code);
+        } catch (e) {
+            throw new Error(`Syntax error in ${rel}: ${e.message}`);
+        }
+    }
+});
+
 console.log('\n======================================');
 console.log(`Test Results: ${testsPassed} Passed, ${testsFailed} Failed`);
 console.log('======================================\n');

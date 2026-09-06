@@ -7,13 +7,25 @@
 local UI = {}
 
 local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
     local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
         if script and script.Parent and script.Parent:FindFirstChild(modName) then
             return require(script.Parent[modName])
         end
     end)
     if success and res then return res end
-    return require("LuauLens.modules." .. modName)
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
 end
 
 local Utility = resolveModule("Utility")
@@ -627,11 +639,28 @@ LuauLens Developer Architecture & Diagnostics:
     function UI.AddPacketRow(packet)
         if netPaused then return end
         table.insert(livePackets, packet)
+        if #livePackets > 300 then
+            table.remove(livePackets, 1)
+        end
         metricLabels["Metric_Packets"].Text = tostring(#livePackets)
 
         if packetFilter ~= "" then
             local t = (packet.RemoteName .. " " .. packet.System .. " " .. packet.Direction):lower()
             if not t:find(packetFilter:lower(), 1, true) then return end
+        end
+
+        local children = netScroll:GetChildren()
+        local frameCount = 0
+        for _, c in ipairs(children) do
+            if c:IsA("Frame") then frameCount = frameCount + 1 end
+        end
+        if frameCount >= 200 then
+            for _, c in ipairs(children) do
+                if c:IsA("Frame") then
+                    c:Destroy()
+                    break
+                end
+            end
         end
 
         local row = Instance.new("Frame")
@@ -865,7 +894,7 @@ LuauLens Developer Architecture & Diagnostics:
     docScroll.Parent = docTab
 
     local docText = Instance.new("TextLabel")
-    docText.Size = UDim2.new(1, -24, 0, 2500)
+    docText.Size = UDim2.new(1, -24, 0, 0)
     docText.Position = UDim2.new(0, 12, 0, 10)
     docText.BackgroundTransparency = 1
     docText.Font = Enum.Font.Code
@@ -873,6 +902,7 @@ LuauLens Developer Architecture & Diagnostics:
     docText.TextColor3 = Theme.Text
     docText.TextXAlignment = Enum.TextXAlignment.Left
     docText.TextYAlignment = Enum.TextYAlignment.Top
+    docText.AutomaticSize = Enum.AutomaticSize.Y
     docText.Text = "Select 'Generate Report' or 'Luau Tutorials' to render documentation."
     docText.Parent = docScroll
 
@@ -887,7 +917,8 @@ LuauLens Developer Architecture & Diagnostics:
             local report = core.DocGenerator.GenerateFullReport(codeData, netLogs)
             currentReportContent = report
             docText.Text = report
-            docScroll.CanvasSize = UDim2.new(0, 0, 0, #report:split("\n") * 16 + 50)
+            local lineCount = #report:split("\n")
+            docScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(600, lineCount * 18 + 50))
         end
     end
 
@@ -936,5 +967,15 @@ LuauLens Developer Architecture & Diagnostics:
         end
     end)
 end
+
+function UI.Destroy()
+    if screenGui then
+        pcall(function() screenGui:Destroy() end)
+        screenGui = nil
+        mainFrame = nil
+    end
+end
+
+UI.Init = UI.CreateDashboard
 
 return UI

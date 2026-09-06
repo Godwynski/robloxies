@@ -297,10 +297,12 @@ return function(Core)
             task.spawn(function()
                 for i = 1, 5 do
                     local cam = workspace.CurrentCamera
-                    if not cam or not bestPart.Parent then break end
+                    if not cam or not bestPart or not bestPart.Parent then break end
                     local curCF = cam.CFrame
-                    local tgtCF = CFrame.new(curCF.Position, bestPart.Position)
-                    cam.CFrame = curCF:Lerp(tgtCF, 0.5)
+                    if (bestPart.Position - curCF.Position).Magnitude > 0.05 then
+                        local tgtCF = CFrame.new(curCF.Position, bestPart.Position)
+                        cam.CFrame = curCF:Lerp(tgtCF, 0.5)
+                    end
                     task.wait()
                 end
             end)
@@ -562,11 +564,12 @@ return function(Core)
                             aimPos = aimPos + vel * Config.PredictionScale
                         end
 
+                        local originLoc = ctx.FOVPosition or ctx.MouseLocation
                         if Config.TrackingMethod == "Mouse" then
                             local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
                             if onScreen then
-                                local dx = sp.X - ctx.MouseLocation.X
-                                local dy = sp.Y - ctx.MouseLocation.Y
+                                local dx = sp.X - originLoc.X
+                                local dy = sp.Y - originLoc.Y
                                 local dist = math.sqrt(dx*dx + dy*dy)
                                 
                                 if dist > Config.AimDeadzone then
@@ -580,30 +583,32 @@ return function(Core)
                             end
                         elseif Config.TrackingMethod == "Camera" then
                             local curCF = ctx.Camera.CFrame
-                            local tgtCF = CFrame.new(curCF.Position, aimPos)
-                            local alpha = math.clamp(1 / (Config.Smoothing + 1), 0, 1)
-                            
-                            -- Apply Deadzone check for Camera
-                            local _, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
-                            if onScreen then
-                                local sp2 = ctx.Camera:WorldToScreenPoint(aimPos)
-                                local dx = sp2.X - ctx.MouseLocation.X
-                                local dy = sp2.Y - ctx.MouseLocation.Y
-                                local dist = math.sqrt(dx*dx + dy*dy)
-                                if dist <= Config.AimDeadzone then
-                                    alpha = 0
-                                elseif Config.SmoothingStyle == "Exponential" then
-                                    alpha = math.clamp(alpha * (dist / 100), 0, 1)
+                            local toTarget = aimPos - curCF.Position
+                            if toTarget.Magnitude > 0.05 then
+                                local tgtCF = CFrame.new(curCF.Position, aimPos)
+                                local alpha = math.clamp(1 / (Config.Smoothing + 1), 0, 1)
+                                
+                                -- Apply Deadzone check for Camera
+                                local sp, onScreen = ctx.Camera:WorldToScreenPoint(aimPos)
+                                if onScreen then
+                                    local dx = sp.X - originLoc.X
+                                    local dy = sp.Y - originLoc.Y
+                                    local dist = math.sqrt(dx*dx + dy*dy)
+                                    if dist <= Config.AimDeadzone then
+                                        alpha = 0
+                                    elseif Config.SmoothingStyle == "Exponential" then
+                                        alpha = math.clamp(alpha * (dist / 100), 0, 1)
+                                    end
                                 end
-                            end
-                            
-                            if alpha > 0 then
-                                -- Detect if the target is nearly behind the camera.
-                                local dot = curCF.LookVector:Dot(tgtCF.LookVector)
-                                if dot < -0.5 then
-                                    ctx.Camera.CFrame = tgtCF
-                                else
-                                    ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                                
+                                if alpha > 0 then
+                                    -- Detect if the target is nearly behind the camera.
+                                    local dot = curCF.LookVector:Dot(tgtCF.LookVector)
+                                    if dot < -0.5 then
+                                        ctx.Camera.CFrame = tgtCF
+                                    else
+                                        ctx.Camera.CFrame = curCF:Lerp(tgtCF, alpha)
+                                    end
                                 end
                             end
                         end

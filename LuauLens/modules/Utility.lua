@@ -88,14 +88,55 @@ function Utility.GetInstancePath(instance)
     end
 end
 
+-- Module dependency resolver (handles bundles, Studio script hierarchy, and direct paths)
+local function resolveModule(modName)
+    if type(__require) == "function" then
+        local ok, mod = pcall(__require, modName)
+        if ok and mod then return mod end
+    end
+    local success, res = pcall(function()
+        if script and script:FindFirstChild("modules") and script.modules:FindFirstChild(modName) then
+            return require(script.modules[modName])
+        end
+        if script and script.Parent and script.Parent:FindFirstChild(modName) then
+            return require(script.Parent[modName])
+        end
+    end)
+    if success and res then return res end
+    local ok, resMod = pcall(function()
+        local r = require
+        return r(modName)
+    end)
+    if ok and resMod then return resMod end
+    return nil
+end
+
 --[[
     Utility.Export(data, filename)
     Handles saving data. Uses writefile if available, and setclipboard as a graceful fallback.
+    Automatically serializes tables to JSON if passed a table.
     Returns (success: boolean, message: string).
 ]]
 function Utility.Export(data, filename)
     filename = filename or ("LuauLens_Export_" .. tostring(os.time()) .. ".txt")
-    local strContent = (type(data) == "table") and tostring(data) or tostring(data)
+    local strContent = ""
+    if type(data) == "table" then
+        local Serializer = resolveModule("Serializer")
+        if Serializer and type(Serializer.ToJSON) == "function" then
+            local ok, json = pcall(function()
+                return Serializer.ToJSON(Serializer.Serialize(data, 5), 0)
+            end)
+            if ok and json then strContent = json end
+        end
+        if #strContent == 0 then
+            local ok, json = pcall(function()
+                return game:GetService("HttpService"):JSONEncode(data)
+            end)
+            strContent = (ok and json) or tostring(data)
+        end
+    else
+        strContent = tostring(data)
+    end
 
     -- 1. Try writefile (Studio plugins, local environments, or supported tools)
     if type(writefile) == "function" then
@@ -127,9 +168,13 @@ end
 
 -- Formatted timestamp: HH:MM:SS.mmm
 function Utility.GetFormattedTime()
+    local ok, formatted = pcall(function()
+        return DateTime.now():FormatLocalTime("HH:mm:ss.SSS", "en-us")
+    end)
+    if ok and formatted then return formatted end
+
     local clock = os.clock()
-    local sec = math.floor(clock)
-    local millis = math.floor((clock - sec) * 1000)
+    local millis = math.floor((clock % 1) * 1000)
     local dateTable = os.date("*t")
     return string.format("%02d:%02d:%02d.%03d", dateTable.hour, dateTable.min, dateTable.sec, millis)
 end
