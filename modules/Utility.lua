@@ -10,6 +10,29 @@ return function(Core)
         return current
     end
 
+    function Utility.GetTargetPart(char, preferredName)
+        if not char or not char.Parent then return nil end
+        if preferredName and preferredName ~= "" then
+            local p = char:FindFirstChild(preferredName)
+            if p and p:IsA("BasePart") then return p end
+        end
+        -- Standard Fallbacks in order of targeting priority
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root and root:IsA("BasePart") then return root end
+        
+        if char.PrimaryPart and char.PrimaryPart:IsA("BasePart") then
+            return char.PrimaryPart
+        end
+
+        local head = char:FindFirstChild("Head")
+        if head and head:IsA("BasePart") then return head end
+
+        local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+        if torso and torso:IsA("BasePart") then return torso end
+
+        return char:FindFirstChildOfClass("BasePart")
+    end
+
     local autoFpsConn = nil
 
     local function buildCharacterSet()
@@ -156,6 +179,21 @@ return function(Core)
         end
     end
 
+    function Utility.SafeDestroy(obj)
+        if not obj then return end
+        if typeof(obj) == "Instance" then
+            pcall(function() obj:Destroy() end)
+        elseif type(obj) == "table" or type(obj) == "userdata" then
+            pcall(function()
+                if obj.Remove then
+                    obj:Remove()
+                elseif obj.Destroy then
+                    obj:Destroy()
+                end
+            end)
+        end
+    end
+
     function Utility.Terminate()
         local State = Core.State
         State.Running = false -- Signal all background while-true loops to stop
@@ -172,20 +210,27 @@ return function(Core)
         local Drawings = Core.Drawings
         if Drawings then
             local allDrawings = {
-                Drawings.FOVCircle, Drawings.DiagnosticText, Drawings.TargetInfoText, 
+                Drawings.FOVCircle, Drawings.TargetInfoText, 
                 Drawings.TargetHealthBG, Drawings.TargetHealthFill, Drawings.HitMarker, 
                 Drawings.LockIndicator
             }
-            for _, d in ipairs(allDrawings) do pcall(function() d:Destroy() end) end
-            for _, d in ipairs(Drawings.KillFeedDrawings) do pcall(function() d:Destroy() end) end
+            for _, d in ipairs(allDrawings) do Utility.SafeDestroy(d) end
+            for _, d in ipairs(Drawings.KillFeedDrawings) do Utility.SafeDestroy(d) end
         end
 
-        for plr, cache in pairs(State.ESPCache) do
+        for _, cache in pairs(State.ESPCache) do
             for _, drawing in pairs(cache) do
-                pcall(function() drawing:Destroy() end)
+                Utility.SafeDestroy(drawing)
             end
         end
         table.clear(State.ESPCache)
+
+        -- Clean up UI ScreenGui if active
+        pcall(function()
+            if Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.Interface then
+                Core.UI.Window.Library.Interface:Destroy()
+            end
+        end)
     end
 
     return Utility

@@ -1,277 +1,208 @@
 return function(Core)
     local Hooks = {}
 
-    local ReplicatedStorage = Core.Services.ReplicatedStorage
-    local LocalPlayer = Core.Services.Players.LocalPlayer
+    local Players = Core.Services.Players
+    local LocalPlayer = Players.LocalPlayer
     local Config = Core.Config
     local State = Core.State
     local Utility = Core.Utility
 
     function Hooks.Init()
-        -- NPC scanner loop — guarded by State.Running (#2)
+        -- ==================== 1. UNIVERSAL NPC SCANNER ====================
         task.spawn(function()
             local function isNPCModel(obj)
                 if not obj or not obj.Parent or not obj:IsA("Model") then return false end
                 if obj == LocalPlayer.Character then return false end
-                if Core.Services.Players:GetPlayerFromCharacter(obj) then return false end
+                if Players:GetPlayerFromCharacter(obj) then return false end
                 return obj:FindFirstChildOfClass("Humanoid") ~= nil
             end
 
-            -- Single startup scan
+            local npcSet = {}
+            local function addNPC(model)
+                if model and not npcSet[model] and isNPCModel(model) then
+                    npcSet[model] = true
+                    table.insert(State.NPCCache, model)
+                end
+            end
+
+            -- Single startup scan with throttle
             task.spawn(function()
                 local count = 0
                 for _, obj in ipairs(workspace:GetDescendants()) do
-                    if not Core.State.Running then break end
+                    if not State.Running then break end
                     if isNPCModel(obj) then
-                        table.insert(State.NPCCache, obj)
+                        addNPC(obj)
                     end
                     count = count + 1
                     if count % 1500 == 0 then task.wait() end
                 end
             end)
 
-            -- Listen to new humanoids instead of polling GetDescendants constantly
+            -- Event-driven detection for new NPCs
             Utility.RegisterConnection(workspace.DescendantAdded:Connect(function(obj)
                 if obj:IsA("Humanoid") then
-                    local model = obj.Parent
-                    if isNPCModel(model) then
-                        -- Check if not already in cache
-                        local exists = false
-                        for _, npc in ipairs(State.NPCCache) do
-                            if npc == model then exists = true; break end
-                        end
-                        if not exists then table.insert(State.NPCCache, model) end
-                    end
+                    addNPC(obj.Parent)
                 end
             end))
 
-            -- Cleanup loop for destroyed/dead NPCs
-            while Core.State.Running do
+            -- Periodic cleanup for destroyed NPCs
+            while State.Running do
                 if Config.TargetMode == "NPCs" or Config.TargetMode == "Both" then
                     local newCache = {}
+                    local newSet = {}
                     for _, npc in ipairs(State.NPCCache) do
                         if isNPCModel(npc) then
                             table.insert(newCache, npc)
+                            newSet[npc] = true
                         end
                     end
                     State.NPCCache = newCache
-                    task.wait(2)
-                else
-                    task.wait(2)
+                    npcSet = newSet
                 end
+                task.wait(2)
             end
         end)
 
-        -- Sink the ServerReplicateCFrame to prevent "invocation queue exhausted" console spam
+        -- ==================== 2. UNIVERSAL LOCAL PLAYER LIFECYCLE ====================
         task.spawn(function()
-            pcall(function()
-                local repCFrame = ReplicatedStorage:WaitForChild("ServerReplicateCFrame", 5)
-                if repCFrame and repCFrame:IsA("RemoteEvent") then
-                    Utility.RegisterConnection(repCFrame.OnClientEvent:Connect(function() end))
-                end
-            end)
-        end)
-
-        task.spawn(function()
-            task.wait(2)
-
-            local killedRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "Killed")
-            if killedRemote and killedRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(killedRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        local killer, victim = "?", "?"
-
-                        -- Helper: resolve name from an arg, checking both Name and DisplayName (#13)
-                        local function resolveName(arg)
-                            if typeof(arg) == "Instance" and arg:IsA("Player") then
-                                return arg.Name, arg.DisplayName
-                            elseif type(arg) == "string" then
-                                return arg, arg
-                            elseif typeof(arg) == "Instance" then
-                                return arg.Name, arg.Name
-                            end
-                            return "?", "?"
-                        end
-
-                        local killerName, killerDisplay = resolveName(args[1])
-                        local victimName, victimDisplay = resolveName(args[2])
-                        killer = killerDisplay
-                        victim = victimDisplay
-
-                        local color = Color3.new(1, 1, 1)
-                        -- Compare both Name and DisplayName to handle either format (#13)
-                        local isKiller = killerName == LocalPlayer.Name or killerDisplay == LocalPlayer.DisplayName
-                        local isVictim = victimName == LocalPlayer.Name or victimDisplay == LocalPlayer.DisplayName
-                        if isKiller then
-                            State.KillCount = State.KillCount + 1
-                            color = Color3.fromRGB(50, 255, 50)
-                        elseif isVictim then
-                            State.DeathCount = State.DeathCount + 1
-                            color = Color3.fromRGB(255, 50, 50)
-                        end
-                        Utility.AddKillFeedEntry(killer .. " ▸ " .. victim, color)
-                    end)
-                end))
-            end
-
-            local assistRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "Assist")
-            if assistRemote and assistRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(assistRemote.OnClientEvent:Connect(function()
-                    State.AssistCount = State.AssistCount + 1
-                    Utility.AddKillFeedEntry("ASSIST!", Color3.fromRGB(100, 200, 255))
-                end))
-            end
-
-            local beDamagedRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "BeDamaged")
-            if beDamagedRemote and beDamagedRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(beDamagedRemote.OnClientEvent:Connect(function(...)
-                    State.HitMarkerTime = os.clock()
-                end))
-            end
-
-            local diedRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "Died")
-            if diedRemote and diedRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(diedRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        if typeof(args[1]) == "Instance" then
-                            if args[1] == LocalPlayer.Character or args[1] == LocalPlayer then
-                                State.IsAlive = false
-                                State.DeathTime = os.clock()
-                            end
-                        end
-                    end)
-                end))
-            end
-
-            local spawnedRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "Spawned")
-            if spawnedRemote and spawnedRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(spawnedRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        if typeof(args[1]) == "Instance" then
-                            if args[1] == LocalPlayer.Character or args[1] == LocalPlayer then
-                                State.IsAlive = true
-                                Utility.AddKillFeedEntry("Respawned", Color3.fromRGB(50, 200, 255))
-                            end
-                        end
-                    end)
-                end))
-            end
-
-            local wpRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "WeaponPickup")
-            if wpRemote and wpRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(wpRemote.OnClientEvent:Connect(function()
-                    Utility.AddKillFeedEntry("⚔ Weapon Pickup", Color3.fromRGB(255, 200, 50))
-                end))
-            end
-
-            local gsRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "GameStarted")
-            if gsRemote and gsRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(gsRemote.OnClientEvent:Connect(function()
-                    State.KillCount, State.DeathCount, State.AssistCount = 0, 0, 0
-                    Utility.AddKillFeedEntry("— GAME STARTED —", Color3.fromRGB(255, 255, 100))
-                end))
-            end
-
-            local geRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "GameEnded")
-            if geRemote and geRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(geRemote.OnClientEvent:Connect(function()
-                    Utility.AddKillFeedEntry(string.format("GAME OVER  K:%d D:%d A:%d", State.KillCount, State.DeathCount, State.AssistCount), Color3.fromRGB(255, 200, 50))
-                end))
-            end
-
-            local rsRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "RoomManager", "Room", "RoundStarted")
-            if rsRemote and rsRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(rsRemote.OnClientEvent:Connect(function()
-                    Utility.AddKillFeedEntry("— ROUND START —", Color3.fromRGB(180, 180, 255))
-                end))
-            end
-
-            local dwRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "GameMode", "Duel", "Winner")
-            if dwRemote and dwRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(dwRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        local w = "Unknown"
-                        if typeof(args[1]) == "Instance" then w = args[1].Name
-                        elseif type(args[1]) == "string" then w = args[1] end
-                        local c = (w == LocalPlayer.Name) and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 150, 50)
-                        Utility.AddKillFeedEntry("DUEL WINNER: " .. w, c)
-                    end)
-                end))
-            end
-
-            local teamUpdateRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "TeamService", "UpdateData")
-            if teamUpdateRemote and teamUpdateRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(teamUpdateRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        if type(args[1]) == "table" then
-                            for k, v in pairs(args[1]) do
-                                if type(k) == "string" then
-                                    State.TeamData[k] = tostring(v)
-                                end
-                            end
-                        end
-                    end)
-                end))
-            end
-
-            local wsRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "EntityService", "WalkSpeed")
-            if wsRemote and wsRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(wsRemote.OnClientEvent:Connect(function(...)
-                end))
-            end
-
-            local rcRemote = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "GameClient", "RoleChanged")
-            if rcRemote and rcRemote:IsA("RemoteEvent") then
-                Utility.RegisterConnection(rcRemote.OnClientEvent:Connect(function(...)
-                    local args = {...}
-                    pcall(function()
-                        local role = tostring(args[1] or "Unknown")
-                        State.TeamData["__myRole"] = role
-                        Utility.AddKillFeedEntry("Role: " .. role, Color3.fromRGB(200, 150, 255))
-                    end)
-                end))
-            end
-        end)
-
-        task.spawn(function()
-            local function hookHumanoid()
-                local char = LocalPlayer.Character
-                if not char then return end
-                local hum = char:FindFirstChildOfClass("Humanoid")
+            local function hookHumanoid(hum)
                 if not hum then return end
                 State.IsAlive = hum.Health > 0
+
                 Utility.RegisterConnection(hum.Died:Connect(function()
                     State.IsAlive = false
                     State.DeathTime = os.clock()
+                    State.DeathCount = State.DeathCount + 1
+                    Utility.AddKillFeedEntry("You died", Color3.fromRGB(255, 60, 60))
                 end))
             end
-            hookHumanoid()
-            Utility.RegisterConnection(LocalPlayer.CharacterAdded:Connect(function()
+
+            local function onCharacter(char)
+                if not char then return end
                 State.IsAlive = true
                 State.LockedTarget = nil
                 State.LockedCharacter = nil
-                task.wait(0.5)
-                hookHumanoid()
-            end))
+                Utility.AddKillFeedEntry("Respawned", Color3.fromRGB(50, 200, 255))
+
+                local hum = char:WaitForChild("Humanoid", 3) or char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hookHumanoid(hum)
+                end
+            end
+
+            if LocalPlayer.Character then
+                local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hookHumanoid(hum) end
+            end
+
+            Utility.RegisterConnection(LocalPlayer.CharacterAdded:Connect(onCharacter))
         end)
 
-        -- Auto-respawn loop — guarded by State.Running (#2)
+        -- ==================== 3. UNIVERSAL KILL FEED & LEADERSTATS ====================
         task.spawn(function()
-            while Core.State.Running do
-                if Config.AutoRespawn and not State.IsAlive and (os.clock() - State.DeathTime) > 2 then
+            -- Track kills via leaderstats changes across games
+            local killKeywords = {"kill", "ko", "elim", "frag", "score", "points", "bounty"}
+
+            local function hookLeaderstats(ls)
+                if not ls then return end
+                local function checkStat(stat)
+                    if not (stat:IsA("IntValue") or stat:IsA("NumberValue")) then return end
+                    local statNameLower = stat.Name:lower()
+                    local isKillStat = false
+                    for _, kw in ipairs(killKeywords) do
+                        if statNameLower:find(kw) then
+                            isKillStat = true
+                            break
+                        end
+                    end
+
+                    if isKillStat then
+                        local lastVal = stat.Value
+                        Utility.RegisterConnection(stat.Changed:Connect(function(newVal)
+                            if newVal > lastVal then
+                                local diff = newVal - lastVal
+                                State.KillCount = State.KillCount + diff
+                                Utility.AddKillFeedEntry("KILL (+" .. diff .. ")", Color3.fromRGB(50, 255, 50))
+                            end
+                            lastVal = newVal
+                        end))
+                    end
+                end
+
+                for _, child in ipairs(ls:GetChildren()) do
+                    checkStat(child)
+                end
+                Utility.RegisterConnection(ls.ChildAdded:Connect(checkStat))
+            end
+
+            local ls = LocalPlayer:FindFirstChild("leaderstats")
+            if ls then
+                hookLeaderstats(ls)
+            else
+                Utility.RegisterConnection(LocalPlayer.ChildAdded:Connect(function(child)
+                    if child.Name == "leaderstats" then
+                        hookLeaderstats(child)
+                    end
+                end))
+            end
+
+            -- Track player deaths universally
+            local function hookPlayer(plr)
+                if plr == LocalPlayer then return end
+
+                local lastHealth = 100
+                local function hookChar(char)
+                    local hum = char:WaitForChild("Humanoid", 3) or char:FindFirstChildOfClass("Humanoid")
+                    if not hum then return end
+
+                    lastHealth = hum.Health
+
+                    -- Hitmarker detection: trigger when locked target loses health
+                    Utility.RegisterConnection(hum.HealthChanged:Connect(function(hp)
+                        if State.LockedCharacter == char and hp < lastHealth then
+                            State.HitMarkerTime = os.clock()
+                        end
+                        lastHealth = hp
+                    end))
+
+                    -- Death detection
+                    Utility.RegisterConnection(hum.Died:Connect(function()
+                        local pName = plr.DisplayName or plr.Name
+                        if State.LockedCharacter == char then
+                            State.KillCount = State.KillCount + 1
+                            Utility.AddKillFeedEntry("Eliminated " .. pName, Color3.fromRGB(50, 255, 50))
+                            State.LockedTarget = nil
+                            State.LockedCharacter = nil
+                        else
+                            Utility.AddKillFeedEntry(pName .. " died", Color3.fromRGB(180, 180, 180))
+                        end
+                    end))
+                end
+
+                if plr.Character then hookChar(plr.Character) end
+                Utility.RegisterConnection(plr.CharacterAdded:Connect(hookChar))
+            end
+
+            for _, plr in ipairs(Players:GetPlayers()) do
+                hookPlayer(plr)
+            end
+            Utility.RegisterConnection(Players.PlayerAdded:Connect(hookPlayer))
+        end)
+
+        -- ==================== 4. UNIVERSAL AUTO-RESPAWN ====================
+        task.spawn(function()
+            while State.Running do
+                if Config.AutoRespawn and not State.IsAlive and (os.clock() - State.DeathTime) > 3 then
                     pcall(function()
-                        local r = Utility.SafeFind(ReplicatedStorage, "Remote", "GameService", "Respawn")
-                        if r and r:IsA("RemoteEvent") then
-                            r:FireServer()
-                            Utility.AddKillFeedEntry("Auto-Respawn", Color3.fromRGB(50, 255, 200))
+                        if LocalPlayer.Character then
+                            LocalPlayer.Character:BreakJoints()
+                            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                            if hum then
+                                hum.Health = 0
+                            end
                         end
                     end)
-                    task.wait(3)
+                    State.DeathTime = os.clock()
                 end
                 task.wait(0.5)
             end

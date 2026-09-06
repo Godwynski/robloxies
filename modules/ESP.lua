@@ -41,9 +41,7 @@ return function(Core)
 
     function ESP.RemoveESPDrawings(cache)
         for _, d in pairs(cache) do 
-            pcall(function() 
-                d:Destroy()
-            end) 
+            Core.Utility.SafeDestroy(d)
         end
     end
 
@@ -93,19 +91,14 @@ return function(Core)
             local char = data.char
             activeModels[char] = true
 
-            local root = char:FindFirstChild("HumanoidRootPart")
+            local root = Core.Utility.GetTargetPart(char, "HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             if not root then
                 if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
                 continue
             end
 
-            local vcVisible = char:GetAttribute("vc_Visible")
-            if vcVisible == false then
-                if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
-                continue
-            end
-            if vcVisible == nil and hum and hum.Health <= 0 then
+            if hum and hum.Health <= 0 then
                 if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
                 continue
             end
@@ -134,13 +127,15 @@ return function(Core)
                 end
             end
 
-            local bbOk, cf, size = pcall(char.GetBoundingBox, char)
+            local bbOk, cf, rawSize = pcall(char.GetBoundingBox, char)
             if not bbOk then
                 if State.ESPCache[char] then ESP.HideESPDrawings(State.ESPCache[char]) end
                 continue
             end
-            if size.Magnitude == 0 then
-                size = Vector3.new(4, 5.5, 2)
+            local size = Vector3.new(4, 5.5, 2)
+            if rawSize and rawSize.Magnitude > 0 then
+                -- Clamp dimensions so held weapons/large accessories don't balloon the ESP box
+                size = Vector3.new(math.clamp(rawSize.X, 2, 6), math.clamp(rawSize.Y, 3, 7.5), math.clamp(rawSize.Z, 1, 5))
             end
 
             -- Distance-based 2D box sizing (avoids 8x WorldToScreenPoint calls)
@@ -277,10 +272,6 @@ return function(Core)
         Core.EventManager:Subscribe("OnRender", "ESPRender", function(ctx)
             if Config.ESPEnabled then
                 pcall(ESP.UpdateESP)
-            else
-                for _, cache in pairs(State.ESPCache) do
-                    ESP.HideESPDrawings(cache)
-                end
             end
         end)
     end

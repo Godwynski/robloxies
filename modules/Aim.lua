@@ -15,6 +15,7 @@ return function(Core)
         local origin = cam.CFrame.Position
         local targetPos = part.Position
         local dir = targetPos - origin
+        if dir.Magnitude < 0.1 then return true end
 
         local rayParams = RaycastParams.new()
         local filterList = {}
@@ -23,7 +24,7 @@ return function(Core)
 
         rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-        -- Multi-pass raycast to ignore other characters/players standing in front
+        -- Multi-pass raycast to ignore other characters/players and transparent barrier parts
         local passes = 0
         while passes < 6 do
             passes = passes + 1
@@ -37,23 +38,28 @@ return function(Core)
             local hitInst = res.Instance
             if not hitInst then return true end
 
-            -- Check if hit instance belongs to a player or NPC character model
-            local hitModel = hitInst:FindFirstAncestorOfClass("Model")
-            local isCharacter = false
-            if hitModel then
-                if hitModel:FindFirstChildOfClass("Humanoid")
-                   or Core.Services.Players:GetPlayerFromCharacter(hitModel)
-                   or hitModel:GetAttribute("vc_Visible") ~= nil then
-                    isCharacter = true
-                end
-            end
-
-            if isCharacter and hitModel then
-                -- Hit another character; add to filter list and continue raycast through them
-                table.insert(filterList, hitModel)
+            -- Ignore non-collidable transparent triggers / barriers / zones
+            local hitName = hitInst.Name:lower()
+            if not hitInst.CanCollide and (hitInst.Transparency >= 0.75 or hitName:find("zone") or hitName:find("trigger") or hitName:find("barrier") or hitName:find("clip")) then
+                table.insert(filterList, hitInst)
             else
-                -- Hit map geometry / solid wall
-                return false
+                -- Check if hit instance belongs to a player or NPC character model
+                local hitModel = hitInst:FindFirstAncestorOfClass("Model")
+                local isCharacter = false
+                if hitModel then
+                    if hitModel:FindFirstChildOfClass("Humanoid")
+                       or Core.Services.Players:GetPlayerFromCharacter(hitModel) then
+                        isCharacter = true
+                    end
+                end
+
+                if isCharacter and hitModel then
+                    -- Hit another character; add to filter list and continue raycast through them
+                    table.insert(filterList, hitModel)
+                else
+                    -- Hit map geometry / solid wall
+                    return false
+                end
             end
         end
 
@@ -63,17 +69,12 @@ return function(Core)
     function Aim.IsValidTarget(char)
         if not char or not char.Parent then return false end
 
-        local vcVisible = char:GetAttribute("vc_Visible")
-        if vcVisible == false then return false end
-
-        if vcVisible == nil then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then return false end
-        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return false end
 
         if char:FindFirstChildOfClass("ForceField") then return false end
 
-        local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+        local part = Utility.GetTargetPart(char, Config.FocusPoint)
         if not part then return false end
 
         return true
@@ -277,8 +278,9 @@ return function(Core)
             if not Aim.IsValidTarget(char) then continue end
             if Aim.IsSameTeam(myChar, char) then continue end
 
-            local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+            local part = Utility.GetTargetPart(char, Config.FocusPoint)
             if not part then continue end
+            if not Aim.HasLoS(part) then continue end
 
             local d = (part.Position - myRoot.Position).Magnitude
             if d < bestDist then
@@ -356,7 +358,7 @@ return function(Core)
     end
 
     function Aim.GetTarget(ctx)
-        local mouseLoc = ctx.MouseLocation
+        local originLoc = ctx.FOVPosition or ctx.MouseLocation
         local myChar = LocalPlayer.Character
         if not myChar then return nil, "No Character" end
         local cam = ctx.Camera
@@ -369,13 +371,13 @@ return function(Core)
         -- 1. Sticky Target Persistence check
         if Config.StickyTarget and State.LockedCharacter and State.LockedTarget then
             if Aim.IsValidTarget(State.LockedCharacter) and not Aim.IsSameTeam(myChar, State.LockedCharacter) then
-                local part = State.LockedCharacter:FindFirstChild(Config.FocusPoint) or State.LockedCharacter:FindFirstChild("HumanoidRootPart")
+                local part = Utility.GetTargetPart(State.LockedCharacter, Config.FocusPoint)
                 if part then
                     local sp, onScreen = cam:WorldToScreenPoint(part.Position)
                     if onScreen then
                         local viewport = cam.ViewportSize
                         local inViewport = sp.X >= 0 and sp.X <= viewport.X and sp.Y >= 0 and sp.Y <= viewport.Y
-                        local dist = (Vector2.new(sp.X, sp.Y) - mouseLoc).Magnitude
+                        local dist = (Vector2.new(sp.X, sp.Y) - originLoc).Magnitude
                         -- Allow active lock to persist up to 25% outside normal FOV ring to prevent jitter
                         if inViewport and dist <= (Config.ViewAngle * 1.25) then
                             local inLoS = Aim.HasLoS(part)
@@ -416,12 +418,12 @@ return function(Core)
             if not Aim.IsValidTarget(char) then continue end
             if Aim.IsSameTeam(myChar, char) then continue end
 
-            local part = char:FindFirstChild(Config.FocusPoint) or char:FindFirstChild("HumanoidRootPart")
+            local part = Utility.GetTargetPart(char, Config.FocusPoint)
             if not part then continue end
 
             validCount = validCount + 1
 
-            local score, screenDist = Aim.GetTargetScore(char, part, mouseLoc, cam)
+            local score, screenDist = Aim.GetTargetScore(char, part, originLoc, cam)
             if not score then continue end
 
             inFOV = inFOV + 1
@@ -479,48 +481,41 @@ return function(Core)
             CombatTab:AddSlider("Deadzone", Config.AimDeadzone, 0, 300, function(val) Config.AimDeadzone = val end)
             CombatTab:AddSlider("Smoothing", Config.Smoothing, 0.01, 30, function(val) Config.Smoothing = val end)
 
-            local styleBtn = CombatTab:AddButton("Smooth Style: " .. Config.SmoothingStyle, function() end)
-            Utility.RegisterConnection(styleBtn.Activated:Connect(function()
+            CombatTab:AddButton("Smooth Style: " .. Config.SmoothingStyle, function(btn)
                 Config.SmoothingStyle = Config.SmoothingStyle == "Linear" and "Exponential" or "Linear"
-                styleBtn.Text = "Smooth Style: " .. Config.SmoothingStyle
-            end))
+                btn.Text = "Smooth Style: " .. Config.SmoothingStyle
+            end)
 
             CombatTab:AddToggle("Auto-Shoot (TriggerBot)", Config.AutoShoot, function(val) Config.AutoShoot = val end)
 
-            local focusBtn = CombatTab:AddButton("Focus: " .. Config.FocusPoint, function() end)
-            -- Hacky way to override the callback for a toggle-like text update
-            Utility.RegisterConnection(focusBtn.Activated:Connect(function()
+            CombatTab:AddButton("Focus: " .. Config.FocusPoint, function(btn)
                 Config.FocusPoint = Config.FocusPoint == "HumanoidRootPart" and "Head" or "HumanoidRootPart"
-                focusBtn.Text = "Focus: " .. Config.FocusPoint
-            end))
+                btn.Text = "Focus: " .. Config.FocusPoint
+            end)
 
-            local methodBtn = CombatTab:AddButton("Method: " .. Config.TrackingMethod, function() end)
-            Utility.RegisterConnection(methodBtn.Activated:Connect(function()
+            CombatTab:AddButton("Method: " .. Config.TrackingMethod, function(btn)
                 Config.TrackingMethod = Config.TrackingMethod == "Camera" and "Mouse" or "Camera"
-                methodBtn.Text = "Method: " .. Config.TrackingMethod
-            end))
+                btn.Text = "Method: " .. Config.TrackingMethod
+            end)
 
-            local originBtn = CombatTab:AddButton("Aim Origin: " .. (Config.AimOrigin or "Center"), function() end)
-            Utility.RegisterConnection(originBtn.Activated:Connect(function()
+            CombatTab:AddButton("Aim Origin: " .. (Config.AimOrigin or "Center"), function(btn)
                 Config.AimOrigin = (Config.AimOrigin == "Center") and "Mouse" or "Center"
-                originBtn.Text = "Aim Origin: " .. Config.AimOrigin
-            end))
+                btn.Text = "Aim Origin: " .. Config.AimOrigin
+            end)
 
-            local targetBtn = CombatTab:AddButton("Target: " .. Config.TargetMode, function() end)
-            Utility.RegisterConnection(targetBtn.Activated:Connect(function()
+            CombatTab:AddButton("Target: " .. Config.TargetMode, function(btn)
                 if Config.TargetMode == "Players" then Config.TargetMode = "NPCs"
                 elseif Config.TargetMode == "NPCs" then Config.TargetMode = "Both"
                 else Config.TargetMode = "Players" end
-                targetBtn.Text = "Target: " .. Config.TargetMode
-            end))
+                btn.Text = "Target: " .. Config.TargetMode
+            end)
 
-            local prioBtn = CombatTab:AddButton("Priority: " .. Config.PriorityMode, function() end)
-            Utility.RegisterConnection(prioBtn.Activated:Connect(function()
+            CombatTab:AddButton("Priority: " .. Config.PriorityMode, function(btn)
                 if Config.PriorityMode == "Distance" then Config.PriorityMode = "LowHP"
                 elseif Config.PriorityMode == "LowHP" then Config.PriorityMode = "Closest3D"
                 else Config.PriorityMode = "Distance" end
-                prioBtn.Text = "Priority: " .. Config.PriorityMode
-            end))
+                btn.Text = "Priority: " .. Config.PriorityMode
+            end)
 
             CombatTab:AddSection("ADVANCED")
             CombatTab:AddToggle("Wall Check", Config.WallCheck, function(val) Config.WallCheck = val end)
@@ -535,8 +530,9 @@ return function(Core)
 
         -- Subscribe to Render Loop
         Core.EventManager:Subscribe("OnRender", "AimBotRender", function(ctx)
+            local fovPos = ctx.FOVPosition or ctx.MouseLocation
             if Core.Drawings.FOVCircle then
-                Core.Drawings.FOVCircle.Position = ctx.MouseLocation
+                Core.Drawings.FOVCircle.Position = fovPos
                 Core.Drawings.FOVCircle.Radius = Config.ViewAngle
             end
 
@@ -555,7 +551,14 @@ return function(Core)
                         local aimPos = target.Position
                         if Config.Prediction then
                             local vel = Vector3.zero
-                            pcall(function() vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero end)
+                            pcall(function()
+                                local root = target.Parent and target.Parent:FindFirstChild("HumanoidRootPart")
+                                if root then
+                                    vel = root.AssemblyLinearVelocity or root.Velocity or Vector3.zero
+                                else
+                                    vel = target.AssemblyLinearVelocity or target.Velocity or Vector3.zero
+                                end
+                            end)
                             aimPos = aimPos + vel * Config.PredictionScale
                         end
 
@@ -610,7 +613,14 @@ return function(Core)
                             -- Debounce clicking so we don't spam it every frame
                             if not State.LastAutoShoot or (os.clock() - State.LastAutoShoot) > 0.05 then
                                 State.LastAutoShoot = os.clock()
-                                pcall(function() mouse1click() end)
+                                pcall(function()
+                                    if mouse1click then
+                                        mouse1click()
+                                    elseif mouse1press and mouse1release then
+                                        mouse1press()
+                                        task.defer(function() pcall(mouse1release) end)
+                                    end
+                                end)
                             end
                         end
                     else

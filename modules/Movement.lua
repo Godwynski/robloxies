@@ -36,7 +36,7 @@ return function(Core)
             if Config.InfiniteJumpEnabled then
                 local char = LocalPlayer.Character
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
+                if hum and hum.Health > 0 and not hum.Sit then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 end
             end

@@ -13,8 +13,10 @@ return function(Core)
             local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(0, 0)
             local mouseLoc = Services.UserInputService:GetMouseLocation()
             
+            -- FOV center: Screen center when AimOrigin == "Center" or mouse is locked/docked
+            local fovPos = mouseLoc
             if Config.AimOrigin == "Center" or (mouseLoc.X <= 5 and mouseLoc.Y <= 40 and vpSize.X > 0) then
-                mouseLoc = vpSize / 2
+                fovPos = vpSize / 2
             end
 
             -- Prepare render context to pass to modules
@@ -22,6 +24,7 @@ return function(Core)
                 deltaTime = deltaTime,
                 Camera = workspace.CurrentCamera,
                 MouseLocation = mouseLoc,
+                FOVPosition = fovPos,
                 ViewportSize = vpSize
             }
 

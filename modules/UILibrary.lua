@@ -72,8 +72,9 @@ return function(Core)
                     self.FloatingCircle.Visible = false
                     self.MainContainer.Visible = true
                     -- Animate open
+                    local targetH = self.SavedHeight or 520
                     self.MainContainer.Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, 0)
-                    tween(self.MainContainer, {Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
+                    tween(self.MainContainer, {Size = UDim2.new(0, self.MainContainer.Size.X.Offset, 0, targetH)}, 0.3, Enum.EasingStyle.Back)
                 end
                 floatDragging = false
                 dragging = false
@@ -115,7 +116,10 @@ return function(Core)
             end
         end)
         if not Interface.Parent then
-            Interface.Parent = Services.Players.LocalPlayer:WaitForChild("PlayerGui")
+            local localPlr = Services.Players.LocalPlayer
+            if localPlr then
+                Interface.Parent = localPlr:WaitForChild("PlayerGui", 5) or localPlr:FindFirstChild("PlayerGui")
+            end
         end
         self.Interface = Interface
 
@@ -238,6 +242,7 @@ return function(Core)
         FloatIcon.Font = Enum.Font.GothamBold
 
         Utility.RegisterConnection(MinimizeBtn.Activated:Connect(function()
+            self.SavedHeight = MainContainer.AbsoluteSize.Y
             local tw = tween(MainContainer, {Size = UDim2.new(0, MainContainer.Size.X.Offset, 0, 0)}, 0.2)
             tw.Completed:Wait()
             MainContainer.Visible = false
@@ -381,6 +386,10 @@ return function(Core)
         
         self.TabFrames[name] = frame
         task.defer(function() self:UpdateTabWidths() end)
+
+        if self.TabCount == 1 then
+            self:SelectTab(name)
+        end
 
         local TabObj = { Frame = frame, Library = self }
         function TabObj:AddSection(text) return self.Library:CreateSection(self.Frame, text) end
@@ -571,8 +580,9 @@ return function(Core)
         Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
 
         local function updateSlider(input)
-            local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, sliderBG.AbsoluteSize.X)
-            local pct = posX / sliderBG.AbsoluteSize.X
+            local width = math.max(1, sliderBG.AbsoluteSize.X)
+            local posX = math.clamp(input.Position.X - sliderBG.AbsolutePosition.X, 0, width)
+            local pct = posX / width
             tween(sliderFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.05)
             local val = min + ((max - min) * pct)
             val = math.floor(val * 100) / 100

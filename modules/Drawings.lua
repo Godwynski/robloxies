@@ -78,11 +78,11 @@ return function(Core)
                 local char = target.Parent
                 local sp, onScreen = ctx.Camera:WorldToScreenPoint(target.Position)
 
-                if onScreen then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hp = hum and hum.Health or 0
-                    local maxHp = hum and hum.MaxHealth or 100
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hp = hum and hum.Health or 0
+                local maxHp = hum and hum.MaxHealth or 100
 
+                if onScreen and hp > 0 then
                     -- Clamp position within viewport bounds
                     local clampedX = math.clamp(sp.X, 40, viewport.X - 40)
                     local clampedY = math.clamp(sp.Y, 50, viewport.Y - 20)
@@ -151,7 +151,8 @@ return function(Core)
                         if age < 5 then
                             drawing.Text = entry.text
                             drawing.Color = entry.color
-                            drawing.Position = Vector2.new(viewport.X - 10 - drawing.TextBounds.X, 10 + (i - 1) * 18)
+                            local textWidth = (drawing.TextBounds and drawing.TextBounds.X) or (#entry.text * 7)
+                            drawing.Position = Vector2.new(viewport.X - 10 - textWidth, 10 + (i - 1) * 18)
                             drawing.Visible = true
                             -- Fade out in last second
                             if age > 4 then

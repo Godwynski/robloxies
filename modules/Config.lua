@@ -93,7 +93,7 @@ return function(Core)
         return true
     end
 
-    -- Deep merge utility for Game Presets
+    -- Deep merge utility for configs
     function Config:Merge(overrideConfig)
         if type(overrideConfig) ~= "table" then return end
         

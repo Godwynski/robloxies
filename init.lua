@@ -65,14 +65,13 @@ Core.Movement.Init()
 Core.Hooks.Init()
 Core.Drawings.Init()
 
--- 5. Load Game Preset as a Plugin
--- This merges configs, injects UI tabs, and sets up custom event hooks
-Core.Preset = require("modules.GameIdentifier")(Core)
-
--- 6. Build final UI Tabs (Settings goes last)
+-- 5. Build final UI Tabs (Settings goes last)
 Core.UI.BuildSettingsTab()
+if Core.UI and Core.UI.Window then
+    pcall(function() Core.UI.Window:SelectTab("Combat") end)
+end
 
--- 7. Start the Main Event Loop
+-- 6. Start the Main Event Loop
 Core.MainLoop.Init()
 
 print("Project loaded successfully!")
