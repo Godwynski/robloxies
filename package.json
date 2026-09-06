@@ -4,7 +4,10 @@
   "description": "A modular Roblox auto-aim script",
   "main": "init.lua",
   "scripts": {
-    "build": "node build.js"
+    "build": "node build.js",
+    "build:analyzer": "node tools/build_analyzer.js",
+    "analyze:offline": "node tools/offline_analyzer.js",
+    "test": "node test/analyzer.test.js"
   },
   "devDependencies": {
     "luabundler": "^1.2.3"

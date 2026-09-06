@@ -1,0 +1,276 @@
+{
+  "Metadata": {
+    "Tool": "LuauLens",
+    "Version": "1.0.0",
+    "Timestamp": 1725624000,
+    "PlaceId": 891240182,
+    "PlaceVersion": 42,
+    "GameTitle": "Realm of Blades (Action RPG)"
+  },
+  "CodeAnalysis": {
+    "TotalScripts": 12,
+    "Frameworks": [
+      {
+        "Name": "Knit",
+        "Confidence": "High",
+        "Occurrences": 8
+      }
+    ],
+    "Tags": [
+      {
+        "TagName": "DamageHitbox",
+        "Count": 32,
+        "SampleClass": "Part",
+        "ClassDistribution": "Part (32)",
+        "EducationalNote": "Component tag applied to melee & projectile collision boxes for dynamic detection"
+      },
+      {
+        "TagName": "InteractableChest",
+        "Count": 14,
+        "SampleClass": "Model",
+        "ClassDistribution": "Model (14)",
+        "EducationalNote": "ProximityPrompt trigger binding for loot chest interaction"
+      },
+      {
+        "TagName": "ShopNPC",
+        "Count": 5,
+        "SampleClass": "Model",
+        "ClassDistribution": "Model (5)",
+        "EducationalNote": "Bound to merchant dialog and store interaction controller"
+      }
+    ],
+    "Categories": {
+      "Controller": [
+        {
+          "Name": "CombatController",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerScripts.Controllers.CombatController",
+          "Category": "Controller",
+          "Description": "Coordinates player attack inputs, local weapon animation, and client prediction"
+        },
+        {
+          "Name": "CameraController",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerScripts.Controllers.CameraController",
+          "Category": "Controller",
+          "Description": "Over-the-shoulder action camera and target locking system"
+        }
+      ],
+      "Game Mechanic": [
+        {
+          "Name": "InventoryController",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerScripts.Controllers.InventoryController",
+          "Category": "Game Mechanic",
+          "Description": "Coordinates client inventory slots, item hotbar, and equipment state"
+        },
+        {
+          "Name": "ShopController",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerScripts.Controllers.ShopController",
+          "Category": "Game Mechanic",
+          "Description": "Handles merchant window rendering, transaction requests, and price preview"
+        }
+      ],
+      "Network Adapter": [
+        {
+          "Name": "NetworkClient",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Common.Network.NetworkClient",
+          "Category": "Network Adapter",
+          "Description": "Centralized RemoteEvent / RemoteFunction wrapper with automatic retry and type safety"
+        }
+      ],
+      "UI Component": [
+        {
+          "Name": "HUDView",
+          "ClassName": "LocalScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerGui.HUD.HUDView",
+          "Category": "UI Component",
+          "Description": "Health bar, stamina bar, and action cooldown indicators"
+        },
+        {
+          "Name": "InventoryView",
+          "ClassName": "LocalScript",
+          "FullName": "game:GetService(\"Players\").LocalPlayer.PlayerGui.InventoryGui.InventoryView",
+          "Category": "UI Component",
+          "Description": "Grid layout for bag items and equipment slots"
+        }
+      ],
+      "State Store": [
+        {
+          "Name": "PlayerStateStore",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Common.State.PlayerStateStore",
+          "Category": "State Store",
+          "Description": "Local replicated state container holding current health, gold, and active buffs"
+        }
+      ],
+      "Utility & Helper": [
+        {
+          "Name": "Signal",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Packages.Signal",
+          "Category": "Utility & Helper",
+          "Description": "High-performance event signal emitter"
+        },
+        {
+          "Name": "Trove",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Packages.Trove",
+          "Category": "Utility & Helper",
+          "Description": "Lifecycle cleanup manager for connections and temporary instances"
+        }
+      ],
+      "Config & Data": [
+        {
+          "Name": "ItemDefinitions",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Common.Configs.ItemDefinitions",
+          "Category": "Config & Data",
+          "Description": "Static catalog of weapon stats, rarity tiers, and icon asset IDs"
+        },
+        {
+          "Name": "CombatFormulas",
+          "ClassName": "ModuleScript",
+          "FullName": "game:GetService(\"ReplicatedStorage\").Common.Configs.CombatFormulas",
+          "Category": "Config & Data",
+          "Description": "Mathematical formulas for armor mitigation and critical strike chance"
+        }
+      ]
+    }
+  },
+  "NetworkStats": {
+    "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest": {
+      "Name": "AttackRequest",
+      "Path": "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest",
+      "System": "Combat System",
+      "Count": 84,
+      "Directions": { "Client -> Server": 84 },
+      "ArgSignatures": { "string, number, table": 84 }
+    },
+    "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication": {
+      "Name": "DamageReplication",
+      "Path": "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication",
+      "System": "Combat System",
+      "Count": 42,
+      "Directions": { "Server -> Client": 42 },
+      "ArgSignatures": { "number, number, boolean": 42 }
+    },
+    "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem": {
+      "Name": "PurchaseItem",
+      "Path": "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem",
+      "System": "Economy & Shop",
+      "Count": 6,
+      "Directions": { "Client -> Server": 6 },
+      "ArgSignatures": { "string, number": 6 }
+    },
+    "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync": {
+      "Name": "InventorySync",
+      "Path": "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync",
+      "System": "Inventory & Equipment",
+      "Count": 12,
+      "Directions": { "Server -> Client": 12 },
+      "ArgSignatures": { "table": 12 }
+    }
+  },
+  "NetworkTrafficSample": [
+    {
+      "Id": 1,
+      "Timestamp": "19:40:12.102",
+      "Direction": "Client -> Server",
+      "Method": "FireServer",
+      "RemoteName": "AttackRequest",
+      "RemoteClass": "RemoteEvent",
+      "RemotePath": "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest",
+      "Caller": "CombatController",
+      "ArgTypes": ["string", "number", "table"],
+      "Arguments": ["SwordSwing_Light", 1024, { "X": 45.2, "Y": 12.0, "Z": -80.1 }],
+      "PayloadBytes": 68,
+      "System": "Combat System"
+    },
+    {
+      "Id": 2,
+      "Timestamp": "19:40:12.148",
+      "Direction": "Server -> Client",
+      "Method": "OnClientEvent",
+      "RemoteName": "DamageReplication",
+      "RemoteClass": "RemoteEvent",
+      "RemotePath": "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication",
+      "Caller": "Server",
+      "ArgTypes": ["number", "number", "boolean"],
+      "Arguments": [1024, 35, false],
+      "PayloadBytes": 24,
+      "System": "Combat System"
+    },
+    {
+      "Id": 3,
+      "Timestamp": "19:40:20.550",
+      "Direction": "Client -> Server",
+      "Method": "InvokeServer",
+      "RemoteName": "PurchaseItem",
+      "RemoteClass": "RemoteFunction",
+      "RemotePath": "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem",
+      "Caller": "ShopController",
+      "ArgTypes": ["string", "number"],
+      "Arguments": ["Iron_Broadsword", 1],
+      "PayloadBytes": 32,
+      "System": "Economy & Shop"
+    },
+    {
+      "Id": 4,
+      "Timestamp": "19:40:20.612",
+      "Direction": "Server -> Client",
+      "Method": "OnClientEvent",
+      "RemoteName": "InventorySync",
+      "RemoteClass": "RemoteEvent",
+      "RemotePath": "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync",
+      "Caller": "Server",
+      "ArgTypes": ["table"],
+      "Arguments": [{ "Slot1": "Iron_Broadsword", "Slot2": "Health_Potion", "Gold": 350 }],
+      "PayloadBytes": 74,
+      "System": "Inventory & Equipment"
+    }
+  ],
+  "Snapshots": [
+    {
+      "Id": "snap_1_1725624000",
+      "Label": "Baseline (Game Join)",
+      "Timestamp": 1725624000,
+      "PlaceVersion": 42,
+      "Counts": { "Scripts": 12, "Remotes": 4, "Assets": 28, "Tags": 3, "Attributes": 15 },
+      "Remotes": {
+        "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest": { "Name": "AttackRequest", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication": { "Name": "DamageReplication", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem": { "Name": "PurchaseItem", "ClassName": "RemoteFunction", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync": { "Name": "InventorySync", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync" }
+      },
+      "Tags": { "DamageHitbox": 32, "InteractableChest": 14, "ShopNPC": 5 },
+      "Assets": {
+        "rbxassetid://912384711": { "Id": "rbxassetid://912384711", "Property": "MeshId", "SampleHost": "IronSwordModel", "Count": 1 },
+        "rbxassetid://582910482": { "Id": "rbxassetid://582910482", "Property": "SoundId", "SampleHost": "SwordSwingSound", "Count": 1 }
+      }
+    },
+    {
+      "Id": "snap_2_1725624300",
+      "Label": "Post-Encounter Update",
+      "Timestamp": 1725624300,
+      "PlaceVersion": 42,
+      "Counts": { "Scripts": 13, "Remotes": 5, "Assets": 31, "Tags": 4, "Attributes": 18 },
+      "Remotes": {
+        "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest": { "Name": "AttackRequest", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.AttackRequest" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication": { "Name": "DamageReplication", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.DamageReplication" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem": { "Name": "PurchaseItem", "ClassName": "RemoteFunction", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.PurchaseItem" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync": { "Name": "InventorySync", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.InventorySync" },
+        "game:GetService(\"ReplicatedStorage\").Remotes.SkillCast": { "Name": "SkillCast", "ClassName": "RemoteEvent", "Path": "game:GetService(\"ReplicatedStorage\").Remotes.SkillCast" }
+      },
+      "Tags": { "DamageHitbox": 32, "InteractableChest": 14, "ShopNPC": 5, "BossAreaTrigger": 1 },
+      "Assets": {
+        "rbxassetid://912384711": { "Id": "rbxassetid://912384711", "Property": "MeshId", "SampleHost": "IronSwordModel", "Count": 1 },
+        "rbxassetid://582910482": { "Id": "rbxassetid://582910482", "Property": "SoundId", "SampleHost": "SwordSwingSound", "Count": 1 },
+        "rbxassetid://738291049": { "Id": "rbxassetid://738291049", "Property": "SoundId", "SampleHost": "BossRoar", "Count": 1 },
+        "rbxassetid://109283741": { "Id": "rbxassetid://109283741", "Property": "AnimationId", "SampleHost": "SkillCastAnim", "Count": 1 }
+      }
+    }
+  ]
+}
