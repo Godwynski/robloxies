@@ -36,19 +36,22 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 
 ### 🍽️ Restaurant Automation
 - **⚡ Master Restaurant Auto-Farm** — One-click master toggle that synchronizes all essential workflows (seating, ordering, cooking, serving, cleaning, and cash collection) smoothly without manual configuration.
+- **🔒 Strict Task Completion Guard** — Guarantees the active task is 100% finished on the server (monitoring prompt deactivation, item collection/destruction, hold duration, and post-action settling delay) before moving the avatar to any other task, eliminating dropped actions and premature movement.
 - **🔄 Simultaneous Multi-Queue Pipeline** — Eliminates queue starvation with an interleaved round-robin scheduler that balances cooking, serving, ordering, cleaning, seating, and deliveries every cycle rather than locking into a single category.
-- **⚡ Workstation Spatial Clustering & Batching** — When visiting a kitchen counter or table cluster, processes all ready prompts within 14 studs simultaneously (up to configurable batch size) in a single visit instead of teleporting back and forth.
+- **⚡ Workstation Spatial Clustering & Sequential Completion** — When visiting a kitchen counter or table cluster, processes all ready prompts within 14 studs sequentially to completion in a single visit before departing.
+- **🪑 Auto-Add Chairs, Tables & Furniture** — Automatically purchases and places dining tables, chairs, stools, booths, appliances, and restaurant decor onto an expanding floor grid.
+- **🎁 Auto-Claim All Rewards & Gifts** — Automatically claims completed quests, daily login gifts, free playtime rewards, spin the wheel, and achievement milestones across UI and game remotes.
 - **✨ Opportunistic Station Batching** — Concurrently fires nearby ready prompts across all enabled categories within 14 studs of the avatar's current station.
 - **🪙 Decoupled Parallel Cash Sweeping** — Continuously collects dropped coins and cash drops across the restaurant floor via `firetouchinterest` on a high-speed background worker without affecting avatar movement or kitchen throughput.
-- **🤖 Decoupled Background UI Manager** — Claims completed quests, redeems daily gifts, and hires/upgrades staff on an independent parallel thread without stalling physical cooking or serving loops.
+- **🤖 Decoupled Background UI Manager** — Claims rewards, redeems daily gifts, and hires/upgrades staff on an independent parallel thread without stalling physical cooking or serving loops.
 - **🛡️ Mutex In-Flight Locking** — Tracks active prompts in a garbage-collected weak table (`State.InFlightTasks`) to guarantee zero double-triggers, race conditions, or physics desyncs across concurrent workers.
-- **🛒 Auto-Buy Stoves & Appliances** — Automatically purchases higher-tier cooking stoves, ovens, dishwashers, and dining tables from the shop to continually upgrade your restaurant equipment.
+- **🛒 Auto-Buy Stoves, Tables & Chairs** — Automatically purchases higher-tier cooking stoves, ovens, dishwashers, dining tables, chairs, and appliances from the shop to continually upgrade your restaurant equipment.
 - **🔨 Auto-Place Stored Furniture** — Automatically scans your build inventory for unplaced items, calculates open floor grid coordinates, and places furniture onto your restaurant layout.
 - **👨‍🍳 Auto-Hire & Upgrade Staff** — Automatically hires and levels up Cooks, Waiters, and Cleaners from the Manage menu to maximize kitchen throughput.
 - **📍 Plot & Anchor Calibration** — Automatically locks onto your restaurant and provides a one-click in-game button to recalibrate your restaurant center, guaranteeing zero cross-plot interference.
 - **Smooth Prioritized Dispatcher** — Eliminates teleport seizures by prioritizing and attending to one critical task at a time with configurable station stay duration (0.22s) so the Roblox server reliably processes interactions.
 - **Zero-NaN Teleport Safety** — Safe workstation orientation math and downward floor raycasting guarantees the avatar lands stably in front of tables/stoves without flinging, void deaths, or getting stuck in furniture.
-- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, quests claimed, expansions, purchases, placements, and hired staff.
+- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, rewards claimed, expansions, purchases, placements, and hired staff.
 - **VIP & Celebrity Priority** — Sorts and prioritizes VIP, gold, and celebrity customers first for maximum tip multipliers and revenue.
 - **Auto-Expand Floors & Land** — Automatically triggers expansion, floor unlock, and plot purchase prompts to continually scale your restaurant capacity AFK.
 - **24/7 Auto-Rejoin Disconnect Guard** — Automatically detects connection error prompts via `RobloxPromptGui` and teleports back into the server.

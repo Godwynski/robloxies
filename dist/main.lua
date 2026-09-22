@@ -84,17 +84,25 @@ return function(Core)
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
         AutoClaimQuestsEnabled = true,
+        AutoClaimRewardsEnabled = true,
         AutoExpandEnabled = false,
         AutoBuyEnabled = false,
         AutoPlaceEnabled = false,
         AutoHireStaffEnabled = false,
         AutoBuyStoves = true,
         AutoBuyTables = true,
+        AutoBuyChairs = true,
         AutoBuyAppliances = true,
+        AutoBuyFurniture = true,
+        AutoPlaceTables = true,
+        AutoPlaceChairs = true,
+        AutoPlaceFurniture = true,
         VIPPriorityEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
         StationStayDelay = 0.22,
+        StrictTaskCompletion = true,
+        PostActionDelay = 0.18,
         MaxScanRadius = 120,
 
         -- Multi-Queue Pipeline & Concurrency
@@ -198,6 +206,7 @@ return function(Core)
             DeliveriesCompleted = 0,
             StorageRestocked = 0,
             QuestsClaimed = 0,
+            RewardsClaimed = 0,
             ExpansionsPurchased = 0,
             ItemsPurchased = 0,
             ItemsPlaced = 0,
@@ -265,36 +274,72 @@ return function(Core)
         end)
     end
 
-    -- Auto-Claim finished quests, achievements, and free playtime gifts from UI
-    function Utility.ClaimQuestsAndGifts()
+    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    function Utility.ClaimAllRewards()
+        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        if not pg then return 0 end
         local claimed = 0
 
-        for _, btn in ipairs(pg:GetDescendants()) do
-            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
-                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
-                local name = btn.Name:lower()
-                local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone buttons
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local name = btn.Name:lower()
+                    local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
 
-                if btn.Visible and (
-                    text == "claim" or text == "collect" or text == "reward" or
-                    name:find("claim", 1, true) or name:find("reward", 1, true) or
-                    parentName:find("quest", 1, true) or parentName:find("gift", 1, true)
-                ) then
-                    pcall(function()
-                        if type(firesignal) == "function" and btn.Activated then
-                            firesignal(btn.Activated)
-                        elseif btn.Activate then
-                            btn:Activate()
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem"
+                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin")
+                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily")
+                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward")
+
+                    if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
+                        if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
+                            pcall(function()
+                                if type(firesignal) == "function" and btn.Activated then
+                                    firesignal(btn.Activated)
+                                elseif btn.Activate then
+                                    btn:Activate()
+                                end
+                                claimed = claimed + 1
+                            end)
                         end
-                        claimed = claimed + 1
-                    end)
+                    end
                 end
             end
         end
+
+        -- 2. Check ReplicatedStorage reward claiming remotes
+        local rs = game:GetService("ReplicatedStorage")
+        local remoteNames = {
+            "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
+            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
+            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin"
+        }
+        for _, rName in ipairs(remoteNames) do
+            local remote = rs:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                pcall(function()
+                    remote:FireServer()
+                    claimed = claimed + 1
+                end)
+            elseif remote and remote:IsA("RemoteFunction") then
+                pcall(function()
+                    remote:InvokeServer()
+                    claimed = claimed + 1
+                end)
+            end
+        end
+
+        if claimed > 0 and Core.State and Core.State.Stats then
+            Core.State.Stats.RewardsClaimed = (Core.State.Stats.RewardsClaimed or 0) + claimed
+            Core.State.Stats.QuestsClaimed = (Core.State.Stats.QuestsClaimed or 0) + claimed
+        end
+
         return claimed
     end
+    Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
 
     -- Redeem known active promotional codes automatically
     function Utility.RedeemKnownCodes()
@@ -446,7 +491,7 @@ end
 
 end)()(Core)
 
--- 3. Load UI Director & Build Restaurant Tab First
+-- 3. Load UI Director & Build Tabs
 Core.UI = (function()
 return function(Core)
     local UI = {}
@@ -760,7 +805,7 @@ return function(Core)
         TabList.Parent = self.TabBar
         TabList.FillDirection = Enum.FillDirection.Horizontal
         TabList.SortOrder = Enum.SortOrder.LayoutOrder
-        TabList.Padding = UDim.new(0, 8)
+        TabList.Padding = UDim.new(0, 6)
 
         self.TabContainer = Instance.new("Frame")
         self.TabContainer.Parent = MainContainer
@@ -782,7 +827,7 @@ return function(Core)
     end
 
     function UILibrary:UpdateTabWidths()
-        local available = self.TabBar.AbsoluteSize.X - (self.TabCount - 1) * 8
+        local available = self.TabBar.AbsoluteSize.X - (self.TabCount - 1) * 6
         local w = math.floor(available / math.max(1, self.TabCount))
         for _, btn in pairs(self.Tabs) do
             btn.Size = UDim2.new(0, w, 1, 0)
@@ -811,7 +856,7 @@ return function(Core)
         btn.Font = Enum.Font.GothamBold
         btn.Text = name
         btn.TextColor3 = Theme.TextSecondary
-        btn.TextSize = 13
+        btn.TextSize = 12
         btn.LayoutOrder = self.TabCount
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -1174,10 +1219,11 @@ end)()(Core)
 
         function UI.UpdateFloatStatus()
             if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
-            local active = Config.AutoSeatEnabled or Config.AutoOrderEnabled or Config.AutoCookEnabled or
-                           Config.AutoServeEnabled or Config.AutoCleanEnabled or Config.AutoCollectCashEnabled or
-                           Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or Config.AutoRestockEnabled or
-                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
+            local active = Config.MasterAutoFarmEnabled or Config.AutoSeatEnabled or Config.AutoOrderEnabled or
+                           Config.AutoCookEnabled or Config.AutoServeEnabled or Config.AutoCleanEnabled or
+                           Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or
+                           Config.AutoRestockEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
+                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             if active then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
@@ -1188,13 +1234,13 @@ end)()(Core)
             end
         end
 
-        -- Build the Restaurant Automation Tab
+        -- 1. RESTAURANT OPERATIONS TAB
         function UI.BuildRestaurantTab()
             local RestTab = Window:AddTab("Restaurant")
 
-            -- 1. LIVE PERFORMANCE & PROFIT HUD
-            RestTab:AddSection("LIVE RESTAURANT STATS")
-            local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Quests: 0")
+            -- LIVE PERFORMANCE & PROFIT HUD
+            RestTab:AddSection("LIVE RESTAURANT HUD")
+            local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Rewards: 0")
             local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
             local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
             local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0 | 🏰 Expansions: 0")
@@ -1205,7 +1251,8 @@ end)()(Core)
                 while State.Running do
                     pcall(function()
                         local s = State.Stats
-                        statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Quests: %d", s.CashCollected, s.QuestsClaimed))
+                        local totalRewards = (s.RewardsClaimed or 0) + (s.QuestsClaimed or 0)
+                        statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Rewards: %d", s.CashCollected, totalRewards))
                         statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
                         statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
                         statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d | 🏰 Expansions: %d", s.CropsHarvested, s.StorageRestocked, s.ExpansionsPurchased))
@@ -1215,12 +1262,15 @@ end)()(Core)
                 end
             end)
 
-            -- 2. AUTOMATION WORKFLOW
-            RestTab:AddSection("AUTOMATION WORKFLOW")
+            -- MASTER AUTOMATION SWITCH
+            RestTab:AddSection("MASTER AUTOMATION")
             RestTab:AddToggle("⚡ MASTER RESTAURANT AUTO-FARM", Config.MasterAutoFarmEnabled, function(val)
                 Config.MasterAutoFarmEnabled = val
                 UI.UpdateFloatStatus()
             end)
+
+            -- KITCHEN & DINING OPERATIONS
+            RestTab:AddSection("KITCHEN & DINING")
             RestTab:AddToggle("Auto-Seat Customers", Config.AutoSeatEnabled, function(val)
                 Config.AutoSeatEnabled = val
                 UI.UpdateFloatStatus()
@@ -1245,10 +1295,12 @@ end)()(Core)
                 Config.AutoCollectCashEnabled = val
                 UI.UpdateFloatStatus()
             end)
-            RestTab:AddToggle("Auto-Harvest Farm & Ranch", Config.AutoFarmEnabled, function(val)
-                Config.AutoFarmEnabled = val
-                UI.UpdateFloatStatus()
+            RestTab:AddToggle("VIP & Celebrity Customer Priority", Config.VIPPriorityEnabled, function(val)
+                Config.VIPPriorityEnabled = val
             end)
+
+            -- SUPPLY & EXTRA REVENUE
+            RestTab:AddSection("SUPPLY & EXTRA REVENUE")
             RestTab:AddToggle("Auto-Fulfill Delivery Orders", Config.AutoDeliveryEnabled, function(val)
                 Config.AutoDeliveryEnabled = val
                 UI.UpdateFloatStatus()
@@ -1257,102 +1309,13 @@ end)()(Core)
                 Config.AutoRestockEnabled = val
                 UI.UpdateFloatStatus()
             end)
-            RestTab:AddToggle("Auto-Buy Stoves & Appliances", Config.AutoBuyEnabled, function(val)
-                Config.AutoBuyEnabled = val
-            end)
-            RestTab:AddToggle("Auto-Place Stored Furniture", Config.AutoPlaceEnabled, function(val)
-                Config.AutoPlaceEnabled = val
-            end)
-            RestTab:AddToggle("Auto-Hire & Upgrade Staff", Config.AutoHireStaffEnabled, function(val)
-                Config.AutoHireStaffEnabled = val
-            end)
-            RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
-                Config.AutoClaimQuestsEnabled = val
-            end)
-            RestTab:AddToggle("VIP & Celebrity Customer Priority", Config.VIPPriorityEnabled, function(val)
-                Config.VIPPriorityEnabled = val
-            end)
-            RestTab:AddToggle("Auto-Expand Floors & Land", Config.AutoExpandEnabled, function(val)
-                Config.AutoExpandEnabled = val
+            RestTab:AddToggle("Auto-Harvest Farm & Ranch", Config.AutoFarmEnabled, function(val)
+                Config.AutoFarmEnabled = val
+                UI.UpdateFloatStatus()
             end)
 
-            -- 3. PIPELINE & CONCURRENCY
-            RestTab:AddSection("PIPELINE & CONCURRENCY")
-            RestTab:AddToggle("Simultaneous Multi-Queue Pipeline", Config.InterleavedPipelineEnabled, function(val)
-                Config.InterleavedPipelineEnabled = val
-            end)
-            RestTab:AddToggle("Concurrent Workstation Batching", Config.ConcurrentExecutionEnabled, function(val)
-                Config.ConcurrentExecutionEnabled = val
-            end)
-            RestTab:AddSlider("Station Batch Size", Config.StationBatchSize or 3, 1, 5, function(val)
-                Config.StationBatchSize = val
-            end)
-            RestTab:AddToggle("Opportunistic Nearby Batching", Config.RemotePromptBatching, function(val)
-                Config.RemotePromptBatching = val
-            end)
-
-            -- 4. TELEPORTATION & NAVIGATION
-            RestTab:AddSection("TELEPORTATION & NAVIGATION")
-            RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
-                Config.AutoTeleportEnabled = val
-            end)
-            RestTab:AddSlider("Station Stay Delay (s)", math.floor((Config.StationStayDelay or 0.22) * 100), 8, 100, function(val)
-                Config.StationStayDelay = val / 100
-            end)
-            RestTab:AddSlider("Restaurant Radius (studs)", Config.MaxScanRadius or 120, 40, 300, function(val)
-                Config.MaxScanRadius = val
-            end)
-            RestTab:AddToggle("Scope to Own Plot Only", Config.PlotScopingEnabled, function(val)
-                Config.PlotScopingEnabled = val
-            end)
-            RestTab:AddToggle("Prevent Sitting in Chairs", Config.PreventSitting, function(val)
-                Config.PreventSitting = val
-            end)
-            RestTab:AddToggle("Multi-Floor Safe Raycast", Config.MultiFloorSafeRaycast, function(val)
-                Config.MultiFloorSafeRaycast = val
-            end)
-
-            -- 5. INTERACTIONS & PERFORMANCE
-            RestTab:AddSection("INTERACTIONS & PERFORMANCE")
-            RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
-                Config.InstantPromptEnabled = val
-            end)
-            RestTab:AddToggle("Anti-AFK Disconnect Guard", Config.AntiAFKEnabled, function(val)
-                Config.AntiAFKEnabled = val
-            end)
-            RestTab:AddToggle("24/7 Auto-Rejoin on Disconnect", Config.AutoRejoinEnabled, function(val)
-                Config.AutoRejoinEnabled = val
-            end)
-            RestTab:AddToggle("GPU Saver / Performance Mode", Config.GPUSaverEnabled, function(val)
-                Config.GPUSaverEnabled = val
-                Utility.SetGPUSaver(val)
-            end)
-            RestTab:AddSlider("Cycle Speed (s)", math.floor(Config.ActionDelay * 10), 1, 30, function(val)
-                Config.ActionDelay = val / 10
-            end)
-
-            -- 6. QUICK ACTIONS
-            RestTab:AddSection("QUICK ACTIONS")
-            RestTab:AddButton("📍 Set Restaurant Anchor Here", function(btn)
-                if Core.Restaurant and Core.Restaurant.RecalibrateAnchor then
-                    local ok = Core.Restaurant.RecalibrateAnchor()
-                    local old = btn.Text
-                    btn.Text = ok and "📍 Anchor Calibrated!" or "Error Calibrating"
-                    task.delay(1.5, function() btn.Text = old end)
-                end
-            end)
-            RestTab:AddButton("Redeem Active Promo Codes", function(btn)
-                local count = Utility.RedeemKnownCodes()
-                local old = btn.Text
-                btn.Text = count > 0 and ("Submitted " .. count .. " Codes!") or "Codes Submitted!"
-                task.delay(1.5, function() btn.Text = old end)
-            end)
-            RestTab:AddButton("Claim All Finished Quests & Gifts", function(btn)
-                local claimed = Utility.ClaimQuestsAndGifts()
-                local old = btn.Text
-                btn.Text = claimed > 0 and ("Claimed " .. claimed .. " Rewards!") or "No Rewards Pending"
-                task.delay(1.5, function() btn.Text = old end)
-            end)
+            -- QUICK WORKSTATION ACTIONS
+            RestTab:AddSection("QUICK WORKSTATION ACTIONS")
             RestTab:AddButton("Trigger All Workstations Now", function(btn)
                 if Core.Restaurant then
                     pcall(Core.Restaurant.HandleRestock)
@@ -1369,7 +1332,81 @@ end)()(Core)
                     task.delay(1.2, function() btn.Text = old end)
                 end
             end)
-            RestTab:AddButton("🛒 Auto-Buy Next Equipment Now", function(btn)
+            RestTab:AddButton("📍 Set Restaurant Anchor Here", function(btn)
+                if Core.Restaurant and Core.Restaurant.RecalibrateAnchor then
+                    local ok = Core.Restaurant.RecalibrateAnchor()
+                    local old = btn.Text
+                    btn.Text = ok and "📍 Anchor Calibrated!" or "Error Calibrating"
+                    task.delay(1.5, function() btn.Text = old end)
+                end
+            end)
+            RestTab:AddButton("Teleport to Restaurant Center", function()
+                if Core.Restaurant and Core.Restaurant.RestaurantCenter then
+                    local char = Core.Services.Players.LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        root.CFrame = CFrame.new(Core.Restaurant.RestaurantCenter + Vector3.new(0, 3, 0))
+                    end
+                end
+            end)
+        end
+
+        -- 2. BUILD & STAFF MANAGEMENT TAB
+        function UI.BuildBuildTab()
+            local BuildTab = Window:AddTab("Build/Staff")
+
+            -- AUTO-BUY EQUIPMENT & FURNITURE
+            BuildTab:AddSection("AUTO-BUY EQUIPMENT & FURNITURE")
+            BuildTab:AddToggle("Auto-Buy Upgrades (Master)", Config.AutoBuyEnabled, function(val)
+                Config.AutoBuyEnabled = val
+            end)
+            BuildTab:AddToggle("Buy Cooking Stoves & Ovens", Config.AutoBuyStoves, function(val)
+                Config.AutoBuyStoves = val
+            end)
+            BuildTab:AddToggle("Buy Dining Tables", Config.AutoBuyTables, function(val)
+                Config.AutoBuyTables = val
+            end)
+            BuildTab:AddToggle("Buy Dining Chairs & Seating", Config.AutoBuyChairs, function(val)
+                Config.AutoBuyChairs = val
+            end)
+            BuildTab:AddToggle("Buy Kitchen Appliances & Sinks", Config.AutoBuyAppliances, function(val)
+                Config.AutoBuyAppliances = val
+            end)
+            BuildTab:AddToggle("Buy General Furniture & Decor", Config.AutoBuyFurniture, function(val)
+                Config.AutoBuyFurniture = val
+            end)
+
+            -- AUTO-PLACE FURNITURE & SEATING
+            BuildTab:AddSection("AUTO-PLACE FURNITURE & SEATING")
+            BuildTab:AddToggle("Auto-Place Stored Items (Master)", Config.AutoPlaceEnabled, function(val)
+                Config.AutoPlaceEnabled = val
+            end)
+            BuildTab:AddToggle("Place Dining Tables", Config.AutoPlaceTables, function(val)
+                Config.AutoPlaceTables = val
+            end)
+            BuildTab:AddToggle("Place Dining Chairs", Config.AutoPlaceChairs, function(val)
+                Config.AutoPlaceChairs = val
+            end)
+            BuildTab:AddToggle("Place General Furniture", Config.AutoPlaceFurniture, function(val)
+                Config.AutoPlaceFurniture = val
+            end)
+
+            -- STAFF & PROPERTY EXPANSIONS
+            BuildTab:AddSection("STAFF & PROPERTY EXPANSIONS")
+            BuildTab:AddToggle("Auto-Hire & Upgrade Staff", Config.AutoHireStaffEnabled, function(val)
+                Config.AutoHireStaffEnabled = val
+            end)
+            BuildTab:AddToggle("Auto-Expand Floors & Land", Config.AutoExpandEnabled, function(val)
+                Config.AutoExpandEnabled = val
+            end)
+            BuildTab:AddToggle("Auto-Claim All Rewards & Gifts", Config.AutoClaimRewardsEnabled, function(val)
+                Config.AutoClaimRewardsEnabled = val
+                Config.AutoClaimQuestsEnabled = val
+            end)
+
+            -- INSTANT ONE-CLICK ACTIONS
+            BuildTab:AddSection("INSTANT ACTIONS")
+            BuildTab:AddButton("🛒 Auto-Buy Next Equipment Now", function(btn)
                 if Core.Restaurant and Core.Restaurant.HandleAutoBuy then
                     Config.AutoBuyEnabled = true
                     pcall(Core.Restaurant.HandleAutoBuy)
@@ -1378,7 +1415,7 @@ end)()(Core)
                     task.delay(1.5, function() btn.Text = old end)
                 end
             end)
-            RestTab:AddButton("🔨 Auto-Place Stored Items Now", function(btn)
+            BuildTab:AddButton("🔨 Auto-Place Stored Items Now", function(btn)
                 if Core.Restaurant and Core.Restaurant.HandleAutoPlace then
                     Config.AutoPlaceEnabled = true
                     pcall(Core.Restaurant.HandleAutoPlace)
@@ -1387,7 +1424,7 @@ end)()(Core)
                     task.delay(1.5, function() btn.Text = old end)
                 end
             end)
-            RestTab:AddButton("👨‍🍳 Auto-Hire Available Staff Now", function(btn)
+            BuildTab:AddButton("👨‍🍳 Auto-Hire Available Staff Now", function(btn)
                 if Core.Restaurant and Core.Restaurant.HandleStaffManage then
                     Config.AutoHireStaffEnabled = true
                     pcall(Core.Restaurant.HandleStaffManage)
@@ -1396,26 +1433,82 @@ end)()(Core)
                     task.delay(1.5, function() btn.Text = old end)
                 end
             end)
-            RestTab:AddButton("Teleport to Restaurant Center", function(btn)
-                if Core.Restaurant then
-                    local center = Core.Restaurant.RestaurantCenter
-                    if center then
-                        local char = Core.Services.Players.LocalPlayer.Character
-                        local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if root then
-                            root.CFrame = CFrame.new(center + Vector3.new(0, 3, 0))
-                        end
-                    end
-                end
+        end
+
+        -- 3. AUTOMATION & NAVIGATION ENGINE TAB
+        function UI.BuildAutomationTab()
+            local AutoTab = Window:AddTab("Automation")
+
+            -- TASK COMPLETION & SEQUENCING
+            AutoTab:AddSection("TASK COMPLETION & SEQUENCING")
+            AutoTab:AddToggle("Strict Task Completion Guard", Config.StrictTaskCompletion, function(val)
+                Config.StrictTaskCompletion = val
             end)
-            RestTab:AddButton("🔴 Unload & Close Utility", function()
-                Utility.Terminate()
+            AutoTab:AddSlider("Station Stay Delay (s)", math.floor((Config.StationStayDelay or 0.22) * 100), 8, 100, function(val)
+                Config.StationStayDelay = val / 100
+            end)
+            AutoTab:AddSlider("Post-Action Settling Delay (s)", math.floor((Config.PostActionDelay or 0.18) * 100), 5, 80, function(val)
+                Config.PostActionDelay = val / 100
+            end)
+            AutoTab:AddSlider("Cycle Speed (s)", math.floor(Config.ActionDelay * 10), 1, 30, function(val)
+                Config.ActionDelay = val / 10
+            end)
+
+            -- PIPELINE & CONCURRENCY
+            AutoTab:AddSection("PIPELINE & CONCURRENCY")
+            AutoTab:AddToggle("Simultaneous Multi-Queue Pipeline", Config.InterleavedPipelineEnabled, function(val)
+                Config.InterleavedPipelineEnabled = val
+            end)
+            AutoTab:AddToggle("Concurrent Workstation Batching", Config.ConcurrentExecutionEnabled, function(val)
+                Config.ConcurrentExecutionEnabled = val
+            end)
+            AutoTab:AddSlider("Station Batch Size", Config.StationBatchSize or 3, 1, 5, function(val)
+                Config.StationBatchSize = val
+            end)
+            AutoTab:AddToggle("Opportunistic Nearby Batching", Config.RemotePromptBatching, function(val)
+                Config.RemotePromptBatching = val
+            end)
+
+            -- TELEPORTATION & NAVIGATION
+            AutoTab:AddSection("TELEPORTATION & NAVIGATION")
+            AutoTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
+                Config.AutoTeleportEnabled = val
+            end)
+            AutoTab:AddSlider("Restaurant Radius (studs)", Config.MaxScanRadius or 120, 40, 300, function(val)
+                Config.MaxScanRadius = val
+            end)
+            AutoTab:AddToggle("Scope to Own Plot Only", Config.PlotScopingEnabled, function(val)
+                Config.PlotScopingEnabled = val
+            end)
+            AutoTab:AddToggle("Prevent Sitting in Chairs", Config.PreventSitting, function(val)
+                Config.PreventSitting = val
+            end)
+            AutoTab:AddToggle("Multi-Floor Safe Raycast", Config.MultiFloorSafeRaycast, function(val)
+                Config.MultiFloorSafeRaycast = val
+            end)
+
+            -- AFK & PERFORMANCE
+            AutoTab:AddSection("AFK & PERFORMANCE")
+            AutoTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
+                Config.InstantPromptEnabled = val
+            end)
+            AutoTab:AddToggle("Anti-AFK Disconnect Guard", Config.AntiAFKEnabled, function(val)
+                Config.AntiAFKEnabled = val
+            end)
+            AutoTab:AddToggle("24/7 Auto-Rejoin on Disconnect", Config.AutoRejoinEnabled, function(val)
+                Config.AutoRejoinEnabled = val
+            end)
+            AutoTab:AddToggle("GPU Saver / Performance Mode", Config.GPUSaverEnabled, function(val)
+                Config.GPUSaverEnabled = val
+                Utility.SetGPUSaver(val)
             end)
         end
 
-        -- Build the Settings Tab
+        -- 4. SETTINGS & UTILITIES TAB
         function UI.BuildSettingsTab()
             local SettingsTab = Window:AddTab("Settings")
+
+            -- KEYBINDS
             SettingsTab:AddSection("KEYBINDS")
             SettingsTab:AddKeybind("Toggle Menu", Config.MenuKey, function(key) Config.MenuKey = key end)
             SettingsTab:AddKeybind("Toggle No-Clip", Config.ToggleNoClipKey, function(key) Config.ToggleNoClipKey = key end)
@@ -1423,7 +1516,8 @@ end)()(Core)
             SettingsTab:AddKeybind("Toggle Jump Hack", Config.ToggleJumpKey, function(key) Config.ToggleJumpKey = key end)
             SettingsTab:AddKeybind("Toggle Infinite Jump", Config.ToggleInfJumpKey, function(key) Config.ToggleInfJumpKey = key end)
 
-            SettingsTab:AddSection("CONFIG")
+            -- CONFIG MANAGEMENT
+            SettingsTab:AddSection("CONFIG MANAGEMENT")
             SettingsTab:AddButton("Save Config", function(btn)
                 if Core.Config.Save then
                     local success = Core.Config:Save()
@@ -1441,6 +1535,22 @@ end)()(Core)
                 end
             end)
 
+            -- REWARDS & PROMO CODES
+            SettingsTab:AddSection("REWARDS & PROMO CODES")
+            SettingsTab:AddButton("🎁 Claim All Rewards & Gifts Now", function(btn)
+                local claimed = Utility.ClaimAllRewards()
+                local old = btn.Text
+                btn.Text = (claimed and claimed > 0) and ("Claimed " .. claimed .. " Rewards!") or "All Claimed!"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
+            SettingsTab:AddButton("🎟️ Redeem Active Promo Codes", function(btn)
+                local count = Utility.RedeemKnownCodes()
+                local old = btn.Text
+                btn.Text = (count and count > 0) and ("Submitted " .. count .. " Codes!") or "Codes Submitted!"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
+
+            -- UNLOAD SCRIPT
             SettingsTab:AddSection("UNLOAD SCRIPT")
             SettingsTab:AddButton("🔴 Unload & Close Script Completely", function()
                 Utility.Terminate()
@@ -1454,6 +1564,8 @@ end
 end)()(Core)
 Core.UI.Init()
 Core.UI.BuildRestaurantTab()
+Core.UI.BuildBuildTab()
+Core.UI.BuildAutomationTab()
 
 -- 4. Load Automation & Movement Modules
 Core.Restaurant = (function()
@@ -1806,29 +1918,55 @@ return function(Core)
                     local objTxt = (obj.ObjectText or obj.Name or (obj.Parent and obj.Parent.Name or "")):lower()
                     local combined = act .. " " .. objTxt
 
-                    if combined:find("tip") or combined:find("cash") or combined:find("register") or combined:find("collect") or combined:find("money") then
+                    -- 1. Cash, Tips & Free Reward Chests
+                    if combined:find("tip") or combined:find("cash") or combined:find("register") or combined:find("collect") or combined:find("money") or combined:find("gift") or combined:find("reward") or combined:find("chest") then
                         table.insert(categorized.Cash, obj)
-                    elseif combined:find("order") or combined:find("menu") or combined:find("ticket") or combined:find("take order") then
+
+                    -- 2. Customer Orders
+                    elseif (combined:find("order") or combined:find("menu") or combined:find("ticket") or combined:find("take order")) and not combined:find("delivery") then
                         table.insert(categorized.Order, obj)
+
+                    -- 3. Cook Food
                     elseif combined:find("cook") or combined:find("prepare") or combined:find("bake") or combined:find("grill") or combined:find("stove") or combined:find("oven") then
                         table.insert(categorized.Cook, obj)
-                    elseif combined:find("serve") or combined:find("deliver") or combined:find("bring") or combined:find("plate") or combined:find("dish") then
+
+                    -- 4. Serve Prepared Dishes
+                    elseif combined:find("serve") or combined:find("bring") or combined:find("plate") or (combined:find("dish") and not combined:find("sink")) then
                         table.insert(categorized.Serve, obj)
+
+                    -- 5. Clean Dirty Tables
                     elseif combined:find("clean") or combined:find("wash") or combined:find("wipe") or combined:find("dirty") or combined:find("bus") or combined:find("trash") or combined:find("sink") then
                         table.insert(categorized.Clean, obj)
-                    elseif combined:find("seat") or combined:find("host") or combined:find("welcome") or combined:find("customer") or combined:find("guest") then
+
+                    -- 6. Add / Place Furniture, Chairs & Tables (BEFORE Customer Seating)
+                    elseif combined:find("place") or combined:find("build") or combined:find("assemble") or combined:find("put down") or
+                           combined:find("add table") or combined:find("add chair") or combined:find("add seat") or combined:find("add furniture") or
+                           combined:find("new table") or combined:find("new chair") or combined:find("new seat") or
+                           (combined:find("add") and (combined:find("table") or combined:find("chair") or combined:find("furniture") or combined:find("seat"))) then
+                        table.insert(categorized.Place, obj)
+
+                    -- 7. Customer Seating (Host / Welcome)
+                    elseif combined:find("seat") or combined:find("host") or combined:find("welcome") or combined:find("customer") or combined:find("guest") or combined:find("party") then
                         table.insert(categorized.Seat, obj)
+
+                    -- 8. Delivery Orders
                     elseif combined:find("package") or combined:find("box") or combined:find("scooter") or combined:find("takeout") or combined:find("delivery") then
                         table.insert(categorized.Delivery, obj)
+
+                    -- 9. Restock Storage
                     elseif combined:find("restock") or combined:find("deposit") or combined:find("fridge") or combined:find("cooler") or combined:find("pantry") then
                         table.insert(categorized.Restock, obj)
+
+                    -- 10. Farm Harvest
                     elseif combined:find("harvest") or combined:find("crop") or combined:find("wheat") or combined:find("plant") or combined:find("gather") or combined:find("pick") then
                         table.insert(categorized.Farm, obj)
-                    elseif combined:find("place") or combined:find("build") or combined:find("assemble") or combined:find("put down") then
-                        table.insert(categorized.Place, obj)
+
+                    -- 11. Buy Furniture & Equipment
                     elseif (combined:find("buy") or combined:find("purchase")) and not combined:find("floor") and not combined:find("expand") then
                         table.insert(categorized.Buy, obj)
-                    elseif combined:find("expand") or combined:find("floor") or combined:find("unlock") or combined:find("purchase") or combined:find("buy") then
+
+                    -- 12. Expand Land & Floors
+                    elseif combined:find("expand") or combined:find("unlock") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
                         table.insert(categorized.Expand, obj)
                     end
                 end
@@ -1925,7 +2063,35 @@ return function(Core)
         return triggeredCount
     end
 
-    -- Execute a single action cleanly with mutex safety
+    -- Wait until the active prompt/task is confirmed done before allowing subsequent tasks
+    local function waitForTaskCompletion(prompt, maxTimeout)
+        if not prompt then return true end
+        local timeout = maxTimeout or 1.6
+        local hold = prompt.HoldDuration or 0
+        if hold > 0 and not Config.InstantPromptEnabled then
+            timeout = math.max(timeout, hold + 0.4)
+        end
+
+        local start = os.clock()
+        while (os.clock() - start) < timeout do
+            -- 1. Prompt or parent was destroyed (e.g., dirty dishes cleaned, meal picked up, customer seated)
+            if not prompt or not prompt.Parent then
+                break
+            end
+            -- 2. Prompt disabled by game logic (e.g., stove began cooking, customer order accepted)
+            if not prompt.Enabled then
+                break
+            end
+            task.wait(0.04)
+        end
+
+        -- 3. Post-action settling delay to guarantee server replication before moving avatar
+        local settle = math.clamp(Config.PostActionDelay or 0.18, 0.05, 1.0)
+        task.wait(settle)
+        return true
+    end
+
+    -- Execute a single action cleanly with strict task completion and mutex safety
     local function executeAction(prompt, cooldown, statKey)
         if not prompt or not prompt.Parent then return false end
         if State.InFlightTasks[prompt] then return false end
@@ -1945,7 +2111,14 @@ return function(Core)
             -- 2. Trigger prompt
             triggerPrompt(prompt, cooldown or 2.5)
 
-            -- 3. Increment statistics
+            -- 3. STRICT TASK COMPLETION: Wait until task finishes before proceeding
+            if Config.StrictTaskCompletion then
+                waitForTaskCompletion(prompt, 1.6)
+            else
+                task.wait(0.08)
+            end
+
+            -- 4. Increment statistics
             if statKey and State.Stats[statKey] ~= nil then
                 State.Stats[statKey] = State.Stats[statKey] + 1
             end
@@ -1954,11 +2127,10 @@ return function(Core)
         end)
 
         State.InFlightTasks[prompt] = nil
-        task.wait(0.08)
         return success
     end
 
-    -- Execute a workstation cluster cleanly with mutex safety & optional opportunistic nearby batching
+    -- Execute a workstation cluster cleanly with sequential completion at the station
     local function executeCluster(primaryPrompt, cluster, cooldown, statKey, allPrompts)
         if not primaryPrompt or not primaryPrompt.Parent then return false end
         if State.InFlightTasks[primaryPrompt] then return false end
@@ -1970,7 +2142,7 @@ return function(Core)
 
         local success = false
         pcall(function()
-            -- 1. Teleport safely to primary prompt
+            -- 1. Teleport safely to primary prompt once
             if Config.AutoTeleportEnabled then
                 local ok = Restaurant.TeleportTo(primaryPrompt)
                 if ok then
@@ -1978,32 +2150,37 @@ return function(Core)
                 end
             end
 
-            -- 2. Trigger primary prompt
+            -- 2. Trigger primary prompt and ensure it is completed
             triggerPrompt(primaryPrompt, cooldown or 2.5)
+            if Config.StrictTaskCompletion then
+                waitForTaskCompletion(primaryPrompt, 1.6)
+            else
+                task.wait(0.08)
+            end
             if statKey and State.Stats[statKey] ~= nil then
                 State.Stats[statKey] = State.Stats[statKey] + 1
             end
+            State.InFlightTasks[primaryPrompt] = nil
 
-            -- 3. Concurrently trigger cluster prompts
+            -- 3. Complete each cluster prompt sequentially while standing at the station
             for _, prompt in ipairs(cluster) do
-                if prompt and prompt.Parent and prompt.Enabled then
-                    task.spawn(function()
-                        pcall(function()
-                            triggerPrompt(prompt, cooldown or 2.5)
-                            if statKey and State.Stats[statKey] ~= nil then
-                                State.Stats[statKey] = State.Stats[statKey] + 1
-                            end
-                        end)
-                        State.InFlightTasks[prompt] = nil
-                    end)
-                else
-                    State.InFlightTasks[prompt] = nil
+                if prompt and prompt.Parent and prompt.Enabled and isPromptReady(prompt) then
+                    triggerPrompt(prompt, cooldown or 2.5)
+                    if Config.StrictTaskCompletion then
+                        waitForTaskCompletion(prompt, 1.6)
+                    else
+                        task.wait(0.08)
+                    end
+                    if statKey and State.Stats[statKey] ~= nil then
+                        State.Stats[statKey] = State.Stats[statKey] + 1
+                    end
                 end
+                State.InFlightTasks[prompt] = nil
             end
 
             -- 4. Opportunistic cross-category batching for ready prompts within 14 studs
             local primaryPos = getTargetPosition(primaryPrompt)
-            if primaryPos and allPrompts then
+            if primaryPos and allPrompts and Config.RemotePromptBatching then
                 Restaurant.TriggerOpportunisticNearby(primaryPos, allPrompts, 14)
             end
 
@@ -2011,7 +2188,9 @@ return function(Core)
         end)
 
         State.InFlightTasks[primaryPrompt] = nil
-        task.wait(0.08)
+        for _, p in ipairs(cluster) do
+            State.InFlightTasks[p] = nil
+        end
         return success
     end
 
@@ -2143,10 +2322,18 @@ return function(Core)
             for _, p in ipairs(prompts.Buy) do
                 local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
                 local isStove = text:find("stove") or text:find("oven") or text:find("grill")
-                local isTable = text:find("table") or text:find("chair") or text:find("seat")
+                local isTable = text:find("table") and not text:find("chair")
+                local isChair = text:find("chair") or text:find("seat") or text:find("stool") or text:find("booth") or text:find("bench")
                 local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
+                local isFurniture = text:find("furniture") or text:find("decor") or text:find("shelf") or text:find("plant") or text:find("light")
 
-                local shouldBuy = (Config.AutoBuyStoves and isStove) or (Config.AutoBuyTables and isTable) or (Config.AutoBuyAppliances and isAppliance) or (not isStove and not isTable and not isAppliance)
+                local shouldBuy = (Config.AutoBuyStoves and isStove)
+                               or (Config.AutoBuyTables and isTable)
+                               or (Config.AutoBuyChairs and isChair)
+                               or (Config.AutoBuyAppliances and isAppliance)
+                               or (Config.AutoBuyFurniture and isFurniture)
+                               or (not isStove and not isTable and not isChair and not isAppliance and not isFurniture)
+
                 if shouldBuy then
                     local ok = executeAction(p, 4.0, "ItemsPurchased")
                     if ok then return true end
@@ -2167,10 +2354,19 @@ return function(Core)
                     if (bText:find("buy") or bText:find("purchase") or bName:find("buy") or bName:find("purchase")) and not bText:find("robux") then
                         local combined = (bText .. " " .. bName .. " " .. pName .. " " .. gpName):lower()
                         local isStove = combined:find("stove") or combined:find("oven") or combined:find("grill")
-                        local isTable = combined:find("table") or combined:find("chair")
+                        local isTable = combined:find("table") and not combined:find("chair")
+                        local isChair = combined:find("chair") or combined:find("seat") or combined:find("stool") or combined:find("booth") or combined:find("bench")
                         local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge")
+                        local isFurniture = combined:find("furniture") or combined:find("decor") or combined:find("plant") or combined:find("light")
 
-                        if (Config.AutoBuyStoves and isStove) or (Config.AutoBuyTables and isTable) or (Config.AutoBuyAppliances and isAppliance) or (not isStove and not isTable and not isAppliance) then
+                        local shouldBuy = (Config.AutoBuyStoves and isStove)
+                                       or (Config.AutoBuyTables and isTable)
+                                       or (Config.AutoBuyChairs and isChair)
+                                       or (Config.AutoBuyAppliances and isAppliance)
+                                       or (Config.AutoBuyFurniture and isFurniture)
+                                       or (not isStove and not isTable and not isChair and not isAppliance and not isFurniture)
+
+                        if shouldBuy then
                             pcall(function()
                                 if type(firesignal) == "function" and btn.Activated then
                                     firesignal(btn.Activated)
@@ -2179,6 +2375,7 @@ return function(Core)
                                 end
                             end)
                             State.Stats.ItemsPurchased = State.Stats.ItemsPurchased + 1
+                            task.wait(Config.PostActionDelay or 0.2)
                             return true
                         end
                     end
@@ -2193,14 +2390,30 @@ return function(Core)
     function Restaurant.HandleAutoPlace()
         if not Config.AutoPlaceEnabled then return false end
         local now = os.clock()
-        if now - lastPlaceCheck < 2.0 then return false end
+        if now - lastPlaceCheck < 1.8 then return false end
         lastPlaceCheck = now
 
         -- 1. Check in-world "Place" / "Build" prompts on player's plot
         local prompts = Restaurant.ScanPrompts()
         if #prompts.Place > 0 then
-            local ok = executeAction(prompts.Place[1], 3.0, "ItemsPlaced")
-            if ok then return true end
+            for _, p in ipairs(prompts.Place) do
+                if isPromptReady(p) and not State.InFlightTasks[p] then
+                    local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
+                    local isTable = text:find("table")
+                    local isChair = text:find("chair") or text:find("seat")
+                    local isFurniture = text:find("furniture") or text:find("decor")
+
+                    local shouldPlace = (Config.AutoPlaceTables and isTable)
+                                     or (Config.AutoPlaceChairs and isChair)
+                                     or (Config.AutoPlaceFurniture and isFurniture)
+                                     or (not isTable and not isChair and not isFurniture)
+
+                    if shouldPlace then
+                        local ok = executeAction(p, 3.0, "ItemsPlaced")
+                        if ok then return true end
+                    end
+                end
+            end
         end
 
         -- 2. Check Build / Inventory GUI in PlayerGui for unplaced items
@@ -2214,59 +2427,73 @@ return function(Core)
                     local bName = btn.Name:lower()
                     local pName = (btn.Parent and btn.Parent.Name or ""):lower()
 
-                    if (bText == "place" or bText:find("place") or bName:find("place") or bText == "deploy" or bText == "build") and not bText:find("cancel") and not bName:find("close") then
-                        -- Trigger place button on item
-                        pcall(function()
-                            if type(firesignal) == "function" and btn.Activated then
-                                firesignal(btn.Activated)
-                            elseif btn.Activate then
-                                btn:Activate()
+                    local isPlaceBtn = (bText == "place" or bText:find("place") or bName:find("place") or bText == "deploy" or bText == "build" or bText == "add") and not bText:find("cancel") and not bName:find("close")
+                    if isPlaceBtn then
+                        local combined = (bText .. " " .. bName .. " " .. pName):lower()
+                        local isTable = combined:find("table")
+                        local isChair = combined:find("chair") or combined:find("seat")
+                        local isFurniture = combined:find("furniture") or combined:find("decor")
+
+                        local shouldPlace = (Config.AutoPlaceTables and isTable)
+                                         or (Config.AutoPlaceChairs and isChair)
+                                         or (Config.AutoPlaceFurniture and isFurniture)
+                                         or (not isTable and not isChair and not isFurniture)
+
+                        if shouldPlace then
+                            -- Trigger place button on item
+                            pcall(function()
+                                if type(firesignal) == "function" and btn.Activated then
+                                    firesignal(btn.Activated)
+                                elseif btn.Activate then
+                                    btn:Activate()
+                                end
+                            end)
+
+                            -- Calculate open floor grid coordinate near restaurant center
+                            placeGridIndex = (placeGridIndex + 1) % 48
+                            local ring = math.floor(placeGridIndex / 8) + 1
+                            local angle = (placeGridIndex % 8) * (math.pi / 4)
+                            local dist = ring * 6.5
+                            local targetGridPos = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+                            local safeFloor = Utility.GetGroundPosition(targetGridPos, {char})
+
+                            -- Teleport near position so placement raycasts succeed
+                            if Config.AutoTeleportEnabled and root then
+                                root.CFrame = CFrame.new(safeFloor + Vector3.new(0, 3, 0))
+                                task.wait(0.15)
                             end
-                        end)
 
-                        -- Calculate open floor grid coordinate near restaurant center
-                        placeGridIndex = (placeGridIndex + 1) % 36
-                        local ring = math.floor(placeGridIndex / 8) + 1
-                        local angle = (placeGridIndex % 8) * (math.pi / 4)
-                        local dist = ring * 7
-                        local targetGridPos = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
-                        local safeFloor = Utility.GetGroundPosition(targetGridPos, {char})
-
-                        -- Teleport near position so placement raycasts succeed
-                        if Config.AutoTeleportEnabled and root then
-                            root.CFrame = CFrame.new(safeFloor + Vector3.new(0, 3, 0))
-                            task.wait(0.12)
-                        end
-
-                        -- Check for placement confirm button in UI
-                        for _, confirmBtn in ipairs(pg:GetDescendants()) do
-                            if (confirmBtn:IsA("TextButton") or confirmBtn:IsA("ImageButton")) and confirmBtn.Visible then
-                                local cText = (confirmBtn:IsA("TextButton") and confirmBtn.Text or ""):lower()
-                                local cName = confirmBtn.Name:lower()
-                                if cText == "confirm" or cText == "✓" or cText:find("confirm") or cName:find("confirm") then
-                                    pcall(function()
-                                        if type(firesignal) == "function" and confirmBtn.Activated then
-                                            firesignal(confirmBtn.Activated)
-                                        elseif confirmBtn.Activate then
-                                            confirmBtn:Activate()
-                                        end
-                                    end)
-                                    break
+                            -- Check for placement confirm button in UI
+                            for _, confirmBtn in ipairs(pg:GetDescendants()) do
+                                if (confirmBtn:IsA("TextButton") or confirmBtn:IsA("ImageButton")) and confirmBtn.Visible then
+                                    local cText = (confirmBtn:IsA("TextButton") and confirmBtn.Text or ""):lower()
+                                    local cName = confirmBtn.Name:lower()
+                                    if cText == "confirm" or cText == "✓" or cText:find("confirm") or cName:find("confirm") or cText == "place" then
+                                        pcall(function()
+                                            if type(firesignal) == "function" and confirmBtn.Activated then
+                                                firesignal(confirmBtn.Activated)
+                                            elseif confirmBtn.Activate then
+                                                confirmBtn:Activate()
+                                            end
+                                        end)
+                                        break
+                                    end
                                 end
                             end
-                        end
 
-                        -- Check ReplicatedStorage placement remote
-                        local rs = game:GetService("ReplicatedStorage")
-                        local placeRemote = rs:FindFirstChild("PlaceItem", true) or rs:FindFirstChild("PlaceObject", true) or rs:FindFirstChild("PlaceFurniture", true) or rs:FindFirstChild("BuildItem", true)
-                        if placeRemote and placeRemote:IsA("RemoteEvent") then
-                            pcall(function()
-                                placeRemote:FireServer(bName, CFrame.new(safeFloor))
-                            end)
-                        end
+                            -- Check ReplicatedStorage placement remote
+                            local rs = game:GetService("ReplicatedStorage")
+                            local placeRemote = rs:FindFirstChild("PlaceItem", true) or rs:FindFirstChild("PlaceObject", true) or rs:FindFirstChild("PlaceFurniture", true) or rs:FindFirstChild("BuildItem", true)
+                            if placeRemote and placeRemote:IsA("RemoteEvent") then
+                                pcall(function()
+                                    placeRemote:FireServer(bName, CFrame.new(safeFloor))
+                                end)
+                            end
 
-                        State.Stats.ItemsPlaced = State.Stats.ItemsPlaced + 1
-                        return true
+                            State.Stats.ItemsPlaced = State.Stats.ItemsPlaced + 1
+                            task.wait(Config.PostActionDelay or 0.2)
+                            return true
+                        end
                     end
                 end
             end
@@ -2379,15 +2606,12 @@ return function(Core)
         -- Decoupled Worker 2: Parallel Background UI Manager (Quests, Daily Gifts, Staff, UI Catalog)
         task.spawn(function()
             while Core.State.Running and runningLoop do
-                -- Auto-claim finished quests / gifts every 8 seconds
+                -- Auto-claim all quests, gifts, daily rewards, spin wheels, achievements
                 local now = os.clock()
-                if Config.AutoClaimQuestsEnabled and (now - lastQuestCheck > 8) then
+                if (Config.AutoClaimRewardsEnabled or Config.AutoClaimQuestsEnabled) and (now - lastQuestCheck > 4) then
                     lastQuestCheck = now
                     pcall(function()
-                        local claimed = Utility.ClaimQuestsAndGifts()
-                        if claimed and claimed > 0 then
-                            State.Stats.QuestsClaimed = State.Stats.QuestsClaimed + claimed
-                        end
+                        Utility.ClaimAllRewards()
                     end)
                 end
 

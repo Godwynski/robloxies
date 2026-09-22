@@ -302,7 +302,7 @@ return function(Core)
         TabList.Parent = self.TabBar
         TabList.FillDirection = Enum.FillDirection.Horizontal
         TabList.SortOrder = Enum.SortOrder.LayoutOrder
-        TabList.Padding = UDim.new(0, 8)
+        TabList.Padding = UDim.new(0, 6)
 
         self.TabContainer = Instance.new("Frame")
         self.TabContainer.Parent = MainContainer
@@ -324,7 +324,7 @@ return function(Core)
     end
 
     function UILibrary:UpdateTabWidths()
-        local available = self.TabBar.AbsoluteSize.X - (self.TabCount - 1) * 8
+        local available = self.TabBar.AbsoluteSize.X - (self.TabCount - 1) * 6
         local w = math.floor(available / math.max(1, self.TabCount))
         for _, btn in pairs(self.Tabs) do
             btn.Size = UDim2.new(0, w, 1, 0)
@@ -353,7 +353,7 @@ return function(Core)
         btn.Font = Enum.Font.GothamBold
         btn.Text = name
         btn.TextColor3 = Theme.TextSecondary
-        btn.TextSize = 13
+        btn.TextSize = 12
         btn.LayoutOrder = self.TabCount
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 

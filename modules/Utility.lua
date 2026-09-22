@@ -54,36 +54,72 @@ return function(Core)
         end)
     end
 
-    -- Auto-Claim finished quests, achievements, and free playtime gifts from UI
-    function Utility.ClaimQuestsAndGifts()
+    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    function Utility.ClaimAllRewards()
+        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        if not pg then return 0 end
         local claimed = 0
 
-        for _, btn in ipairs(pg:GetDescendants()) do
-            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
-                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
-                local name = btn.Name:lower()
-                local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone buttons
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local name = btn.Name:lower()
+                    local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
 
-                if btn.Visible and (
-                    text == "claim" or text == "collect" or text == "reward" or
-                    name:find("claim", 1, true) or name:find("reward", 1, true) or
-                    parentName:find("quest", 1, true) or parentName:find("gift", 1, true)
-                ) then
-                    pcall(function()
-                        if type(firesignal) == "function" and btn.Activated then
-                            firesignal(btn.Activated)
-                        elseif btn.Activate then
-                            btn:Activate()
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem"
+                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin")
+                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily")
+                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward")
+
+                    if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
+                        if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
+                            pcall(function()
+                                if type(firesignal) == "function" and btn.Activated then
+                                    firesignal(btn.Activated)
+                                elseif btn.Activate then
+                                    btn:Activate()
+                                end
+                                claimed = claimed + 1
+                            end)
                         end
-                        claimed = claimed + 1
-                    end)
+                    end
                 end
             end
         end
+
+        -- 2. Check ReplicatedStorage reward claiming remotes
+        local rs = game:GetService("ReplicatedStorage")
+        local remoteNames = {
+            "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
+            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
+            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin"
+        }
+        for _, rName in ipairs(remoteNames) do
+            local remote = rs:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                pcall(function()
+                    remote:FireServer()
+                    claimed = claimed + 1
+                end)
+            elseif remote and remote:IsA("RemoteFunction") then
+                pcall(function()
+                    remote:InvokeServer()
+                    claimed = claimed + 1
+                end)
+            end
+        end
+
+        if claimed > 0 and Core.State and Core.State.Stats then
+            Core.State.Stats.RewardsClaimed = (Core.State.Stats.RewardsClaimed or 0) + claimed
+            Core.State.Stats.QuestsClaimed = (Core.State.Stats.QuestsClaimed or 0) + claimed
+        end
+
         return claimed
     end
+    Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
 
     -- Redeem known active promotional codes automatically
     function Utility.RedeemKnownCodes()

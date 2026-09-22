@@ -71,10 +71,12 @@ Core.Config = loadModule("modules.Config")(Core)
 Core.State = loadModule("modules.State")(Core)
 Core.Utility = loadModule("modules.Utility")(Core)
 
--- 3. Load UI Director & Build Restaurant Tab First
+-- 3. Load UI Director & Build Tabs
 Core.UI = loadModule("modules.UI")(Core)
 Core.UI.Init()
 Core.UI.BuildRestaurantTab()
+Core.UI.BuildBuildTab()
+Core.UI.BuildAutomationTab()
 
 -- 4. Load Automation & Movement Modules
 Core.Restaurant = loadModule("modules.Restaurant")(Core)
