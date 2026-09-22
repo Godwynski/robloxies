@@ -56,8 +56,19 @@ return function(Core)
         AutoServeEnabled = false,
         AutoCleanEnabled = false,
         AutoCollectCashEnabled = false,
+        AutoFarmEnabled = false,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
+
+        -- Teleport & Navigation
+        AutoTeleportEnabled = true,
+        TeleportDelay = 0.15,
+        PlotScopingEnabled = true,
+        PreventSitting = true,
+
+        -- AFK & Performance
+        AntiAFKEnabled = true,
+        GPUSaverEnabled = false,
 
         -- Movement Physics
         WalkSpeedEnabled = false,
@@ -138,6 +149,9 @@ end)()(Core)
 Core.Utility = (function()
 return function(Core)
     local Utility = {}
+    local Services = Core.Services
+    local LocalPlayer = Services.Players.LocalPlayer
+    local Config = Core.Config
 
     function Utility.RegisterConnection(conn)
         table.insert(Core.State.ActiveConnections, conn)
@@ -159,11 +173,58 @@ return function(Core)
         end
     end
 
+    -- Downward raycasting helper to safely snap to the floor surface without clipping
+    function Utility.GetGroundPosition(targetPos, ignoreList)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        local list = ignoreList or {}
+        if LocalPlayer and LocalPlayer.Character then
+            table.insert(list, LocalPlayer.Character)
+        end
+        raycastParams.FilterDescendantsInstances = list
+        raycastParams.IgnoreWater = true
+
+        -- Cast downward from 6 studs above target
+        local origin = targetPos + Vector3.new(0, 6, 0)
+        local direction = Vector3.new(0, -30, 0)
+        local result = workspace:Raycast(origin, direction, raycastParams)
+
+        if result and result.Position then
+            return result.Position + Vector3.new(0, 3, 0)
+        end
+        return targetPos + Vector3.new(0, 2.5, 0)
+    end
+
+    -- GPU Saver / 3D Rendering Toggle
+    function Utility.SetGPUSaver(enabled)
+        pcall(function()
+            Services.RunService:Set3dRenderingEnabled(not enabled)
+        end)
+    end
+
+    -- Setup Anti-AFK Listener
+    local VirtualUser = game:GetService("VirtualUser")
+    if LocalPlayer then
+        Utility.RegisterConnection(LocalPlayer.Idled:Connect(function()
+            if Config.AntiAFKEnabled then
+                pcall(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0, 0))
+                end)
+            end
+        end))
+    end
+
     function Utility.Terminate()
         local State = Core.State
         State.Running = false
         _G.__Movement_Running = false
         _G.__Restaurant_Running = false
+
+        -- Restore 3D rendering in case GPU saver was active
+        pcall(function()
+            Services.RunService:Set3dRenderingEnabled(true)
+        end)
 
         -- Disconnect all event connections
         for _, conn in ipairs(State.ActiveConnections) do
@@ -201,6 +262,7 @@ Core.UI = (function()
 return function(Core)
     local UI = {}
     local Config = Core.Config
+    local Utility = Core.Utility
 
     function UI.Init()
         local UILibrary = (function()
@@ -878,7 +940,8 @@ end)()(Core)
             if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
             local active = Config.AutoSeatEnabled or Config.AutoOrderEnabled or Config.AutoCookEnabled or
                            Config.AutoServeEnabled or Config.AutoCleanEnabled or Config.AutoCollectCashEnabled or
-                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoFarmEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
+                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             if active then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
@@ -914,31 +977,65 @@ end)()(Core)
                 Config.AutoCleanEnabled = val
                 UI.UpdateFloatStatus()
             end)
-            RestTab:AddToggle("Auto-Collect Cash / Tips", Config.AutoCollectCashEnabled, function(val)
+            RestTab:AddToggle("Auto-Collect Cash & Tips", Config.AutoCollectCashEnabled, function(val)
                 Config.AutoCollectCashEnabled = val
                 UI.UpdateFloatStatus()
             end)
+            RestTab:AddToggle("Auto-Harvest Farm & Ranch", Config.AutoFarmEnabled, function(val)
+                Config.AutoFarmEnabled = val
+                UI.UpdateFloatStatus()
+            end)
 
-            RestTab:AddSection("INTERACTIONS")
+            RestTab:AddSection("TELEPORTATION & NAVIGATION")
+            RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
+                Config.AutoTeleportEnabled = val
+            end)
+            RestTab:AddSlider("Station Delay (x10 ms)", math.floor((Config.TeleportDelay or 0.15) * 100), 5, 100, function(val)
+                Config.TeleportDelay = val / 100
+            end)
+            RestTab:AddToggle("Scope to Own Plot Only", Config.PlotScopingEnabled, function(val)
+                Config.PlotScopingEnabled = val
+            end)
+            RestTab:AddToggle("Prevent Sitting in Chairs", Config.PreventSitting, function(val)
+                Config.PreventSitting = val
+            end)
+
+            RestTab:AddSection("INTERACTIONS & AFK")
             RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
                 Config.InstantPromptEnabled = val
             end)
-            RestTab:AddSlider("Action Loop Speed (s)", math.floor(Config.ActionDelay * 10), 1, 20, function(val)
+            RestTab:AddToggle("Anti-AFK Disconnect Guard", Config.AntiAFKEnabled, function(val)
+                Config.AntiAFKEnabled = val
+            end)
+            RestTab:AddToggle("GPU Saver / Performance Mode", Config.GPUSaverEnabled, function(val)
+                Config.GPUSaverEnabled = val
+                Utility.SetGPUSaver(val)
+            end)
+            RestTab:AddSlider("Cycle Speed (s)", math.floor(Config.ActionDelay * 10), 1, 30, function(val)
                 Config.ActionDelay = val / 10
             end)
 
             RestTab:AddSection("QUICK ACTIONS")
-            RestTab:AddButton("Trigger All Nearby Prompts", function(btn)
+            RestTab:AddButton("Trigger All Workstations Now", function(btn)
                 if Core.Restaurant then
+                    pcall(Core.Restaurant.HandleFarming)
+                    pcall(Core.Restaurant.HandleCashCollection)
+                    pcall(Core.Restaurant.HandleCleaning)
                     pcall(Core.Restaurant.HandleSeating)
                     pcall(Core.Restaurant.HandleOrdering)
                     pcall(Core.Restaurant.HandleCooking)
                     pcall(Core.Restaurant.HandleServing)
-                    pcall(Core.Restaurant.HandleCleaning)
-                    pcall(Core.Restaurant.HandleCashCollection)
                     local old = btn.Text
-                    btn.Text = "Triggered!"
+                    btn.Text = "Dispatched!"
                     task.delay(1.2, function() btn.Text = old end)
+                end
+            end)
+            RestTab:AddButton("Teleport to Restaurant Center", function(btn)
+                if Core.Restaurant then
+                    local plot = Core.Restaurant.GetPlayerPlot()
+                    if plot and plot ~= workspace then
+                        Core.Restaurant.TeleportTo(plot)
+                    end
                 end
             end)
         end
@@ -989,10 +1086,142 @@ return function(Core)
     local Services = Core.Services
     local LocalPlayer = Services.Players.LocalPlayer
 
-    -- Helper: Fire or trigger a ProximityPrompt safely
+    -- Cached reference to player's restaurant/farm plot
+    local cachedPlot = nil
+    local lastPlotSearch = 0
+
+    -- Helper: Locate the LocalPlayer's designated restaurant/farm plot
+    function Restaurant.GetPlayerPlot()
+        if not Config.PlotScopingEnabled then return workspace end
+        local now = os.clock()
+        if cachedPlot and cachedPlot.Parent and (now - lastPlotSearch < 10) then
+            return cachedPlot
+        end
+        lastPlotSearch = now
+
+        local playerName = LocalPlayer.Name:lower()
+        local displayName = LocalPlayer.DisplayName:lower()
+        local userId = tostring(LocalPlayer.UserId)
+
+        -- Search common plot containers
+        local searchContainers = {
+            workspace:FindFirstChild("Plots"),
+            workspace:FindFirstChild("Restaurants"),
+            workspace:FindFirstChild("Tycoons"),
+            workspace:FindFirstChild("Farms"),
+            workspace
+        }
+
+        for _, container in ipairs(searchContainers) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if item:IsA("Model") or item:IsA("Folder") then
+                        -- Check Owner value or attribute
+                        local ownerObj = item:FindFirstChild("Owner") or item:FindFirstChild("Player") or item:FindFirstChild("OwnerId")
+                        if ownerObj then
+                            local val = tostring(ownerObj.Value):lower()
+                            if val == playerName or val == userId or val == displayName then
+                                cachedPlot = item
+                                return item
+                            end
+                        end
+                        if item:GetAttribute("Owner") == LocalPlayer.UserId or tostring(item:GetAttribute("Owner")):lower() == playerName then
+                            cachedPlot = item
+                            return item
+                        end
+
+                        -- Check item name or billboard
+                        local itemName = item.Name:lower()
+                        if itemName:find(playerName, 1, true) or itemName:find(userId, 1, true) then
+                            cachedPlot = item
+                            return item
+                        end
+
+                        for _, desc in ipairs(item:GetDescendants()) do
+                            if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+                                local txt = (desc.Text or ""):lower()
+                                if (txt:find(playerName, 1, true) or txt:find(displayName, 1, true)) and (txt:find("restaurant", 1, true) or txt:find("plot", 1, true) or txt:find("farm", 1, true)) then
+                                    cachedPlot = item
+                                    return item
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        return workspace
+    end
+
+    -- Helper: Extract world position from an instance (Part, Model, or Prompt)
+    local function getTargetPosition(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then
+            return inst.Position
+        elseif inst:IsA("Model") then
+            if inst.PrimaryPart then return inst.PrimaryPart.Position end
+            local cframe = inst:GetPivot()
+            return cframe.Position
+        elseif inst:IsA("ProximityPrompt") then
+            local p = inst.Parent
+            if p and p:IsA("BasePart") then
+                return p.Position
+            elseif p and p:IsA("Model") then
+                return p:GetPivot().Position
+            elseif p and p.Parent and p.Parent:IsA("BasePart") then
+                return p.Parent.Position
+            end
+        end
+        return nil
+    end
+
+    -- Teleport the player safely to a target workstation or station
+    function Restaurant.TeleportTo(targetInstance)
+        local char = LocalPlayer.Character
+        if not char then return false end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum or hum.Health <= 0 then return false end
+
+        local targetPos = getTargetPosition(targetInstance)
+        if not targetPos then return false end
+
+        -- Prevent accidental sitting in customer chairs during teleport
+        if Config.PreventSitting and hum.Sit then
+            hum.Sit = false
+        end
+
+        -- Calculate safe floor position via downward raycasting
+        local safePos = Utility.GetGroundPosition(targetPos, {char})
+
+        -- Face toward the target
+        local lookPos = Vector3.new(targetPos.X, safePos.Y, targetPos.Z)
+        local targetCFrame = CFrame.lookAt(safePos, lookPos)
+
+        -- Perform teleportation
+        root.CFrame = targetCFrame
+
+        -- Zero out residual physics velocity to avoid fling
+        pcall(function()
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end)
+
+        return true
+    end
+
+    -- Safely trigger an in-game ProximityPrompt with enhanced properties
     local function triggerPrompt(prompt)
         if not prompt or not prompt.Parent or not prompt.Enabled then return false end
-        
+
+        -- Ensure prompt properties are optimized for interaction
+        pcall(function()
+            prompt.HoldDuration = 0
+            prompt.RequiresLineOfSight = false
+            prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 32)
+        end)
+
         -- Custom executor fireproximityprompt if supported
         if type(fireproximityprompt) == "function" then
             local ok = pcall(function()
@@ -1001,10 +1230,13 @@ return function(Core)
             if ok then return true end
         end
 
-        -- Fallback: Zero hold duration
+        -- Input began simulation fallback
         pcall(function()
-            prompt.HoldDuration = 0
-            prompt.RequiresLineOfSight = false
+            if prompt.InputHoldBegin then
+                prompt:InputHoldBegin()
+                task.wait(0.05)
+                if prompt.InputHoldEnd then prompt:InputHoldEnd() end
+            end
         end)
         return true
     end
@@ -1016,6 +1248,7 @@ return function(Core)
                 pcall(function()
                     desc.HoldDuration = 0
                     desc.RequiresLineOfSight = false
+                    desc.MaxActivationDistance = math.max(desc.MaxActivationDistance or 10, 32)
                 end)
             end
         end))
@@ -1027,16 +1260,19 @@ return function(Core)
                     if Config.InstantPromptEnabled then
                         desc.HoldDuration = 0
                         desc.RequiresLineOfSight = false
+                        desc.MaxActivationDistance = math.max(desc.MaxActivationDistance or 10, 32)
                     end
                 end)
             end
         end
     end
 
-    -- Scan workspace for matching prompts by action text, name, or object type
-    local function scanAndTrigger(keywords)
-        local count = 0
-        for _, obj in ipairs(workspace:GetDescendants()) do
+    -- Find matching active prompts within the scoped plot
+    local function findMatchingPrompts(keywords)
+        local rootContainer = Restaurant.GetPlayerPlot()
+        local matches = {}
+
+        for _, obj in ipairs(rootContainer:GetDescendants()) do
             if obj:IsA("ProximityPrompt") and obj.Enabled then
                 local action = (obj.ActionText or ""):lower()
                 local name = (obj.ObjectText or obj.Name or ""):lower()
@@ -1045,59 +1281,100 @@ return function(Core)
                 for _, kw in ipairs(keywords) do
                     kw = kw:lower()
                     if action:find(kw, 1, true) or name:find(kw, 1, true) or parentName:find(kw, 1, true) then
-                        triggerPrompt(obj)
-                        count = count + 1
+                        table.insert(matches, obj)
                         break
                     end
                 end
             end
         end
-        return count
+        return matches
+    end
+
+    -- Process a queue of prompts sequentially with teleportation and safety delays
+    local function processPromptQueue(prompts, maxPerCycle)
+        local limit = maxPerCycle or 3
+        local processed = 0
+
+        for _, prompt in ipairs(prompts) do
+            if not Core.State.Running then break end
+            if not prompt or not prompt.Parent or not prompt.Enabled then continue end
+
+            if Config.AutoTeleportEnabled then
+                Restaurant.TeleportTo(prompt)
+                task.wait(math.clamp(Config.TeleportDelay or 0.15, 0.05, 1))
+            end
+
+            triggerPrompt(prompt)
+            processed = processed + 1
+
+            if processed >= limit then break end
+            task.wait(0.08)
+        end
+        return processed
     end
 
     -- Specific Workflow Handlers
     function Restaurant.HandleSeating()
         if not Config.AutoSeatEnabled then return end
-        scanAndTrigger({"seat", "customer", "lead", "table", "chair", "welcome", "host"})
+        local prompts = findMatchingPrompts({"seat", "customer", "lead", "table", "chair", "welcome", "host", "invite"})
+        processPromptQueue(prompts, 2)
     end
 
     function Restaurant.HandleOrdering()
         if not Config.AutoOrderEnabled then return end
-        scanAndTrigger({"order", "take order", "menu", "ask"})
+        local prompts = findMatchingPrompts({"order", "take order", "menu", "ask", "ticket"})
+        processPromptQueue(prompts, 3)
     end
 
     function Restaurant.HandleCooking()
         if not Config.AutoCookEnabled then return end
-        scanAndTrigger({"cook", "prepare", "bake", "fry", "stove", "grill", "oven", "pot", "pan"})
+        local prompts = findMatchingPrompts({"cook", "prepare", "bake", "fry", "stove", "grill", "oven", "pot", "pan", "station", "brew"})
+        processPromptQueue(prompts, 3)
     end
 
     function Restaurant.HandleServing()
         if not Config.AutoServeEnabled then return end
-        scanAndTrigger({"serve", "deliver", "dish", "plate", "food", "tray"})
+        local prompts = findMatchingPrompts({"serve", "deliver", "dish", "plate", "food", "tray", "counter"})
+        processPromptQueue(prompts, 3)
     end
 
     function Restaurant.HandleCleaning()
         if not Config.AutoCleanEnabled then return end
-        scanAndTrigger({"clean", "dirty", "trash", "wash", "clear", "wipe", "sink"})
+        local prompts = findMatchingPrompts({"clean", "dirty", "trash", "wash", "clear", "wipe", "sink", "bus"})
+        processPromptQueue(prompts, 4)
+    end
+
+    function Restaurant.HandleFarming()
+        if not Config.AutoFarmEnabled then return end
+        local prompts = findMatchingPrompts({"harvest", "crop", "plant", "water", "gather", "pick", "egg", "milk", "animal", "feed", "seed", "wheat", "tomato"})
+        processPromptQueue(prompts, 3)
     end
 
     function Restaurant.HandleCashCollection()
         if not Config.AutoCollectCashEnabled then return end
-        -- Check for cash prompts
-        scanAndTrigger({"cash", "coin", "tip", "bill", "pay", "collect", "register", "money"})
+        -- Collect via prompts
+        local prompts = findMatchingPrompts({"cash", "coin", "tip", "bill", "pay", "collect", "register", "money"})
+        processPromptQueue(prompts, 4)
 
-        -- Also check for dropped touch-interest coins / cash parts in workspace
+        -- Collect via dropped touch-interest coins / cash parts in player plot
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if root and Config.AutoCollectCashEnabled then
-            for _, item in ipairs(workspace:GetChildren()) do
-                local name = item.Name:lower()
-                if (name:find("coin") or name:find("cash") or name:find("money") or name:find("tip")) and item:IsA("BasePart") then
-                    pcall(function()
-                        firetouchinterest(root, item, 0)
-                        task.wait()
-                        firetouchinterest(root, item, 1)
-                    end)
+            local container = Restaurant.GetPlayerPlot()
+            for _, item in ipairs(container:GetDescendants()) do
+                if item:IsA("BasePart") then
+                    local name = item.Name:lower()
+                    if (name:find("coin") or name:find("cash") or name:find("money") or name:find("tip")) then
+                        if Config.AutoTeleportEnabled then
+                            Restaurant.TeleportTo(item)
+                            task.wait(0.05)
+                        end
+                        pcall(function()
+                            firetouchinterest(root, item, 0)
+                            task.wait()
+                            firetouchinterest(root, item, 1)
+                        end)
+                    end
                 end
             end
         end
@@ -1113,6 +1390,24 @@ return function(Core)
             while Core.State.Running and runningLoop do
                 local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
 
+                -- Keep chair sit guard active if enabled
+                if Config.PreventSitting and LocalPlayer.Character then
+                    local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Sit then
+                        hum.Sit = false
+                    end
+                end
+
+                -- Run prioritized workflow cycle
+                if Config.AutoFarmEnabled then
+                    pcall(Restaurant.HandleFarming)
+                end
+                if Config.AutoCollectCashEnabled then
+                    pcall(Restaurant.HandleCashCollection)
+                end
+                if Config.AutoCleanEnabled then
+                    pcall(Restaurant.HandleCleaning)
+                end
                 if Config.AutoSeatEnabled then
                     pcall(Restaurant.HandleSeating)
                 end
@@ -1125,12 +1420,6 @@ return function(Core)
                 if Config.AutoServeEnabled then
                     pcall(Restaurant.HandleServing)
                 end
-                if Config.AutoCleanEnabled then
-                    pcall(Restaurant.HandleCleaning)
-                end
-                if Config.AutoCollectCashEnabled then
-                    pcall(Restaurant.HandleCashCollection)
-                end
 
                 task.wait(delayTime)
             end
@@ -1141,11 +1430,12 @@ return function(Core)
     function Restaurant.Init()
         setupPromptHook()
         Restaurant.StartLoop()
-        print("🍽️ Restaurant automation module initialized.")
+        print("🍽️ Run a Restaurant automation module loaded with teleportation & plot scoping.")
     end
 
     function Restaurant.Cleanup()
         runningLoop = false
+        cachedPlot = nil
     end
 
     return Restaurant

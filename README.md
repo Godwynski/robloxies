@@ -35,14 +35,20 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 ## ⚡ Features
 
 ### 🍽️ Restaurant Automation
+- **Teleport to Workstations** — Teleports the character directly to active tasks (tables, stoves, dirty dishes, registers) with floor raycasting and velocity zeroing to prevent fling or clipping.
+- **Own Plot Scoping** — Automatically detects and filters all interactions exclusively to your own restaurant/farm plot.
 - **Auto-Seat Customers** — Automatically detects waiting customers at the entrance or host stand and seats them at vacant tables.
 - **Auto-Take Orders** — Takes orders from seated customers as soon as they are ready.
 - **Auto-Cook Food** — Automatically triggers cooking stations, grills, and ovens to prepare food tickets.
 - **Auto-Serve Dishes** — Delivers cooked meals from counters to waiting tables.
 - **Auto-Clean Tables** — Clears dirty dishes and wipes tables immediately after customers leave.
 - **Auto-Collect Cash & Tips** — Automatically sweeps coins, cash drops, and register tips across the restaurant.
-- **Instant Proximity Prompts** — Removes hold duration (`HoldDuration = 0`) and line-of-sight requirements for lightning-fast interactions.
-- **Configurable Action Loop** — Adjustable loop speed slider to balance throughput and stealth.
+- **Auto-Harvest Farm & Ranch** — Gathers crops (wheat, tomatoes) and animal goods to keep the kitchen supplied with ingredients.
+- **Instant Proximity Prompts** — Removes hold duration (`HoldDuration = 0`), removes line-of-sight requirements, and expands interaction range.
+- **Anti-AFK Disconnect Guard** — Keeps sessions active to prevent Roblox's 20-minute idle disconnects.
+- **Chair Sit Prevention** — Automatically keeps the avatar standing so you never get stuck sitting in customer chairs.
+- **GPU Saver Mode** — Optional 3D render disabler for low-power, multi-hour background farming.
+- **Configurable Action Loop** — Adjustable station delay and cycle speed sliders.
 
 ### 🏃 Integrated Movement
 - **WalkSpeed Override** — Sprint through large restaurants with smooth speed overrides and automatic restore.

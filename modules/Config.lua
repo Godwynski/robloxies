@@ -7,8 +7,19 @@ return function(Core)
         AutoServeEnabled = false,
         AutoCleanEnabled = false,
         AutoCollectCashEnabled = false,
+        AutoFarmEnabled = false,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
+
+        -- Teleport & Navigation
+        AutoTeleportEnabled = true,
+        TeleportDelay = 0.15,
+        PlotScopingEnabled = true,
+        PreventSitting = true,
+
+        -- AFK & Performance
+        AntiAFKEnabled = true,
+        GPUSaverEnabled = false,
 
         -- Movement Physics
         WalkSpeedEnabled = false,
