@@ -2,56 +2,29 @@ return function(Core)
     local MainLoop = {}
 
     local Config = Core.Config
-    local State = Core.State
     local Utility = Core.Utility
     local Services = Core.Services
-    local EventManager = Core.EventManager
 
     function MainLoop.Init()
-        Services.RunService:BindToRenderStep("PureAutoAimLoop", Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
-
-            local vpSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(0, 0)
-            local mouseLoc = Services.UserInputService:GetMouseLocation()
-            
-            -- FOV center: Screen center when AimOrigin == "Center" or mouse is locked/docked
-            local fovPos = mouseLoc
-            if Config.AimOrigin == "Center" or (mouseLoc.X <= 5 and mouseLoc.Y <= 40 and vpSize.X > 0) then
-                fovPos = vpSize / 2
-            end
-
-            -- Prepare render context to pass to modules
-            local context = {
-                deltaTime = deltaTime,
-                Camera = workspace.CurrentCamera,
-                MouseLocation = mouseLoc,
-                FOVPosition = fovPos,
-                ViewportSize = vpSize
-            }
-
-            EventManager:Fire("OnRender", context)
-            
-            -- Update floating circle status indicator
-            if Core.UI and Core.UI.UpdateFloatStatus then
-                pcall(Core.UI.UpdateFloatStatus)
-            end
-        end)
-
+        -- Keybind handling
         Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
-            
+
+            -- Toggle Menu
             if Config.MenuKey and input.KeyCode == Config.MenuKey then
-                if Core.UI.Window and Core.UI.Window.Library then
+                if Core.UI and Core.UI.Window and Core.UI.Window.Library then
                     local lib = Core.UI.Window.Library
                     if lib.FloatingCircle and lib.FloatingCircle.Visible then
                         lib.FloatingCircle.Visible = false
                         lib.MainContainer.Visible = true
                         lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
                         if lib.Tween then
-                            lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
+                            lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
                         end
                     elseif lib.MainContainer then
                         if lib.MainContainer.Visible then
                             task.spawn(function()
+                                lib.SavedHeight = lib.MainContainer.AbsoluteSize.Y
                                 if lib.Tween then
                                     local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
                                     pcall(function() tw.Completed:Wait() end)
@@ -63,31 +36,43 @@ return function(Core)
                             lib.MainContainer.Visible = true
                             lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
                             if lib.Tween then
-                                lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 520)}, 0.3, Enum.EasingStyle.Back)
+                                lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
                             end
                         end
                     end
                 end
-            elseif Config.AimKey and input.KeyCode == Config.AimKey then
-                Config.AutoAimEnabled = not Config.AutoAimEnabled
-                Core.Drawings.FOVCircle.Visible = Config.AutoAimEnabled
-                local color = Config.AutoAimEnabled and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 200, 50)
-                Utility.AddKillFeedEntry("Auto-Aim: " .. (Config.AutoAimEnabled and "ON" or "OFF"), color)
-                
-                -- Sync the UI button text if it exists
-                if Core.UI.SyncAutoAimButton then
-                    Core.UI.SyncAutoAimButton()
+
+            -- Toggle No-Clip
+            elseif Config.ToggleNoClipKey and input.KeyCode == Config.ToggleNoClipKey then
+                Config.NoClipEnabled = not Config.NoClipEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
                 end
-            elseif Config.NearestTargetKey and input.KeyCode == Config.NearestTargetKey then
-                if Core.Aim and Core.Aim.SnapToNearest then
-                    Core.Aim.SnapToNearest()
+
+            -- Toggle Speed Hack
+            elseif Config.ToggleSpeedKey and input.KeyCode == Config.ToggleSpeedKey then
+                Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+
+            -- Toggle Jump Hack
+            elseif Config.ToggleJumpKey and input.KeyCode == Config.ToggleJumpKey then
+                Config.JumpPowerEnabled = not Config.JumpPowerEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+
+            -- Toggle Infinite Jump
+            elseif Config.ToggleInfJumpKey and input.KeyCode == Config.ToggleInfJumpKey then
+                Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
                 end
             end
-            
-            EventManager:Fire("OnInput", input)
         end))
 
-        print("⚡ Pure Auto-Aim v3.0.0 Loaded (Scalable). RightShift = toggle UI | CapsLock = toggle aim")
+        print("🏃 Movement Utility Loaded. RightShift = toggle UI | N = toggle No-Clip")
     end
 
     return MainLoop

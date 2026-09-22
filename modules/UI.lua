@@ -3,43 +3,37 @@ return function(Core)
     local Config = Core.Config
 
     function UI.Init()
-        -- Load the UI Library
         local UILibrary = require("modules.UILibrary")(Core)
-
         local Theme = UILibrary.Theme or {}
 
         -- Create the main window
-        local Window = UILibrary:CreateWindow("⚡ Pure Auto-Aim v3.0.0 (Premium)")
+        local Window = UILibrary:CreateWindow("🏃 Movement Utility")
         UI.Window = Window
 
-        -- Expose a method to update the floating circle color
+        if UILibrary.FloatIcon then
+            UILibrary.FloatIcon.Text = "🏃"
+        end
+
         function UI.UpdateFloatStatus()
-            if not UILibrary.FloatingCircle.Visible then return end
-            if Config.AutoAimEnabled then
+            if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
+            if Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
                 UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(28, 22, 54)
-            elseif Config.ESPEnabled then
-                UILibrary.FloatStroke.Color = Color3.fromRGB(160, 140, 255)
-                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(34, 28, 66)
             else
                 UILibrary.FloatStroke.Color = Theme.Stroke
                 UILibrary.FloatingCircle.BackgroundColor3 = Theme.ElementIdle
             end
         end
 
-        -- To be called by MainLoop to build the generic settings UI
         function UI.BuildSettingsTab()
             local SettingsTab = Window:AddTab("Settings")
-            SettingsTab:AddSection("SYSTEM FEATURES")
-            SettingsTab:AddToggle("Auto-Respawn", Config.AutoRespawn, function(val) Config.AutoRespawn = val end)
-            SettingsTab:AddToggle("Kill Feed", Config.KillFeedEnabled, function(val) Config.KillFeedEnabled = val end)
-            SettingsTab:AddToggle("Target Info Overlay", Config.TargetInfoEnabled, function(val) Config.TargetInfoEnabled = val end)
-            
             SettingsTab:AddSection("KEYBINDS")
             SettingsTab:AddKeybind("Toggle Menu", Config.MenuKey, function(key) Config.MenuKey = key end)
-            SettingsTab:AddKeybind("Toggle Auto-Aim", Config.AimKey, function(key) Config.AimKey = key end)
-            SettingsTab:AddKeybind("Snap to Nearest Target", Config.NearestTargetKey, function(key) Config.NearestTargetKey = key end)
-            
+            SettingsTab:AddKeybind("Toggle No-Clip", Config.ToggleNoClipKey, function(key) Config.ToggleNoClipKey = key end)
+            SettingsTab:AddKeybind("Toggle Speed Hack", Config.ToggleSpeedKey, function(key) Config.ToggleSpeedKey = key end)
+            SettingsTab:AddKeybind("Toggle Jump Hack", Config.ToggleJumpKey, function(key) Config.ToggleJumpKey = key end)
+            SettingsTab:AddKeybind("Toggle Infinite Jump", Config.ToggleInfJumpKey, function(key) Config.ToggleInfJumpKey = key end)
+
             SettingsTab:AddSection("CONFIG")
             SettingsTab:AddButton("Save Config", function(btn)
                 if Core.Config.Save then

@@ -1,3 +1,190 @@
+-- init.lua
+local repoURL = "https://raw.githubusercontent.com/Godwynski/robloxies/plain/"
+
+-- Terminate previous instance if running
+if _G.__Movement_Running then
+    pcall(function() _G.__Movement_Terminate() end)
+end
+if _G.__PureAutoAim_Running then
+    pcall(function() _G.__PureAutoAim_Terminate() end)
+end
+_G.__Movement_Running = true
+
+-- Clean up any lingering GUI instances
+local hiddenUI = (gethui and gethui()) or game:GetService("CoreGui")
+for _, gui in ipairs(hiddenUI:GetChildren()) do
+    if gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
+        pcall(function() gui:Destroy() end)
+    end
+end
+pcall(function()
+    local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        for _, gui in ipairs(pg:GetChildren()) do
+            if gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
+                pcall(function() gui:Destroy() end)
+            end
+        end
+    end
+end)
+
+print("Initializing Movement Utility...")
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- 1. Construct Core System
+local Core = {
+    Services = {
+        Players = game:GetService("Players"),
+        RunService = game:GetService("RunService"),
+        UserInputService = game:GetService("UserInputService"),
+        CoreGui = game:GetService("CoreGui"),
+    }
+}
+
+-- 2. Load Core Data & Utility
+Core.Config = (function()
+return function(Core)
+    local Config = {
+        -- Movement Physics
+        WalkSpeedEnabled = false,
+        WalkSpeed = 16,
+        JumpPowerEnabled = false,
+        JumpPower = 50,
+        InfiniteJumpEnabled = false,
+        NoClipEnabled = false,
+
+        -- Keybinds
+        MenuKey = Enum.KeyCode.RightShift,
+        ToggleNoClipKey = Enum.KeyCode.N,
+        ToggleSpeedKey = Enum.KeyCode.None,
+        ToggleJumpKey = Enum.KeyCode.None,
+        ToggleInfJumpKey = Enum.KeyCode.None,
+    }
+
+    local HttpService = game:GetService("HttpService")
+    local fileName = "Movement_Config.json"
+
+    function Config:Save()
+        if type(writefile) ~= "function" then return false end
+        local saveTable = {}
+        for k, v in pairs(self) do
+            if type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+                saveTable[k] = v
+            elseif typeof(v) == "EnumItem" then
+                saveTable[k] = {Type = "EnumItem", EnumType = tostring(v.EnumType), Name = v.Name}
+            end
+        end
+        local ok, _ = pcall(function()
+            writefile(fileName, HttpService:JSONEncode(saveTable))
+        end)
+        return ok
+    end
+
+    function Config:Load()
+        if type(readfile) ~= "function" or type(isfile) ~= "function" then return false end
+        local ok, data = pcall(function()
+            if isfile(fileName) then
+                return HttpService:JSONDecode(readfile(fileName))
+            end
+            return nil
+        end)
+        if not ok or type(data) ~= "table" then return false end
+
+        for k, v in pairs(data) do
+            if type(self[k]) ~= "function" then
+                if type(v) == "table" and v.Type == "EnumItem" then
+                    pcall(function()
+                        local enumName = tostring(v.EnumType):gsub("^Enum%.", "")
+                        if Enum[enumName] and Enum[enumName][v.Name] then
+                            self[k] = Enum[enumName][v.Name]
+                        end
+                    end)
+                else
+                    self[k] = v
+                end
+            end
+        end
+        return true
+    end
+
+    return Config
+end
+
+end)()(Core)
+Core.State = (function()
+return function(Core)
+    local State = {
+        ActiveConnections = {},
+        Running = true,
+    }
+    return State
+end
+
+end)()(Core)
+Core.Utility = (function()
+return function(Core)
+    local Utility = {}
+
+    function Utility.RegisterConnection(conn)
+        table.insert(Core.State.ActiveConnections, conn)
+        return conn
+    end
+
+    function Utility.SafeDestroy(obj)
+        if not obj then return end
+        if typeof(obj) == "Instance" then
+            pcall(function() obj:Destroy() end)
+        elseif type(obj) == "table" or type(obj) == "userdata" then
+            pcall(function()
+                if obj.Remove then
+                    obj:Remove()
+                elseif obj.Destroy then
+                    obj:Destroy()
+                end
+            end)
+        end
+    end
+
+    function Utility.Terminate()
+        local State = Core.State
+        State.Running = false
+        _G.__Movement_Running = false
+
+        -- Disconnect all event connections
+        for _, conn in ipairs(State.ActiveConnections) do
+            if conn and typeof(conn) == "RBXScriptConnection" and conn.Connected then
+                pcall(function() conn:Disconnect() end)
+            end
+        end
+        table.clear(State.ActiveConnections)
+
+        -- Restore Movement if active
+        if Core.Movement and Core.Movement.Cleanup then
+            pcall(Core.Movement.Cleanup)
+        end
+
+        -- Clean up UI ScreenGui if active
+        pcall(function()
+            if Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.Interface then
+                Core.UI.Window.Library.Interface:Destroy()
+            end
+        end)
+    end
+
+    return Utility
+end
+
+end)()(Core)
+
+-- 3. Load UI Director
+Core.UI = (function()
+return function(Core)
+    local UI = {}
+    local Config = Core.Config
+
+    function UI.Init()
+        local UILibrary = (function()
 return function(Core)
     local UILibrary = {}
     local Services = Core.Services
@@ -656,3 +843,329 @@ return function(Core)
 
     return UILibrary
 end
+
+end)()(Core)
+        local Theme = UILibrary.Theme or {}
+
+        -- Create the main window
+        local Window = UILibrary:CreateWindow("🏃 Movement Utility")
+        UI.Window = Window
+
+        if UILibrary.FloatIcon then
+            UILibrary.FloatIcon.Text = "🏃"
+        end
+
+        function UI.UpdateFloatStatus()
+            if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
+            if Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled then
+                UILibrary.FloatStroke.Color = Theme.TextAccent
+                UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(28, 22, 54)
+            else
+                UILibrary.FloatStroke.Color = Theme.Stroke
+                UILibrary.FloatingCircle.BackgroundColor3 = Theme.ElementIdle
+            end
+        end
+
+        function UI.BuildSettingsTab()
+            local SettingsTab = Window:AddTab("Settings")
+            SettingsTab:AddSection("KEYBINDS")
+            SettingsTab:AddKeybind("Toggle Menu", Config.MenuKey, function(key) Config.MenuKey = key end)
+            SettingsTab:AddKeybind("Toggle No-Clip", Config.ToggleNoClipKey, function(key) Config.ToggleNoClipKey = key end)
+            SettingsTab:AddKeybind("Toggle Speed Hack", Config.ToggleSpeedKey, function(key) Config.ToggleSpeedKey = key end)
+            SettingsTab:AddKeybind("Toggle Jump Hack", Config.ToggleJumpKey, function(key) Config.ToggleJumpKey = key end)
+            SettingsTab:AddKeybind("Toggle Infinite Jump", Config.ToggleInfJumpKey, function(key) Config.ToggleInfJumpKey = key end)
+
+            SettingsTab:AddSection("CONFIG")
+            SettingsTab:AddButton("Save Config", function(btn)
+                if Core.Config.Save then
+                    local success = Core.Config:Save()
+                    local oldText = btn.Text
+                    btn.Text = success and "Saved!" or "Error Saving"
+                    task.delay(1.5, function() btn.Text = oldText end)
+                end
+            end)
+            SettingsTab:AddButton("Load Config", function(btn)
+                if Core.Config.Load then
+                    local success = Core.Config:Load()
+                    local oldText = btn.Text
+                    btn.Text = success and "Loaded!" or "Error Loading"
+                    task.delay(1.5, function() btn.Text = oldText end)
+                end
+            end)
+        end
+    end
+
+    return UI
+end
+
+end)()(Core)
+Core.UI.Init()
+
+-- 4. Load Movement Module
+Core.Movement = (function()
+return function(Core)
+    local Movement = {}
+
+    local Config = Core.Config
+    local Utility = Core.Utility
+    local LocalPlayer = Core.Services.Players.LocalPlayer
+    local RunService = Core.Services.RunService
+    local UserInputService = Core.Services.UserInputService
+
+    -- Cache original WalkSpeed/JumpPower so we can restore them when disabled (#7)
+    local originalWalkSpeed = nil
+    local originalJumpPower = nil
+    local originalJumpHeight = nil
+
+    -- Cache of parts whose CanCollide was changed by NoClip, for restoration (#6)
+    local noClipCache = setmetatable({}, {__mode = "k"})
+
+    function Movement.Cleanup()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if originalWalkSpeed ~= nil then
+                hum.WalkSpeed = originalWalkSpeed
+                originalWalkSpeed = nil
+            end
+            if originalJumpPower ~= nil then
+                hum.JumpPower = originalJumpPower
+                originalJumpPower = nil
+            end
+            if originalJumpHeight ~= nil then
+                hum.JumpHeight = originalJumpHeight
+                originalJumpHeight = nil
+            end
+        end
+
+        if next(noClipCache) then
+            for part, _ in pairs(noClipCache) do
+                if part and part.Parent then
+                    part.CanCollide = true
+                end
+            end
+            table.clear(noClipCache)
+        end
+    end
+
+    function Movement.Init()
+        if Core.UI and Core.UI.Window then
+            local MoveTab = Core.UI.Window:AddTab("Movement")
+            MoveTab:AddSection("PHYSICS OVERRIDES")
+            
+            MoveTab:AddToggle("Speed Hack", Config.WalkSpeedEnabled, function(val) Config.WalkSpeedEnabled = val end)
+            MoveTab:AddSlider("Walk Speed", Config.WalkSpeed, 16, 200, function(val) Config.WalkSpeed = val end)
+            
+            MoveTab:AddToggle("Jump Hack", Config.JumpPowerEnabled, function(val) Config.JumpPowerEnabled = val end)
+            MoveTab:AddSlider("Jump Power", Config.JumpPower, 50, 300, function(val) Config.JumpPower = val end)
+            
+            MoveTab:AddSection("UTILITY")
+            MoveTab:AddToggle("No-Clip", Config.NoClipEnabled, function(val) Config.NoClipEnabled = val end)
+            MoveTab:AddToggle("Infinite Jump", Config.InfiniteJumpEnabled, function(val) Config.InfiniteJumpEnabled = val end)
+        end
+
+        -- Infinite Jump Logic
+        Utility.RegisterConnection(UserInputService.JumpRequest:Connect(function()
+            if Config.InfiniteJumpEnabled then
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 and not hum.Sit then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+        end))
+
+        -- NoClip Logic (Stepped runs before physics simulation)
+        Utility.RegisterConnection(RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+
+            if Config.NoClipEnabled then
+                -- Disable collision and remember which parts we touched
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        if part.CanCollide then
+                            -- Store original value only once per part
+                            if noClipCache[part] == nil then
+                                noClipCache[part] = true
+                            end
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            else
+                -- Restore CanCollide for all parts we previously disabled (#6)
+                if next(noClipCache) then
+                    for part, _ in pairs(noClipCache) do
+                        if part and part.Parent then
+                            part.CanCollide = true
+                        end
+                    end
+                    table.clear(noClipCache)
+                end
+            end
+        end))
+
+        -- WalkSpeed & JumpPower Enforcement (Heartbeat is better for physics)
+        Utility.RegisterConnection(RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hum then return end
+
+            -- Capture originals once before we override anything (#7)
+            if Config.WalkSpeedEnabled then
+                if originalWalkSpeed == nil then
+                    originalWalkSpeed = hum.WalkSpeed
+                end
+                if hum.WalkSpeed ~= Config.WalkSpeed then
+                    hum.WalkSpeed = Config.WalkSpeed
+                end
+            else
+                -- Restore original WalkSpeed when disabled (#7)
+                if originalWalkSpeed ~= nil then
+                    hum.WalkSpeed = originalWalkSpeed
+                    originalWalkSpeed = nil
+                end
+            end
+
+            if Config.JumpPowerEnabled then
+                if hum.UseJumpPower then
+                    if originalJumpPower == nil then
+                        originalJumpPower = hum.JumpPower
+                    end
+                    if hum.JumpPower ~= Config.JumpPower then
+                        hum.JumpPower = Config.JumpPower
+                    end
+                else
+                    -- Fix #19: use workspace.Gravity instead of hardcoded constant
+                    -- Correct formula: JumpHeight = JumpPower² / (2 * gravity)
+                    local gravity = workspace.Gravity > 0 and workspace.Gravity or 196.2
+                    local targetHeight = (Config.JumpPower * Config.JumpPower) / (2 * gravity)
+                    if originalJumpHeight == nil then
+                        originalJumpHeight = hum.JumpHeight
+                    end
+                    if math.abs(hum.JumpHeight - targetHeight) > 0.1 then
+                        hum.JumpHeight = targetHeight
+                    end
+                end
+            else
+                -- Restore original JumpPower/JumpHeight when disabled (#7)
+                if originalJumpPower ~= nil then
+                    hum.JumpPower = originalJumpPower
+                    originalJumpPower = nil
+                end
+                if originalJumpHeight ~= nil then
+                    hum.JumpHeight = originalJumpHeight
+                    originalJumpHeight = nil
+                end
+            end
+        end))
+
+        -- Reset caches on respawn so originals are re-captured from fresh character
+        Utility.RegisterConnection(LocalPlayer.CharacterAdded:Connect(function()
+            originalWalkSpeed = nil
+            originalJumpPower = nil
+            originalJumpHeight = nil
+            table.clear(noClipCache)
+        end))
+    end
+
+    return Movement
+end
+
+end)()(Core)
+Core.Movement.Init()
+
+-- 5. Build Settings Tab & Select Movement Tab
+Core.UI.BuildSettingsTab()
+if Core.UI and Core.UI.Window then
+    pcall(function() Core.UI.Window:SelectTab("Movement") end)
+end
+
+-- 6. Start Keybind & Event Loop
+Core.MainLoop = (function()
+return function(Core)
+    local MainLoop = {}
+
+    local Config = Core.Config
+    local Utility = Core.Utility
+    local Services = Core.Services
+
+    function MainLoop.Init()
+        -- Keybind handling
+        Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+
+            -- Toggle Menu
+            if Config.MenuKey and input.KeyCode == Config.MenuKey then
+                if Core.UI and Core.UI.Window and Core.UI.Window.Library then
+                    local lib = Core.UI.Window.Library
+                    if lib.FloatingCircle and lib.FloatingCircle.Visible then
+                        lib.FloatingCircle.Visible = false
+                        lib.MainContainer.Visible = true
+                        lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
+                        if lib.Tween then
+                            lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
+                        end
+                    elseif lib.MainContainer then
+                        if lib.MainContainer.Visible then
+                            task.spawn(function()
+                                lib.SavedHeight = lib.MainContainer.AbsoluteSize.Y
+                                if lib.Tween then
+                                    local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
+                                    pcall(function() tw.Completed:Wait() end)
+                                end
+                                lib.MainContainer.Visible = false
+                                lib.FloatingCircle.Visible = true
+                            end)
+                        else
+                            lib.MainContainer.Visible = true
+                            lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
+                            if lib.Tween then
+                                lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
+                            end
+                        end
+                    end
+                end
+
+            -- Toggle No-Clip
+            elseif Config.ToggleNoClipKey and input.KeyCode == Config.ToggleNoClipKey then
+                Config.NoClipEnabled = not Config.NoClipEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+
+            -- Toggle Speed Hack
+            elseif Config.ToggleSpeedKey and input.KeyCode == Config.ToggleSpeedKey then
+                Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+
+            -- Toggle Jump Hack
+            elseif Config.ToggleJumpKey and input.KeyCode == Config.ToggleJumpKey then
+                Config.JumpPowerEnabled = not Config.JumpPowerEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+
+            -- Toggle Infinite Jump
+            elseif Config.ToggleInfJumpKey and input.KeyCode == Config.ToggleInfJumpKey then
+                Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
+                if Core.UI and Core.UI.UpdateFloatStatus then
+                    pcall(Core.UI.UpdateFloatStatus)
+                end
+            end
+        end))
+
+        print("🏃 Movement Utility Loaded. RightShift = toggle UI | N = toggle No-Clip")
+    end
+
+    return MainLoop
+end
+
+end)()(Core)
+Core.MainLoop.Init()
+
+print("Movement Utility loaded successfully!")
+_G.__Movement_Terminate = Core.Utility.Terminate

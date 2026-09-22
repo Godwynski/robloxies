@@ -30,4 +30,5 @@ npm-debug.log
 # Build / Output
 out/
 build/
-dist/
+dist/*
+!dist/main.lua

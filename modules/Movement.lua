@@ -15,6 +15,34 @@ return function(Core)
     -- Cache of parts whose CanCollide was changed by NoClip, for restoration (#6)
     local noClipCache = setmetatable({}, {__mode = "k"})
 
+    function Movement.Cleanup()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if originalWalkSpeed ~= nil then
+                hum.WalkSpeed = originalWalkSpeed
+                originalWalkSpeed = nil
+            end
+            if originalJumpPower ~= nil then
+                hum.JumpPower = originalJumpPower
+                originalJumpPower = nil
+            end
+            if originalJumpHeight ~= nil then
+                hum.JumpHeight = originalJumpHeight
+                originalJumpHeight = nil
+            end
+        end
+
+        if next(noClipCache) then
+            for part, _ in pairs(noClipCache) do
+                if part and part.Parent then
+                    part.CanCollide = true
+                end
+            end
+            table.clear(noClipCache)
+        end
+    end
+
     function Movement.Init()
         if Core.UI and Core.UI.Window then
             local MoveTab = Core.UI.Window:AddTab("Movement")
