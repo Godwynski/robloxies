@@ -49,7 +49,7 @@ local Core = {
 Core.Config = (function()
 return function(Core)
     local Config = {
-        -- Restaurant Automation
+        -- Restaurant Core Automation
         AutoSeatEnabled = false,
         AutoOrderEnabled = false,
         AutoCookEnabled = false,
@@ -57,6 +57,9 @@ return function(Core)
         AutoCleanEnabled = false,
         AutoCollectCashEnabled = false,
         AutoFarmEnabled = false,
+        AutoDeliveryEnabled = false,
+        AutoRestockEnabled = false,
+        AutoClaimQuestsEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
 
@@ -65,6 +68,7 @@ return function(Core)
         TeleportDelay = 0.15,
         PlotScopingEnabled = true,
         PreventSitting = true,
+        MultiFloorSafeRaycast = true,
 
         -- AFK & Performance
         AntiAFKEnabled = true,
@@ -141,6 +145,18 @@ return function(Core)
     local State = {
         ActiveConnections = {},
         Running = true,
+        Stats = {
+            CustomersSeated = 0,
+            OrdersTaken = 0,
+            DishesCooked = 0,
+            DishesServed = 0,
+            TablesCleaned = 0,
+            CashCollected = 0,
+            CropsHarvested = 0,
+            DeliveriesCompleted = 0,
+            StorageRestocked = 0,
+            QuestsClaimed = 0,
+        },
     }
     return State
 end
@@ -173,7 +189,7 @@ return function(Core)
         end
     end
 
-    -- Downward raycasting helper to safely snap to the floor surface without clipping
+    -- Downward raycasting helper with multi-floor height support
     function Utility.GetGroundPosition(targetPos, ignoreList)
         local raycastParams = RaycastParams.new()
         raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -184,9 +200,10 @@ return function(Core)
         raycastParams.FilterDescendantsInstances = list
         raycastParams.IgnoreWater = true
 
-        -- Cast downward from 6 studs above target
-        local origin = targetPos + Vector3.new(0, 6, 0)
-        local direction = Vector3.new(0, -30, 0)
+        -- Multi-floor support: Use tight bounded search (8 studs down) to avoid dropping to lower floors
+        local downDistance = Config.MultiFloorSafeRaycast and -10 or -30
+        local origin = targetPos + Vector3.new(0, 3, 0)
+        local direction = Vector3.new(0, downDistance, 0)
         local result = workspace:Raycast(origin, direction, raycastParams)
 
         if result and result.Position then
@@ -200,6 +217,83 @@ return function(Core)
         pcall(function()
             Services.RunService:Set3dRenderingEnabled(not enabled)
         end)
+    end
+
+    -- Auto-Claim finished quests, achievements, and free playtime gifts from UI
+    function Utility.ClaimQuestsAndGifts()
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return 0 end
+        local claimed = 0
+
+        for _, btn in ipairs(pg:GetDescendants()) do
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                local name = btn.Name:lower()
+                local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                if btn.Visible and (
+                    text == "claim" or text == "collect" or text == "reward" or
+                    name:find("claim", 1, true) or name:find("reward", 1, true) or
+                    parentName:find("quest", 1, true) or parentName:find("gift", 1, true)
+                ) then
+                    pcall(function()
+                        if type(firesignal) == "function" and btn.Activated then
+                            firesignal(btn.Activated)
+                        elseif btn.Activate then
+                            btn:Activate()
+                        end
+                        claimed = claimed + 1
+                    end)
+                end
+            end
+        end
+        return claimed
+    end
+
+    -- Redeem known active promotional codes automatically
+    function Utility.RedeemKnownCodes()
+        local codes = {"FISHIES", "RAR4EVER"}
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return 0 end
+        local redeemed = 0
+
+        for _, desc in ipairs(pg:GetDescendants()) do
+            if desc:IsA("TextBox") then
+                local boxName = desc.Name:lower()
+                local parentName = (desc.Parent and desc.Parent.Name or ""):lower()
+                local ph = (desc.PlaceholderText or ""):lower()
+
+                if boxName:find("code") or parentName:find("code") or ph:find("code") then
+                    local submitBtn = nil
+                    for _, sibling in ipairs(desc.Parent:GetChildren()) do
+                        if (sibling:IsA("TextButton") or sibling:IsA("ImageButton")) and sibling ~= desc then
+                            local sName = sibling.Name:lower()
+                            local sText = (sibling:IsA("TextButton") and sibling.Text or ""):lower()
+                            if sName:find("submit") or sName:find("enter") or sName:find("redeem") or sText:find("submit") or sText:find("redeem") then
+                                submitBtn = sibling
+                                break
+                            end
+                        end
+                    end
+
+                    for _, code in ipairs(codes) do
+                        desc.Text = code
+                        if submitBtn then
+                            pcall(function()
+                                if type(firesignal) == "function" and submitBtn.Activated then
+                                    firesignal(submitBtn.Activated)
+                                elseif submitBtn.Activate then
+                                    submitBtn:Activate()
+                                end
+                            end)
+                        end
+                        redeemed = redeemed + 1
+                        task.wait(0.25)
+                    end
+                end
+            end
+        end
+        return redeemed
     end
 
     -- Setup Anti-AFK Listener
@@ -263,6 +357,7 @@ return function(Core)
     local UI = {}
     local Config = Core.Config
     local Utility = Core.Utility
+    local State = Core.State
 
     function UI.Init()
         local UILibrary = (function()
@@ -666,6 +761,7 @@ return function(Core)
         function TabObj:AddToggle(text, initialState, callback) return self.Library:CreateToggle(self.Frame, text, initialState, callback) end
         function TabObj:AddSlider(text, default, min, max, callback) return self.Library:CreateSlider(self.Frame, text, default, callback, min, max) end
         function TabObj:AddKeybind(text, defaultKey, callback) return self.Library:CreateKeybind(self.Frame, text, defaultKey, callback) end
+        function TabObj:AddLabel(text) return self.Library:CreateLabel(self.Frame, text) end
 
         return TabObj
     end
@@ -698,6 +794,40 @@ return function(Core)
         l.TextColor3 = Theme.TextAccent
         l.Font = Enum.Font.GothamBold; l.TextSize = 11
         l.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    function UILibrary:CreateLabel(parent, text)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 30)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Parent = card
+        lbl.Size = UDim2.new(1, -20, 1, 0)
+        lbl.Position = UDim2.new(0, 10, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamMedium
+        lbl.Text = text
+        lbl.TextColor3 = Theme.TextPrimary
+        lbl.TextSize = 12
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local obj = {
+            Frame = card,
+            Label = lbl,
+            SetText = function(self, newText)
+                lbl.Text = newText
+            end
+        }
+        return obj
     end
 
     function UILibrary:CreateButton(parent, text, onClick)
@@ -940,8 +1070,8 @@ end)()(Core)
             if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
             local active = Config.AutoSeatEnabled or Config.AutoOrderEnabled or Config.AutoCookEnabled or
                            Config.AutoServeEnabled or Config.AutoCleanEnabled or Config.AutoCollectCashEnabled or
-                           Config.AutoFarmEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
-                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or Config.AutoRestockEnabled or
+                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             if active then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
@@ -956,6 +1086,28 @@ end)()(Core)
         function UI.BuildRestaurantTab()
             local RestTab = Window:AddTab("Restaurant")
 
+            -- 1. LIVE PERFORMANCE & PROFIT HUD
+            RestTab:AddSection("LIVE RESTAURANT STATS")
+            local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Quests: 0")
+            local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
+            local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
+            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0")
+
+            -- Sync live stats every second
+            task.spawn(function()
+                while State.Running do
+                    pcall(function()
+                        local s = State.Stats
+                        statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Quests: %d", s.CashCollected, s.QuestsClaimed))
+                        statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
+                        statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
+                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d", s.CropsHarvested, s.StorageRestocked))
+                    end)
+                    task.wait(0.8)
+                end
+            end)
+
+            -- 2. AUTOMATION WORKFLOW
             RestTab:AddSection("AUTOMATION WORKFLOW")
             RestTab:AddToggle("Auto-Seat Customers", Config.AutoSeatEnabled, function(val)
                 Config.AutoSeatEnabled = val
@@ -985,7 +1137,19 @@ end)()(Core)
                 Config.AutoFarmEnabled = val
                 UI.UpdateFloatStatus()
             end)
+            RestTab:AddToggle("Auto-Fulfill Delivery Orders", Config.AutoDeliveryEnabled, function(val)
+                Config.AutoDeliveryEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Restock Kitchen Storage", Config.AutoRestockEnabled, function(val)
+                Config.AutoRestockEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
+                Config.AutoClaimQuestsEnabled = val
+            end)
 
+            -- 3. TELEPORTATION & NAVIGATION
             RestTab:AddSection("TELEPORTATION & NAVIGATION")
             RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
                 Config.AutoTeleportEnabled = val
@@ -999,8 +1163,12 @@ end)()(Core)
             RestTab:AddToggle("Prevent Sitting in Chairs", Config.PreventSitting, function(val)
                 Config.PreventSitting = val
             end)
+            RestTab:AddToggle("Multi-Floor Safe Raycast", Config.MultiFloorSafeRaycast, function(val)
+                Config.MultiFloorSafeRaycast = val
+            end)
 
-            RestTab:AddSection("INTERACTIONS & AFK")
+            -- 4. INTERACTIONS & PERFORMANCE
+            RestTab:AddSection("INTERACTIONS & PERFORMANCE")
             RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
                 Config.InstantPromptEnabled = val
             end)
@@ -1015,10 +1183,25 @@ end)()(Core)
                 Config.ActionDelay = val / 10
             end)
 
+            -- 5. QUICK ACTIONS
             RestTab:AddSection("QUICK ACTIONS")
+            RestTab:AddButton("Redeem Active Promo Codes", function(btn)
+                local count = Utility.RedeemKnownCodes()
+                local old = btn.Text
+                btn.Text = count > 0 and ("Submitted " .. count .. " Codes!") or "Codes Submitted!"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
+            RestTab:AddButton("Claim All Finished Quests & Gifts", function(btn)
+                local claimed = Utility.ClaimQuestsAndGifts()
+                local old = btn.Text
+                btn.Text = claimed > 0 and ("Claimed " .. claimed .. " Rewards!") or "No Rewards Pending"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
             RestTab:AddButton("Trigger All Workstations Now", function(btn)
                 if Core.Restaurant then
+                    pcall(Core.Restaurant.HandleRestock)
                     pcall(Core.Restaurant.HandleFarming)
+                    pcall(Core.Restaurant.HandleDelivery)
                     pcall(Core.Restaurant.HandleCashCollection)
                     pcall(Core.Restaurant.HandleCleaning)
                     pcall(Core.Restaurant.HandleSeating)
@@ -1085,10 +1268,13 @@ return function(Core)
     local Utility = Core.Utility
     local Services = Core.Services
     local LocalPlayer = Services.Players.LocalPlayer
+    local State = Core.State
 
     -- Cached plot reference
     local cachedPlot = nil
     local lastPlotSearch = 0
+    local lastMemoryClean = os.clock()
+    local lastQuestCheck = 0
 
     -- Per-prompt cooldown tracker to prevent rapid-fire animation spam
     local promptCooldowns = setmetatable({}, {__mode = "k"})
@@ -1102,6 +1288,19 @@ return function(Core)
 
     local function setPromptCooldown(prompt, duration)
         promptCooldowns[prompt] = os.clock() + (duration or 2.5)
+    end
+
+    -- Periodic memory cleanup to prevent memory bloat over 12+ hour runs
+    local function cleanExpiredCooldowns()
+        local now = os.clock()
+        if now - lastMemoryClean > 300 then
+            lastMemoryClean = now
+            for p, exp in pairs(promptCooldowns) do
+                if now >= exp or not p or not p.Parent then
+                    promptCooldowns[p] = nil
+                end
+            end
+        end
     end
 
     -- Safe character resolver ensuring humanoid is alive and loaded
@@ -1249,7 +1448,7 @@ return function(Core)
             releaseSeat(hum, char)
         end
 
-        -- Calculate safe floor position via downward raycast
+        -- Calculate safe floor position via downward raycast with multi-floor safety
         local safePos = Utility.GetGroundPosition(targetPos, {char})
 
         -- Orient avatar toward the workstation/customer
@@ -1393,14 +1592,15 @@ return function(Core)
         return processed
     end
 
-    -- Handlers with ActionText priority
+    -- Handlers with ActionText priority & Stats tracking
     function Restaurant.HandleSeating()
         if not Config.AutoSeatEnabled then return end
         local prompts = findMatchingPrompts(
             {"seat", "host", "lead", "welcome", "invite"},
             {"customer", "guest"}
         )
-        processPromptQueue(prompts, 2, 3.5)
+        local count = processPromptQueue(prompts, 2, 3.5)
+        State.Stats.CustomersSeated = State.Stats.CustomersSeated + count
     end
 
     function Restaurant.HandleOrdering()
@@ -1409,7 +1609,8 @@ return function(Core)
             {"order", "take order", "menu", "ask"},
             {"order", "ticket"}
         )
-        processPromptQueue(prompts, 3, 3.0)
+        local count = processPromptQueue(prompts, 3, 3.0)
+        State.Stats.OrdersTaken = State.Stats.OrdersTaken + count
     end
 
     function Restaurant.HandleCooking()
@@ -1418,7 +1619,8 @@ return function(Core)
             {"cook", "prepare", "bake", "fry", "grill", "boil", "brew", "flip", "chop"},
             {"stove", "oven", "grill", "station", "pan", "pot"}
         )
-        processPromptQueue(prompts, 3, 2.5)
+        local count = processPromptQueue(prompts, 3, 2.5)
+        State.Stats.DishesCooked = State.Stats.DishesCooked + count
     end
 
     function Restaurant.HandleServing()
@@ -1427,7 +1629,8 @@ return function(Core)
             {"serve", "deliver", "bring", "give"},
             {"dish", "plate", "food", "tray", "meal"}
         )
-        processPromptQueue(prompts, 3, 2.5)
+        local count = processPromptQueue(prompts, 3, 2.5)
+        State.Stats.DishesServed = State.Stats.DishesServed + count
     end
 
     function Restaurant.HandleCleaning()
@@ -1436,7 +1639,8 @@ return function(Core)
             {"clean", "wash", "wipe", "clear", "bus", "trash", "empty"},
             {"dish", "dishes", "plate", "table", "tray", "sink"}
         )
-        processPromptQueue(prompts, 4, 3.0)
+        local count = processPromptQueue(prompts, 4, 3.0)
+        State.Stats.TablesCleaned = State.Stats.TablesCleaned + count
     end
 
     function Restaurant.HandleFarming()
@@ -1445,7 +1649,28 @@ return function(Core)
             {"harvest", "plant", "water", "gather", "pick", "shear", "milk", "feed", "collect"},
             {"crop", "wheat", "tomato", "pumpkin", "cow", "chicken", "tree", "seed", "plant", "animal", "egg"}
         )
-        processPromptQueue(prompts, 3, 3.0)
+        local count = processPromptQueue(prompts, 3, 3.0)
+        State.Stats.CropsHarvested = State.Stats.CropsHarvested + count
+    end
+
+    function Restaurant.HandleDelivery()
+        if not Config.AutoDeliveryEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"deliver", "package", "pack", "load", "ship", "fulfill"},
+            {"delivery", "box", "takeout", "scooter", "bike", "order", "station"}
+        )
+        local count = processPromptQueue(prompts, 2, 4.0)
+        State.Stats.DeliveriesCompleted = State.Stats.DeliveriesCompleted + count
+    end
+
+    function Restaurant.HandleRestock()
+        if not Config.AutoRestockEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"deposit", "restock", "store", "refill", "put", "stock"},
+            {"fridge", "cooler", "pantry", "storage", "shelf", "crate"}
+        )
+        local count = processPromptQueue(prompts, 2, 4.0)
+        State.Stats.StorageRestocked = State.Stats.StorageRestocked + count
     end
 
     function Restaurant.HandleCashCollection()
@@ -1455,7 +1680,8 @@ return function(Core)
             {"collect", "take", "claim", "withdraw", "empty"},
             {"cash", "coin", "tip", "tips", "bill", "money", "register"}
         )
-        processPromptQueue(prompts, 3, 4.0)
+        local count = processPromptQueue(prompts, 3, 4.0)
+        State.Stats.CashCollected = State.Stats.CashCollected + count
 
         -- Dropped physical coins / cash parts
         local char, root = getAliveCharacter()
@@ -1486,9 +1712,10 @@ return function(Core)
                 end
             end
         end
+        State.Stats.CashCollected = State.Stats.CashCollected + coinsCollected
     end
 
-    -- Main automation loop with strict priority order
+    -- Main automation loop with strict priority order & memory safety
     local runningLoop = false
     function Restaurant.StartLoop()
         if runningLoop then return end
@@ -1498,39 +1725,62 @@ return function(Core)
             while Core.State.Running and runningLoop do
                 local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
 
+                -- Run memory sanitation
+                cleanExpiredCooldowns()
+
+                -- Check and auto-claim finished quests / gifts every 10 seconds
+                local now = os.clock()
+                if Config.AutoClaimQuestsEnabled and (now - lastQuestCheck > 10) then
+                    lastQuestCheck = now
+                    local claimed = Utility.ClaimQuestsAndGifts()
+                    if claimed and claimed > 0 then
+                        State.Stats.QuestsClaimed = State.Stats.QuestsClaimed + claimed
+                    end
+                end
+
                 local char, _, hum = getAliveCharacter()
                 if char and hum and hum.Health > 0 then
-                    -- 1. Harvest farm goods (keeps kitchen supplied)
+                    -- 1. Restock fridge/storage so chefs have ingredients
+                    if Config.AutoRestockEnabled then
+                        pcall(Restaurant.HandleRestock)
+                    end
+
+                    -- 2. Harvest farm goods (keeps kitchen supplied)
                     if Config.AutoFarmEnabled then
                         pcall(Restaurant.HandleFarming)
                     end
 
-                    -- 2. Collect cash/tips (frees registers/tables)
+                    -- 3. Fulfill high-value delivery orders
+                    if Config.AutoDeliveryEnabled then
+                        pcall(Restaurant.HandleDelivery)
+                    end
+
+                    -- 4. Collect cash/tips (frees registers & tables)
                     if Config.AutoCollectCashEnabled then
                         pcall(Restaurant.HandleCashCollection)
                     end
 
-                    -- 3. Clean tables (frees seats for new guests)
+                    -- 5. Clean tables (frees seats for new guests)
                     if Config.AutoCleanEnabled then
                         pcall(Restaurant.HandleCleaning)
                     end
 
-                    -- 4. Seat waiting customers (now that tables are clear)
+                    -- 6. Seat waiting customers (now that tables are clear)
                     if Config.AutoSeatEnabled then
                         pcall(Restaurant.HandleSeating)
                     end
 
-                    -- 5. Take customer orders
+                    -- 7. Take customer orders
                     if Config.AutoOrderEnabled then
                         pcall(Restaurant.HandleOrdering)
                     end
 
-                    -- 6. Cook food at stations
+                    -- 8. Cook food at stations
                     if Config.AutoCookEnabled then
                         pcall(Restaurant.HandleCooking)
                     end
 
-                    -- 7. Serve prepared dishes
+                    -- 9. Serve prepared dishes
                     if Config.AutoServeEnabled then
                         pcall(Restaurant.HandleServing)
                     end
@@ -1545,7 +1795,7 @@ return function(Core)
     function Restaurant.Init()
         setupPromptHook()
         Restaurant.StartLoop()
-        print("🍽️ Run a Restaurant automation loaded: debounce, seat safety, and plot scoping active.")
+        print("🍽️ Run a Restaurant full economic empire automation loaded.")
     end
 
     function Restaurant.Cleanup()

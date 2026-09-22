@@ -24,7 +24,7 @@ return function(Core)
         end
     end
 
-    -- Downward raycasting helper to safely snap to the floor surface without clipping
+    -- Downward raycasting helper with multi-floor height support
     function Utility.GetGroundPosition(targetPos, ignoreList)
         local raycastParams = RaycastParams.new()
         raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -35,9 +35,10 @@ return function(Core)
         raycastParams.FilterDescendantsInstances = list
         raycastParams.IgnoreWater = true
 
-        -- Cast downward from 6 studs above target
-        local origin = targetPos + Vector3.new(0, 6, 0)
-        local direction = Vector3.new(0, -30, 0)
+        -- Multi-floor support: Use tight bounded search (8 studs down) to avoid dropping to lower floors
+        local downDistance = Config.MultiFloorSafeRaycast and -10 or -30
+        local origin = targetPos + Vector3.new(0, 3, 0)
+        local direction = Vector3.new(0, downDistance, 0)
         local result = workspace:Raycast(origin, direction, raycastParams)
 
         if result and result.Position then
@@ -51,6 +52,83 @@ return function(Core)
         pcall(function()
             Services.RunService:Set3dRenderingEnabled(not enabled)
         end)
+    end
+
+    -- Auto-Claim finished quests, achievements, and free playtime gifts from UI
+    function Utility.ClaimQuestsAndGifts()
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return 0 end
+        local claimed = 0
+
+        for _, btn in ipairs(pg:GetDescendants()) do
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                local name = btn.Name:lower()
+                local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                if btn.Visible and (
+                    text == "claim" or text == "collect" or text == "reward" or
+                    name:find("claim", 1, true) or name:find("reward", 1, true) or
+                    parentName:find("quest", 1, true) or parentName:find("gift", 1, true)
+                ) then
+                    pcall(function()
+                        if type(firesignal) == "function" and btn.Activated then
+                            firesignal(btn.Activated)
+                        elseif btn.Activate then
+                            btn:Activate()
+                        end
+                        claimed = claimed + 1
+                    end)
+                end
+            end
+        end
+        return claimed
+    end
+
+    -- Redeem known active promotional codes automatically
+    function Utility.RedeemKnownCodes()
+        local codes = {"FISHIES", "RAR4EVER"}
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return 0 end
+        local redeemed = 0
+
+        for _, desc in ipairs(pg:GetDescendants()) do
+            if desc:IsA("TextBox") then
+                local boxName = desc.Name:lower()
+                local parentName = (desc.Parent and desc.Parent.Name or ""):lower()
+                local ph = (desc.PlaceholderText or ""):lower()
+
+                if boxName:find("code") or parentName:find("code") or ph:find("code") then
+                    local submitBtn = nil
+                    for _, sibling in ipairs(desc.Parent:GetChildren()) do
+                        if (sibling:IsA("TextButton") or sibling:IsA("ImageButton")) and sibling ~= desc then
+                            local sName = sibling.Name:lower()
+                            local sText = (sibling:IsA("TextButton") and sibling.Text or ""):lower()
+                            if sName:find("submit") or sName:find("enter") or sName:find("redeem") or sText:find("submit") or sText:find("redeem") then
+                                submitBtn = sibling
+                                break
+                            end
+                        end
+                    end
+
+                    for _, code in ipairs(codes) do
+                        desc.Text = code
+                        if submitBtn then
+                            pcall(function()
+                                if type(firesignal) == "function" and submitBtn.Activated then
+                                    firesignal(submitBtn.Activated)
+                                elseif submitBtn.Activate then
+                                    submitBtn:Activate()
+                                end
+                            end)
+                        end
+                        redeemed = redeemed + 1
+                        task.wait(0.25)
+                    end
+                end
+            end
+        end
+        return redeemed
     end
 
     -- Setup Anti-AFK Listener

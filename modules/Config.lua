@@ -1,6 +1,6 @@
 return function(Core)
     local Config = {
-        -- Restaurant Automation
+        -- Restaurant Core Automation
         AutoSeatEnabled = false,
         AutoOrderEnabled = false,
         AutoCookEnabled = false,
@@ -8,6 +8,9 @@ return function(Core)
         AutoCleanEnabled = false,
         AutoCollectCashEnabled = false,
         AutoFarmEnabled = false,
+        AutoDeliveryEnabled = false,
+        AutoRestockEnabled = false,
+        AutoClaimQuestsEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
 
@@ -16,6 +19,7 @@ return function(Core)
         TeleportDelay = 0.15,
         PlotScopingEnabled = true,
         PreventSitting = true,
+        MultiFloorSafeRaycast = true,
 
         -- AFK & Performance
         AntiAFKEnabled = true,

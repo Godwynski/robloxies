@@ -398,6 +398,7 @@ return function(Core)
         function TabObj:AddToggle(text, initialState, callback) return self.Library:CreateToggle(self.Frame, text, initialState, callback) end
         function TabObj:AddSlider(text, default, min, max, callback) return self.Library:CreateSlider(self.Frame, text, default, callback, min, max) end
         function TabObj:AddKeybind(text, defaultKey, callback) return self.Library:CreateKeybind(self.Frame, text, defaultKey, callback) end
+        function TabObj:AddLabel(text) return self.Library:CreateLabel(self.Frame, text) end
 
         return TabObj
     end
@@ -430,6 +431,40 @@ return function(Core)
         l.TextColor3 = Theme.TextAccent
         l.Font = Enum.Font.GothamBold; l.TextSize = 11
         l.TextXAlignment = Enum.TextXAlignment.Left
+    end
+
+    function UILibrary:CreateLabel(parent, text)
+        local card = Instance.new("Frame")
+        card.Parent = parent
+        card.Size = UDim2.new(0.92, 0, 0, 30)
+        card.BackgroundColor3 = Theme.ElementIdle
+        card.LayoutOrder = NextOrder(parent)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Parent = card
+        stroke.Color = Theme.Stroke
+        stroke.Thickness = 1
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Parent = card
+        lbl.Size = UDim2.new(1, -20, 1, 0)
+        lbl.Position = UDim2.new(0, 10, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamMedium
+        lbl.Text = text
+        lbl.TextColor3 = Theme.TextPrimary
+        lbl.TextSize = 12
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+        local obj = {
+            Frame = card,
+            Label = lbl,
+            SetText = function(self, newText)
+                lbl.Text = newText
+            end
+        }
+        return obj
     end
 
     function UILibrary:CreateButton(parent, text, onClick)

@@ -2,6 +2,7 @@ return function(Core)
     local UI = {}
     local Config = Core.Config
     local Utility = Core.Utility
+    local State = Core.State
 
     function UI.Init()
         local UILibrary = require("modules.UILibrary")(Core)
@@ -19,8 +20,8 @@ return function(Core)
             if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
             local active = Config.AutoSeatEnabled or Config.AutoOrderEnabled or Config.AutoCookEnabled or
                            Config.AutoServeEnabled or Config.AutoCleanEnabled or Config.AutoCollectCashEnabled or
-                           Config.AutoFarmEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
-                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or Config.AutoRestockEnabled or
+                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             if active then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
@@ -35,6 +36,28 @@ return function(Core)
         function UI.BuildRestaurantTab()
             local RestTab = Window:AddTab("Restaurant")
 
+            -- 1. LIVE PERFORMANCE & PROFIT HUD
+            RestTab:AddSection("LIVE RESTAURANT STATS")
+            local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Quests: 0")
+            local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
+            local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
+            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0")
+
+            -- Sync live stats every second
+            task.spawn(function()
+                while State.Running do
+                    pcall(function()
+                        local s = State.Stats
+                        statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Quests: %d", s.CashCollected, s.QuestsClaimed))
+                        statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
+                        statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
+                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d", s.CropsHarvested, s.StorageRestocked))
+                    end)
+                    task.wait(0.8)
+                end
+            end)
+
+            -- 2. AUTOMATION WORKFLOW
             RestTab:AddSection("AUTOMATION WORKFLOW")
             RestTab:AddToggle("Auto-Seat Customers", Config.AutoSeatEnabled, function(val)
                 Config.AutoSeatEnabled = val
@@ -64,7 +87,19 @@ return function(Core)
                 Config.AutoFarmEnabled = val
                 UI.UpdateFloatStatus()
             end)
+            RestTab:AddToggle("Auto-Fulfill Delivery Orders", Config.AutoDeliveryEnabled, function(val)
+                Config.AutoDeliveryEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Restock Kitchen Storage", Config.AutoRestockEnabled, function(val)
+                Config.AutoRestockEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
+                Config.AutoClaimQuestsEnabled = val
+            end)
 
+            -- 3. TELEPORTATION & NAVIGATION
             RestTab:AddSection("TELEPORTATION & NAVIGATION")
             RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
                 Config.AutoTeleportEnabled = val
@@ -78,8 +113,12 @@ return function(Core)
             RestTab:AddToggle("Prevent Sitting in Chairs", Config.PreventSitting, function(val)
                 Config.PreventSitting = val
             end)
+            RestTab:AddToggle("Multi-Floor Safe Raycast", Config.MultiFloorSafeRaycast, function(val)
+                Config.MultiFloorSafeRaycast = val
+            end)
 
-            RestTab:AddSection("INTERACTIONS & AFK")
+            -- 4. INTERACTIONS & PERFORMANCE
+            RestTab:AddSection("INTERACTIONS & PERFORMANCE")
             RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
                 Config.InstantPromptEnabled = val
             end)
@@ -94,10 +133,25 @@ return function(Core)
                 Config.ActionDelay = val / 10
             end)
 
+            -- 5. QUICK ACTIONS
             RestTab:AddSection("QUICK ACTIONS")
+            RestTab:AddButton("Redeem Active Promo Codes", function(btn)
+                local count = Utility.RedeemKnownCodes()
+                local old = btn.Text
+                btn.Text = count > 0 and ("Submitted " .. count .. " Codes!") or "Codes Submitted!"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
+            RestTab:AddButton("Claim All Finished Quests & Gifts", function(btn)
+                local claimed = Utility.ClaimQuestsAndGifts()
+                local old = btn.Text
+                btn.Text = claimed > 0 and ("Claimed " .. claimed .. " Rewards!") or "No Rewards Pending"
+                task.delay(1.5, function() btn.Text = old end)
+            end)
             RestTab:AddButton("Trigger All Workstations Now", function(btn)
                 if Core.Restaurant then
+                    pcall(Core.Restaurant.HandleRestock)
                     pcall(Core.Restaurant.HandleFarming)
+                    pcall(Core.Restaurant.HandleDelivery)
                     pcall(Core.Restaurant.HandleCashCollection)
                     pcall(Core.Restaurant.HandleCleaning)
                     pcall(Core.Restaurant.HandleSeating)

@@ -5,10 +5,13 @@ return function(Core)
     local Utility = Core.Utility
     local Services = Core.Services
     local LocalPlayer = Services.Players.LocalPlayer
+    local State = Core.State
 
     -- Cached plot reference
     local cachedPlot = nil
     local lastPlotSearch = 0
+    local lastMemoryClean = os.clock()
+    local lastQuestCheck = 0
 
     -- Per-prompt cooldown tracker to prevent rapid-fire animation spam
     local promptCooldowns = setmetatable({}, {__mode = "k"})
@@ -22,6 +25,19 @@ return function(Core)
 
     local function setPromptCooldown(prompt, duration)
         promptCooldowns[prompt] = os.clock() + (duration or 2.5)
+    end
+
+    -- Periodic memory cleanup to prevent memory bloat over 12+ hour runs
+    local function cleanExpiredCooldowns()
+        local now = os.clock()
+        if now - lastMemoryClean > 300 then
+            lastMemoryClean = now
+            for p, exp in pairs(promptCooldowns) do
+                if now >= exp or not p or not p.Parent then
+                    promptCooldowns[p] = nil
+                end
+            end
+        end
     end
 
     -- Safe character resolver ensuring humanoid is alive and loaded
@@ -169,7 +185,7 @@ return function(Core)
             releaseSeat(hum, char)
         end
 
-        -- Calculate safe floor position via downward raycast
+        -- Calculate safe floor position via downward raycast with multi-floor safety
         local safePos = Utility.GetGroundPosition(targetPos, {char})
 
         -- Orient avatar toward the workstation/customer
@@ -313,14 +329,15 @@ return function(Core)
         return processed
     end
 
-    -- Handlers with ActionText priority
+    -- Handlers with ActionText priority & Stats tracking
     function Restaurant.HandleSeating()
         if not Config.AutoSeatEnabled then return end
         local prompts = findMatchingPrompts(
             {"seat", "host", "lead", "welcome", "invite"},
             {"customer", "guest"}
         )
-        processPromptQueue(prompts, 2, 3.5)
+        local count = processPromptQueue(prompts, 2, 3.5)
+        State.Stats.CustomersSeated = State.Stats.CustomersSeated + count
     end
 
     function Restaurant.HandleOrdering()
@@ -329,7 +346,8 @@ return function(Core)
             {"order", "take order", "menu", "ask"},
             {"order", "ticket"}
         )
-        processPromptQueue(prompts, 3, 3.0)
+        local count = processPromptQueue(prompts, 3, 3.0)
+        State.Stats.OrdersTaken = State.Stats.OrdersTaken + count
     end
 
     function Restaurant.HandleCooking()
@@ -338,7 +356,8 @@ return function(Core)
             {"cook", "prepare", "bake", "fry", "grill", "boil", "brew", "flip", "chop"},
             {"stove", "oven", "grill", "station", "pan", "pot"}
         )
-        processPromptQueue(prompts, 3, 2.5)
+        local count = processPromptQueue(prompts, 3, 2.5)
+        State.Stats.DishesCooked = State.Stats.DishesCooked + count
     end
 
     function Restaurant.HandleServing()
@@ -347,7 +366,8 @@ return function(Core)
             {"serve", "deliver", "bring", "give"},
             {"dish", "plate", "food", "tray", "meal"}
         )
-        processPromptQueue(prompts, 3, 2.5)
+        local count = processPromptQueue(prompts, 3, 2.5)
+        State.Stats.DishesServed = State.Stats.DishesServed + count
     end
 
     function Restaurant.HandleCleaning()
@@ -356,7 +376,8 @@ return function(Core)
             {"clean", "wash", "wipe", "clear", "bus", "trash", "empty"},
             {"dish", "dishes", "plate", "table", "tray", "sink"}
         )
-        processPromptQueue(prompts, 4, 3.0)
+        local count = processPromptQueue(prompts, 4, 3.0)
+        State.Stats.TablesCleaned = State.Stats.TablesCleaned + count
     end
 
     function Restaurant.HandleFarming()
@@ -365,7 +386,28 @@ return function(Core)
             {"harvest", "plant", "water", "gather", "pick", "shear", "milk", "feed", "collect"},
             {"crop", "wheat", "tomato", "pumpkin", "cow", "chicken", "tree", "seed", "plant", "animal", "egg"}
         )
-        processPromptQueue(prompts, 3, 3.0)
+        local count = processPromptQueue(prompts, 3, 3.0)
+        State.Stats.CropsHarvested = State.Stats.CropsHarvested + count
+    end
+
+    function Restaurant.HandleDelivery()
+        if not Config.AutoDeliveryEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"deliver", "package", "pack", "load", "ship", "fulfill"},
+            {"delivery", "box", "takeout", "scooter", "bike", "order", "station"}
+        )
+        local count = processPromptQueue(prompts, 2, 4.0)
+        State.Stats.DeliveriesCompleted = State.Stats.DeliveriesCompleted + count
+    end
+
+    function Restaurant.HandleRestock()
+        if not Config.AutoRestockEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"deposit", "restock", "store", "refill", "put", "stock"},
+            {"fridge", "cooler", "pantry", "storage", "shelf", "crate"}
+        )
+        local count = processPromptQueue(prompts, 2, 4.0)
+        State.Stats.StorageRestocked = State.Stats.StorageRestocked + count
     end
 
     function Restaurant.HandleCashCollection()
@@ -375,7 +417,8 @@ return function(Core)
             {"collect", "take", "claim", "withdraw", "empty"},
             {"cash", "coin", "tip", "tips", "bill", "money", "register"}
         )
-        processPromptQueue(prompts, 3, 4.0)
+        local count = processPromptQueue(prompts, 3, 4.0)
+        State.Stats.CashCollected = State.Stats.CashCollected + count
 
         -- Dropped physical coins / cash parts
         local char, root = getAliveCharacter()
@@ -406,9 +449,10 @@ return function(Core)
                 end
             end
         end
+        State.Stats.CashCollected = State.Stats.CashCollected + coinsCollected
     end
 
-    -- Main automation loop with strict priority order
+    -- Main automation loop with strict priority order & memory safety
     local runningLoop = false
     function Restaurant.StartLoop()
         if runningLoop then return end
@@ -418,39 +462,62 @@ return function(Core)
             while Core.State.Running and runningLoop do
                 local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
 
+                -- Run memory sanitation
+                cleanExpiredCooldowns()
+
+                -- Check and auto-claim finished quests / gifts every 10 seconds
+                local now = os.clock()
+                if Config.AutoClaimQuestsEnabled and (now - lastQuestCheck > 10) then
+                    lastQuestCheck = now
+                    local claimed = Utility.ClaimQuestsAndGifts()
+                    if claimed and claimed > 0 then
+                        State.Stats.QuestsClaimed = State.Stats.QuestsClaimed + claimed
+                    end
+                end
+
                 local char, _, hum = getAliveCharacter()
                 if char and hum and hum.Health > 0 then
-                    -- 1. Harvest farm goods (keeps kitchen supplied)
+                    -- 1. Restock fridge/storage so chefs have ingredients
+                    if Config.AutoRestockEnabled then
+                        pcall(Restaurant.HandleRestock)
+                    end
+
+                    -- 2. Harvest farm goods (keeps kitchen supplied)
                     if Config.AutoFarmEnabled then
                         pcall(Restaurant.HandleFarming)
                     end
 
-                    -- 2. Collect cash/tips (frees registers/tables)
+                    -- 3. Fulfill high-value delivery orders
+                    if Config.AutoDeliveryEnabled then
+                        pcall(Restaurant.HandleDelivery)
+                    end
+
+                    -- 4. Collect cash/tips (frees registers & tables)
                     if Config.AutoCollectCashEnabled then
                         pcall(Restaurant.HandleCashCollection)
                     end
 
-                    -- 3. Clean tables (frees seats for new guests)
+                    -- 5. Clean tables (frees seats for new guests)
                     if Config.AutoCleanEnabled then
                         pcall(Restaurant.HandleCleaning)
                     end
 
-                    -- 4. Seat waiting customers (now that tables are clear)
+                    -- 6. Seat waiting customers (now that tables are clear)
                     if Config.AutoSeatEnabled then
                         pcall(Restaurant.HandleSeating)
                     end
 
-                    -- 5. Take customer orders
+                    -- 7. Take customer orders
                     if Config.AutoOrderEnabled then
                         pcall(Restaurant.HandleOrdering)
                     end
 
-                    -- 6. Cook food at stations
+                    -- 8. Cook food at stations
                     if Config.AutoCookEnabled then
                         pcall(Restaurant.HandleCooking)
                     end
 
-                    -- 7. Serve prepared dishes
+                    -- 9. Serve prepared dishes
                     if Config.AutoServeEnabled then
                         pcall(Restaurant.HandleServing)
                     end
@@ -465,7 +532,7 @@ return function(Core)
     function Restaurant.Init()
         setupPromptHook()
         Restaurant.StartLoop()
-        print("🍽️ Run a Restaurant automation loaded: debounce, seat safety, and plot scoping active.")
+        print("🍽️ Run a Restaurant full economic empire automation loaded.")
     end
 
     function Restaurant.Cleanup()

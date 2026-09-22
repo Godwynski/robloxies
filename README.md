@@ -35,18 +35,25 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 ## ⚡ Features
 
 ### 🍽️ Restaurant Automation
+- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, and quests claimed.
 - **Teleport to Workstations** — Teleports the character directly to active tasks (tables, stoves, dirty dishes, registers) with floor raycasting and velocity zeroing to prevent fling or clipping.
+- **Multi-Floor Safe Raycast** — Bounded vertical raycasting ensures safe navigation across multi-story restaurant expansions without falling through floors.
 - **Own Plot Scoping** — Automatically detects and filters all interactions exclusively to your own restaurant/farm plot.
+- **Auto-Fulfill Delivery Orders** — Teleports to and fulfills takeout delivery packages, boxes, and scooters for massive cash multipliers.
+- **Auto-Restock Kitchen Storage** — Deposits harvested ingredients into fridges, coolers, and pantries so chefs never run out of food.
+- **Auto-Claim Quests & Gifts** — Automatically claims finished quest objectives, achievement milestones, and playtime gifts for free cash and gems.
 - **Auto-Seat Customers** — Automatically detects waiting customers at the entrance or host stand and seats them at vacant tables.
 - **Auto-Take Orders** — Takes orders from seated customers as soon as they are ready.
 - **Auto-Cook Food** — Automatically triggers cooking stations, grills, and ovens to prepare food tickets.
 - **Auto-Serve Dishes** — Delivers cooked meals from counters to waiting tables.
 - **Auto-Clean Tables** — Clears dirty dishes and wipes tables immediately after customers leave.
-- **Auto-Collect Cash & Tips** — Automatically sweeps coins, cash drops, and register tips across the restaurant.
+- **Auto-Collect Cash & Tips** — Sweeps coins, cash drops, and register tips across the restaurant.
 - **Auto-Harvest Farm & Ranch** — Gathers crops (wheat, tomatoes) and animal goods to keep the kitchen supplied with ingredients.
+- **One-Click Code Redeemer** — In-menu tool to submit active promotional codes (`FISHIES`, `RAR4EVER`) for free exclusive decor.
 - **Instant Proximity Prompts** — Removes hold duration (`HoldDuration = 0`), removes line-of-sight requirements, and expands interaction range.
 - **Anti-AFK Disconnect Guard** — Keeps sessions active to prevent Roblox's 20-minute idle disconnects.
 - **Chair Sit Prevention** — Automatically keeps the avatar standing so you never get stuck sitting in customer chairs.
+- **Memory Sanitation Engine** — Automatic periodic garbage collection and table cache recycling for stable 12+ hour overnight farming.
 - **GPU Saver Mode** — Optional 3D render disabler for low-power, multi-hour background farming.
 - **Configurable Action Loop** — Adjustable station delay and cycle speed sliders.
 
