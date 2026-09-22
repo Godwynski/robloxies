@@ -36,6 +36,12 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 
 ### 🍽️ Restaurant Automation
 - **⚡ Master Restaurant Auto-Farm** — One-click master toggle that synchronizes all essential workflows (seating, ordering, cooking, serving, cleaning, and cash collection) smoothly without manual configuration.
+- **🔄 Simultaneous Multi-Queue Pipeline** — Eliminates queue starvation with an interleaved round-robin scheduler that balances cooking, serving, ordering, cleaning, seating, and deliveries every cycle rather than locking into a single category.
+- **⚡ Workstation Spatial Clustering & Batching** — When visiting a kitchen counter or table cluster, processes all ready prompts within 14 studs simultaneously (up to configurable batch size) in a single visit instead of teleporting back and forth.
+- **✨ Opportunistic Station Batching** — Concurrently fires nearby ready prompts across all enabled categories within 14 studs of the avatar's current station.
+- **🪙 Decoupled Parallel Cash Sweeping** — Continuously collects dropped coins and cash drops across the restaurant floor via `firetouchinterest` on a high-speed background worker without affecting avatar movement or kitchen throughput.
+- **🤖 Decoupled Background UI Manager** — Claims completed quests, redeems daily gifts, and hires/upgrades staff on an independent parallel thread without stalling physical cooking or serving loops.
+- **🛡️ Mutex In-Flight Locking** — Tracks active prompts in a garbage-collected weak table (`State.InFlightTasks`) to guarantee zero double-triggers, race conditions, or physics desyncs across concurrent workers.
 - **🛒 Auto-Buy Stoves & Appliances** — Automatically purchases higher-tier cooking stoves, ovens, dishwashers, and dining tables from the shop to continually upgrade your restaurant equipment.
 - **🔨 Auto-Place Stored Furniture** — Automatically scans your build inventory for unplaced items, calculates open floor grid coordinates, and places furniture onto your restaurant layout.
 - **👨‍🍳 Auto-Hire & Upgrade Staff** — Automatically hires and levels up Cooks, Waiters, and Cleaners from the Manage menu to maximize kitchen throughput.

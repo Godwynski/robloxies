@@ -120,7 +120,22 @@ return function(Core)
                 Config.AutoExpandEnabled = val
             end)
 
-            -- 3. TELEPORTATION & NAVIGATION
+            -- 3. PIPELINE & CONCURRENCY
+            RestTab:AddSection("PIPELINE & CONCURRENCY")
+            RestTab:AddToggle("Simultaneous Multi-Queue Pipeline", Config.InterleavedPipelineEnabled, function(val)
+                Config.InterleavedPipelineEnabled = val
+            end)
+            RestTab:AddToggle("Concurrent Workstation Batching", Config.ConcurrentExecutionEnabled, function(val)
+                Config.ConcurrentExecutionEnabled = val
+            end)
+            RestTab:AddSlider("Station Batch Size", Config.StationBatchSize or 3, 1, 5, function(val)
+                Config.StationBatchSize = val
+            end)
+            RestTab:AddToggle("Opportunistic Nearby Batching", Config.RemotePromptBatching, function(val)
+                Config.RemotePromptBatching = val
+            end)
+
+            -- 4. TELEPORTATION & NAVIGATION
             RestTab:AddSection("TELEPORTATION & NAVIGATION")
             RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
                 Config.AutoTeleportEnabled = val
@@ -141,7 +156,7 @@ return function(Core)
                 Config.MultiFloorSafeRaycast = val
             end)
 
-            -- 4. INTERACTIONS & PERFORMANCE
+            -- 5. INTERACTIONS & PERFORMANCE
             RestTab:AddSection("INTERACTIONS & PERFORMANCE")
             RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
                 Config.InstantPromptEnabled = val
@@ -160,7 +175,7 @@ return function(Core)
                 Config.ActionDelay = val / 10
             end)
 
-            -- 5. QUICK ACTIONS
+            -- 6. QUICK ACTIONS
             RestTab:AddSection("QUICK ACTIONS")
             RestTab:AddButton("📍 Set Restaurant Anchor Here", function(btn)
                 if Core.Restaurant and Core.Restaurant.RecalibrateAnchor then

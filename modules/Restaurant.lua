@@ -397,28 +397,163 @@ return function(Core)
         return categorized
     end
 
-    -- Execute a single action cleanly with stability delay
-    local function executeAction(prompt, cooldown, statKey)
-        if not prompt or not prompt.Parent then return false end
+    -- Spatial clustering: Find ready prompts in the same category within radius studs
+    function Restaurant.GetNearbyCluster(primaryPrompt, promptsList, radius, maxCount)
+        local cluster = {}
+        if not primaryPrompt or not promptsList then return cluster end
+        local primaryPos = getTargetPosition(primaryPrompt)
+        if not primaryPos then return cluster end
 
-        -- 1. Teleport safely if enabled
-        if Config.AutoTeleportEnabled then
-            local ok = Restaurant.TeleportTo(prompt)
-            if ok then
-                task.wait(math.clamp(Config.StationStayDelay or 0.22, 0.08, 1))
+        radius = radius or 14
+        maxCount = maxCount or (Config.StationBatchSize or 3)
+
+        for _, prompt in ipairs(promptsList) do
+            if prompt ~= primaryPrompt and isPromptReady(prompt) and not State.InFlightTasks[prompt] then
+                local pos = getTargetPosition(prompt)
+                if pos and (pos - primaryPos).Magnitude <= radius then
+                    table.insert(cluster, prompt)
+                    if #cluster >= (maxCount - 1) then
+                        break
+                    end
+                end
             end
         end
+        return cluster
+    end
 
-        -- 2. Trigger prompt
-        triggerPrompt(prompt, cooldown or 2.5)
+    -- Trigger nearby prompts across ANY enabled category opportunistically (same room/station)
+    function Restaurant.TriggerOpportunisticNearby(centerPos, allPrompts, radius)
+        if not Config.RemotePromptBatching or not centerPos or not allPrompts then return 0 end
+        radius = radius or 14
+        local triggeredCount = 0
+        local isMaster = Config.MasterAutoFarmEnabled
 
-        -- 3. Increment statistics
-        if statKey and State.Stats[statKey] ~= nil then
-            State.Stats[statKey] = State.Stats[statKey] + 1
+        local categoryConfigs = {
+            Cash = { enabled = isMaster or Config.AutoCollectCashEnabled, stat = "CashCollected", cooldown = 3.0 },
+            Order = { enabled = isMaster or Config.AutoOrderEnabled, stat = "OrdersTaken", cooldown = 2.5 },
+            Cook = { enabled = isMaster or Config.AutoCookEnabled, stat = "DishesCooked", cooldown = 2.5 },
+            Serve = { enabled = isMaster or Config.AutoServeEnabled, stat = "DishesServed", cooldown = 2.5 },
+            Clean = { enabled = isMaster or Config.AutoCleanEnabled, stat = "TablesCleaned", cooldown = 3.0 },
+            Seat = { enabled = isMaster or Config.AutoSeatEnabled, stat = "CustomersSeated", cooldown = 3.0 },
+            Delivery = { enabled = isMaster or Config.AutoDeliveryEnabled, stat = "DeliveriesCompleted", cooldown = 4.0 },
+            Restock = { enabled = isMaster or Config.AutoRestockEnabled, stat = "StorageRestocked", cooldown = 3.5 },
+            Farm = { enabled = isMaster or Config.AutoFarmEnabled, stat = "CropsHarvested", cooldown = 3.0 },
+        }
+
+        for catName, catInfo in pairs(categoryConfigs) do
+            if catInfo.enabled and allPrompts[catName] then
+                for _, prompt in ipairs(allPrompts[catName]) do
+                    if isPromptReady(prompt) and not State.InFlightTasks[prompt] then
+                        local pos = getTargetPosition(prompt)
+                        if pos and (pos - centerPos).Magnitude <= radius then
+                            State.InFlightTasks[prompt] = true
+                            task.spawn(function()
+                                pcall(function()
+                                    triggerPrompt(prompt, catInfo.cooldown)
+                                    if State.Stats[catInfo.stat] ~= nil then
+                                        State.Stats[catInfo.stat] = State.Stats[catInfo.stat] + 1
+                                    end
+                                end)
+                                State.InFlightTasks[prompt] = nil
+                            end)
+                            triggeredCount = triggeredCount + 1
+                            if triggeredCount >= 3 then break end
+                        end
+                    end
+                end
+            end
+        end
+        return triggeredCount
+    end
+
+    -- Execute a single action cleanly with mutex safety
+    local function executeAction(prompt, cooldown, statKey)
+        if not prompt or not prompt.Parent then return false end
+        if State.InFlightTasks[prompt] then return false end
+
+        State.InFlightTasks[prompt] = true
+
+        local success = false
+        pcall(function()
+            -- 1. Teleport safely if enabled
+            if Config.AutoTeleportEnabled then
+                local ok = Restaurant.TeleportTo(prompt)
+                if ok then
+                    task.wait(math.clamp(Config.StationStayDelay or 0.22, 0.08, 1))
+                end
+            end
+
+            -- 2. Trigger prompt
+            triggerPrompt(prompt, cooldown or 2.5)
+
+            -- 3. Increment statistics
+            if statKey and State.Stats[statKey] ~= nil then
+                State.Stats[statKey] = State.Stats[statKey] + 1
+            end
+
+            success = true
+        end)
+
+        State.InFlightTasks[prompt] = nil
+        task.wait(0.08)
+        return success
+    end
+
+    -- Execute a workstation cluster cleanly with mutex safety & optional opportunistic nearby batching
+    local function executeCluster(primaryPrompt, cluster, cooldown, statKey, allPrompts)
+        if not primaryPrompt or not primaryPrompt.Parent then return false end
+        if State.InFlightTasks[primaryPrompt] then return false end
+
+        State.InFlightTasks[primaryPrompt] = true
+        for _, p in ipairs(cluster) do
+            State.InFlightTasks[p] = true
         end
 
-        task.wait(0.1)
-        return true
+        local success = false
+        pcall(function()
+            -- 1. Teleport safely to primary prompt
+            if Config.AutoTeleportEnabled then
+                local ok = Restaurant.TeleportTo(primaryPrompt)
+                if ok then
+                    task.wait(math.clamp(Config.StationStayDelay or 0.22, 0.08, 1))
+                end
+            end
+
+            -- 2. Trigger primary prompt
+            triggerPrompt(primaryPrompt, cooldown or 2.5)
+            if statKey and State.Stats[statKey] ~= nil then
+                State.Stats[statKey] = State.Stats[statKey] + 1
+            end
+
+            -- 3. Concurrently trigger cluster prompts
+            for _, prompt in ipairs(cluster) do
+                if prompt and prompt.Parent and prompt.Enabled then
+                    task.spawn(function()
+                        pcall(function()
+                            triggerPrompt(prompt, cooldown or 2.5)
+                            if statKey and State.Stats[statKey] ~= nil then
+                                State.Stats[statKey] = State.Stats[statKey] + 1
+                            end
+                        end)
+                        State.InFlightTasks[prompt] = nil
+                    end)
+                else
+                    State.InFlightTasks[prompt] = nil
+                end
+            end
+
+            -- 4. Opportunistic cross-category batching for ready prompts within 14 studs
+            local primaryPos = getTargetPosition(primaryPrompt)
+            if primaryPos and allPrompts then
+                Restaurant.TriggerOpportunisticNearby(primaryPos, allPrompts, 14)
+            end
+
+            success = true
+        end)
+
+        State.InFlightTasks[primaryPrompt] = nil
+        task.wait(0.08)
+        return success
     end
 
     -- Sweep dropped physical coins/cash parts remotely without teleport flinging
@@ -446,7 +581,7 @@ return function(Core)
                                 firetouchinterest(root, item, 1)
                             end)
                             count = count + 1
-                            if count >= 8 then break end
+                            if count >= 12 then break end
                         end
                     end
                 end
@@ -460,40 +595,76 @@ return function(Core)
     -- Individual handlers for manual button triggering
     function Restaurant.HandleCashCollection()
         local p = Restaurant.ScanPrompts()
-        if #p.Cash > 0 then executeAction(p.Cash[1], 3.0, "CashCollected") end
+        if #p.Cash > 0 then
+            local primary = p.Cash[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Cash, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 3.0, "CashCollected", p)
+        end
         Restaurant.SweepFloorCash()
     end
     function Restaurant.HandleOrdering()
         local p = Restaurant.ScanPrompts()
-        if #p.Order > 0 then executeAction(p.Order[1], 2.5, "OrdersTaken") end
+        if #p.Order > 0 then
+            local primary = p.Order[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Order, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 2.5, "OrdersTaken", p)
+        end
     end
     function Restaurant.HandleCooking()
         local p = Restaurant.ScanPrompts()
-        if #p.Cook > 0 then executeAction(p.Cook[1], 2.5, "DishesCooked") end
+        if #p.Cook > 0 then
+            local primary = p.Cook[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Cook, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 2.5, "DishesCooked", p)
+        end
     end
     function Restaurant.HandleServing()
         local p = Restaurant.ScanPrompts()
-        if #p.Serve > 0 then executeAction(p.Serve[1], 2.5, "DishesServed") end
+        if #p.Serve > 0 then
+            local primary = p.Serve[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Serve, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 2.5, "DishesServed", p)
+        end
     end
     function Restaurant.HandleCleaning()
         local p = Restaurant.ScanPrompts()
-        if #p.Clean > 0 then executeAction(p.Clean[1], 3.0, "TablesCleaned") end
+        if #p.Clean > 0 then
+            local primary = p.Clean[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Clean, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 3.0, "TablesCleaned", p)
+        end
     end
     function Restaurant.HandleSeating()
         local p = Restaurant.ScanPrompts()
-        if #p.Seat > 0 then executeAction(p.Seat[1], 3.0, "CustomersSeated") end
+        if #p.Seat > 0 then
+            local primary = p.Seat[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Seat, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 3.0, "CustomersSeated", p)
+        end
     end
     function Restaurant.HandleDelivery()
         local p = Restaurant.ScanPrompts()
-        if #p.Delivery > 0 then executeAction(p.Delivery[1], 4.0, "DeliveriesCompleted") end
+        if #p.Delivery > 0 then
+            local primary = p.Delivery[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Delivery, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 4.0, "DeliveriesCompleted", p)
+        end
     end
     function Restaurant.HandleRestock()
         local p = Restaurant.ScanPrompts()
-        if #p.Restock > 0 then executeAction(p.Restock[1], 3.5, "StorageRestocked") end
+        if #p.Restock > 0 then
+            local primary = p.Restock[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Restock, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 3.5, "StorageRestocked", p)
+        end
     end
     function Restaurant.HandleFarming()
         local p = Restaurant.ScanPrompts()
-        if #p.Farm > 0 then executeAction(p.Farm[1], 3.0, "CropsHarvested") end
+        if #p.Farm > 0 then
+            local primary = p.Farm[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Farm, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 3.0, "CropsHarvested", p)
+        end
     end
     function Restaurant.HandleExpansion()
         local p = Restaurant.ScanPrompts()
@@ -676,12 +847,110 @@ return function(Core)
         return false
     end
 
-    -- Master Autonomous Priority Dispatcher Loop
+    -- Interleaved multi-queue pipeline categories definition
+    local pipelineCategories = {
+        { name = "Serve", configKey = "AutoServeEnabled", stat = "DishesServed", cooldown = 2.5 },
+        { name = "Cook", configKey = "AutoCookEnabled", stat = "DishesCooked", cooldown = 2.5 },
+        { name = "Order", configKey = "AutoOrderEnabled", stat = "OrdersTaken", cooldown = 2.5 },
+        { name = "Clean", configKey = "AutoCleanEnabled", stat = "TablesCleaned", cooldown = 3.0 },
+        { name = "Seat", configKey = "AutoSeatEnabled", stat = "CustomersSeated", cooldown = 3.0 },
+        { name = "Cash", configKey = "AutoCollectCashEnabled", stat = "CashCollected", cooldown = 3.0 },
+        { name = "Delivery", configKey = "AutoDeliveryEnabled", stat = "DeliveriesCompleted", cooldown = 4.0 },
+        { name = "Restock", configKey = "AutoRestockEnabled", stat = "StorageRestocked", cooldown = 3.5 },
+        { name = "Farm", configKey = "AutoFarmEnabled", stat = "CropsHarvested", cooldown = 3.0 },
+        { name = "Expand", configKey = "AutoExpandEnabled", stat = "ExpansionsPurchased", cooldown = 6.0 },
+    }
+    local pipelineCursor = 1
+
+    -- Interleaved multi-queue scheduler: Dispatches next ready category round-robin to eliminate starvation
+    function Restaurant.DispatchInterleavedPipeline(prompts)
+        local isMaster = Config.MasterAutoFarmEnabled
+        local totalCategories = #pipelineCategories
+
+        for i = 0, totalCategories - 1 do
+            local idx = ((pipelineCursor - 1 + i) % totalCategories) + 1
+            local cat = pipelineCategories[idx]
+
+            if (isMaster or Config[cat.configKey]) and prompts[cat.name] and #prompts[cat.name] > 0 then
+                -- Find first ready prompt that is not currently in flight
+                local primaryPrompt = nil
+                for _, p in ipairs(prompts[cat.name]) do
+                    if isPromptReady(p) and not State.InFlightTasks[p] then
+                        primaryPrompt = p
+                        break
+                    end
+                end
+
+                if primaryPrompt then
+                    if Config.ConcurrentExecutionEnabled then
+                        local cluster = Restaurant.GetNearbyCluster(primaryPrompt, prompts[cat.name], 14, Config.StationBatchSize or 3)
+                        executeCluster(primaryPrompt, cluster, cat.cooldown, cat.stat, prompts)
+                    else
+                        executeAction(primaryPrompt, cat.cooldown, cat.stat)
+                    end
+
+                    -- Advance cursor to next category for balanced, starvation-free progression
+                    pipelineCursor = (idx % totalCategories) + 1
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    -- Master Autonomous Dispatcher & Parallel Workers
     local runningLoop = false
     function Restaurant.StartLoop()
         if runningLoop then return end
         runningLoop = true
 
+        -- Decoupled Worker 1: Parallel Floor Cash Sweeper (Continuous remote pickup via firetouchinterest)
+        task.spawn(function()
+            while Core.State.Running and runningLoop do
+                if Config.MasterAutoFarmEnabled or Config.AutoCollectCashEnabled then
+                    pcall(function()
+                        Restaurant.SweepFloorCash()
+                    end)
+                end
+                task.wait(0.35)
+            end
+        end)
+
+        -- Decoupled Worker 2: Parallel Background UI Manager (Quests, Daily Gifts, Staff, UI Catalog)
+        task.spawn(function()
+            while Core.State.Running and runningLoop do
+                -- Auto-claim finished quests / gifts every 8 seconds
+                local now = os.clock()
+                if Config.AutoClaimQuestsEnabled and (now - lastQuestCheck > 8) then
+                    lastQuestCheck = now
+                    pcall(function()
+                        local claimed = Utility.ClaimQuestsAndGifts()
+                        if claimed and claimed > 0 then
+                            State.Stats.QuestsClaimed = State.Stats.QuestsClaimed + claimed
+                        end
+                    end)
+                end
+
+                -- Auto-hire / upgrade staff in background without interrupting kitchen
+                if Config.AutoHireStaffEnabled then
+                    pcall(function()
+                        Restaurant.HandleStaffManage()
+                    end)
+                end
+
+                -- Auto-buy catalog items if enabled
+                if Config.AutoBuyEnabled then
+                    pcall(function()
+                        Restaurant.HandleAutoBuy()
+                    end)
+                end
+
+                task.wait(2.5)
+            end
+        end)
+
+        -- Master Worker 3: Physical Workstation Automation Loop
         task.spawn(function()
             while Core.State.Running and runningLoop do
                 local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
@@ -689,79 +958,60 @@ return function(Core)
                 -- Run memory sanitation
                 cleanExpiredCooldowns()
 
-                -- Auto-claim finished quests / gifts every 10 seconds
-                local now = os.clock()
-                if Config.AutoClaimQuestsEnabled and (now - lastQuestCheck > 10) then
-                    lastQuestCheck = now
-                    local claimed = Utility.ClaimQuestsAndGifts()
-                    if claimed and claimed > 0 then
-                        State.Stats.QuestsClaimed = State.Stats.QuestsClaimed + claimed
-                    end
-                end
-
                 local char, _, hum = getAliveCharacter()
                 if char and hum and hum.Health > 0 then
-                    local isMaster = Config.MasterAutoFarmEnabled
                     local prompts = Restaurant.ScanPrompts()
+                    local dispatched = false
 
-                    -- Prioritized Single-Action Dispatch: Attends to ONE highest-priority task per tick
-                    -- 1. Cash & Tips: Immediate payout, frees tables & registers
-                    if (isMaster or Config.AutoCollectCashEnabled) and #prompts.Cash > 0 then
-                        executeAction(prompts.Cash[1], 3.0, "CashCollected")
-
-                    -- 2. Customer Orders: Frees customer wait timer, creates tickets
-                    elseif (isMaster or Config.AutoOrderEnabled) and #prompts.Order > 0 then
-                        executeAction(prompts.Order[1], 2.5, "OrdersTaken")
-
-                    -- 3. Serve Prepared Dishes: Clears counters and delivers to hungry customers
-                    elseif (isMaster or Config.AutoServeEnabled) and #prompts.Serve > 0 then
-                        executeAction(prompts.Serve[1], 2.5, "DishesServed")
-
-                    -- 4. Cook Food: Prepares tickets on stoves/ovens
-                    elseif (isMaster or Config.AutoCookEnabled) and #prompts.Cook > 0 then
-                        executeAction(prompts.Cook[1], 2.5, "DishesCooked")
-
-                    -- 5. Clean Tables: Clears dirty dishes so new customers can sit
-                    elseif (isMaster or Config.AutoCleanEnabled) and #prompts.Clean > 0 then
-                        executeAction(prompts.Clean[1], 3.0, "TablesCleaned")
-
-                    -- 6. Seat Customers: Brings waiting customers to open tables
-                    elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 then
-                        executeAction(prompts.Seat[1], 3.0, "CustomersSeated")
-
-                    -- 7. Delivery Orders: High multiplier takeout fulfillment
-                    elseif (isMaster or Config.AutoDeliveryEnabled) and #prompts.Delivery > 0 then
-                        executeAction(prompts.Delivery[1], 4.0, "DeliveriesCompleted")
-
-                    -- 8. Restock Storage: Keeps kitchen supplied with ingredients
-                    elseif (isMaster or Config.AutoRestockEnabled) and #prompts.Restock > 0 then
-                        executeAction(prompts.Restock[1], 3.5, "StorageRestocked")
-
-                    -- 9. Farm Harvesting: Gathers ripe crops
-                    elseif (isMaster or Config.AutoFarmEnabled) and #prompts.Farm > 0 then
-                        executeAction(prompts.Farm[1], 3.0, "CropsHarvested")
-
-                    -- 10. Auto-Place stored furniture & appliances
-                    elseif (isMaster or Config.AutoPlaceEnabled) and Restaurant.HandleAutoPlace() then
-                        -- handled in HandleAutoPlace
-
-                    -- 11. Auto-Buy equipment & appliances
-                    elseif (isMaster or Config.AutoBuyEnabled) and Restaurant.HandleAutoBuy() then
-                        -- handled in HandleAutoBuy
-
-                    -- 12. Auto-Hire & Upgrade staff
-                    elseif Config.AutoHireStaffEnabled and Restaurant.HandleStaffManage() then
-                        -- handled in HandleStaffManage
-
-                    -- 13. Floor & Land Expansion
-                    elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
-                        executeAction(prompts.Expand[1], 6.0, "ExpansionsPurchased")
-
+                    if Config.InterleavedPipelineEnabled then
+                        dispatched = Restaurant.DispatchInterleavedPipeline(prompts)
                     else
-                        -- When idle, sweep floor cash
-                        if (isMaster or Config.AutoCollectCashEnabled) then
-                            Restaurant.SweepFloorCash()
+                        -- Fallback: Classical single/cluster prioritized ladder
+                        local isMaster = Config.MasterAutoFarmEnabled
+                        local function dispatchCategory(list, cooldown, statKey)
+                            for _, p in ipairs(list) do
+                                if isPromptReady(p) and not State.InFlightTasks[p] then
+                                    if Config.ConcurrentExecutionEnabled then
+                                        local cluster = Restaurant.GetNearbyCluster(p, list, 14, Config.StationBatchSize or 3)
+                                        return executeCluster(p, cluster, cooldown, statKey, prompts)
+                                    else
+                                        return executeAction(p, cooldown, statKey)
+                                    end
+                                end
+                            end
+                            return false
                         end
+
+                        if (isMaster or Config.AutoCollectCashEnabled) and #prompts.Cash > 0 then
+                            dispatched = dispatchCategory(prompts.Cash, 3.0, "CashCollected")
+                        elseif (isMaster or Config.AutoOrderEnabled) and #prompts.Order > 0 then
+                            dispatched = dispatchCategory(prompts.Order, 2.5, "OrdersTaken")
+                        elseif (isMaster or Config.AutoServeEnabled) and #prompts.Serve > 0 then
+                            dispatched = dispatchCategory(prompts.Serve, 2.5, "DishesServed")
+                        elseif (isMaster or Config.AutoCookEnabled) and #prompts.Cook > 0 then
+                            dispatched = dispatchCategory(prompts.Cook, 2.5, "DishesCooked")
+                        elseif (isMaster or Config.AutoCleanEnabled) and #prompts.Clean > 0 then
+                            dispatched = dispatchCategory(prompts.Clean, 3.0, "TablesCleaned")
+                        elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 then
+                            dispatched = dispatchCategory(prompts.Seat, 3.0, "CustomersSeated")
+                        elseif (isMaster or Config.AutoDeliveryEnabled) and #prompts.Delivery > 0 then
+                            dispatched = dispatchCategory(prompts.Delivery, 4.0, "DeliveriesCompleted")
+                        elseif (isMaster or Config.AutoRestockEnabled) and #prompts.Restock > 0 then
+                            dispatched = dispatchCategory(prompts.Restock, 3.5, "StorageRestocked")
+                        elseif (isMaster or Config.AutoFarmEnabled) and #prompts.Farm > 0 then
+                            dispatched = dispatchCategory(prompts.Farm, 3.0, "CropsHarvested")
+                        elseif (isMaster or Config.AutoPlaceEnabled) and Restaurant.HandleAutoPlace() then
+                            dispatched = true
+                        elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
+                            dispatched = dispatchCategory(prompts.Expand, 6.0, "ExpansionsPurchased")
+                        end
+                    end
+
+                    -- Auto-place check if not already handled
+                    if not dispatched and (Config.MasterAutoFarmEnabled or Config.AutoPlaceEnabled) then
+                        pcall(function()
+                            Restaurant.HandleAutoPlace()
+                        end)
                     end
                 end
 
@@ -782,6 +1032,7 @@ return function(Core)
         cachedPlot = nil
         Restaurant.RestaurantCenter = nil
         table.clear(promptCooldowns)
+        table.clear(State.InFlightTasks)
 
         local _, root = getAliveCharacter()
         if root then

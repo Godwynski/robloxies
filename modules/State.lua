@@ -1,6 +1,7 @@
 return function(Core)
     local State = {
         ActiveConnections = {},
+        InFlightTasks = setmetatable({}, {__mode = "k"}),
         Running = true,
         Stats = {
             CustomersSeated = 0,

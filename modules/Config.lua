@@ -27,6 +27,12 @@ return function(Core)
         StationStayDelay = 0.22,
         MaxScanRadius = 120,
 
+        -- Multi-Queue Pipeline & Concurrency
+        ConcurrentExecutionEnabled = true,
+        InterleavedPipelineEnabled = true,
+        StationBatchSize = 3,
+        RemotePromptBatching = true,
+
         -- Teleport & Navigation
         AutoTeleportEnabled = true,
         TeleportDelay = 0.15,
