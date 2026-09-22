@@ -6,11 +6,53 @@ return function(Core)
     local Services = Core.Services
     local LocalPlayer = Services.Players.LocalPlayer
 
-    -- Cached reference to player's restaurant/farm plot
+    -- Cached plot reference
     local cachedPlot = nil
     local lastPlotSearch = 0
 
-    -- Helper: Locate the LocalPlayer's designated restaurant/farm plot
+    -- Per-prompt cooldown tracker to prevent rapid-fire animation spam
+    local promptCooldowns = setmetatable({}, {__mode = "k"})
+
+    local function isPromptReady(prompt)
+        if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+        local exp = promptCooldowns[prompt]
+        if exp and os.clock() < exp then return false end
+        return true
+    end
+
+    local function setPromptCooldown(prompt, duration)
+        promptCooldowns[prompt] = os.clock() + (duration or 2.5)
+    end
+
+    -- Safe character resolver ensuring humanoid is alive and loaded
+    local function getAliveCharacter()
+        local char = LocalPlayer.Character
+        if not char then return nil, nil, nil end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum or hum.Health <= 0 then return nil, nil, nil end
+        return char, root, hum
+    end
+
+    -- Release character from any seat welds safely
+    local function releaseSeat(hum, char)
+        if not hum then return end
+        if hum.Sit then
+            hum.Sit = false
+        end
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("Weld") or part:IsA("ManualWeld") or part:IsA("Snap") then
+                    if part.Name == "SeatWeld" or (part.Part0 and part.Part0:IsA("Seat")) or (part.Part1 and part.Part1:IsA("Seat")) then
+                        pcall(function() part:Destroy() end)
+                    end
+                end
+            end
+        end
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+    end
+
+    -- Locate the LocalPlayer's designated restaurant/farm plot
     function Restaurant.GetPlayerPlot()
         if not Config.PlotScopingEnabled then return workspace end
         local now = os.clock()
@@ -23,12 +65,29 @@ return function(Core)
         local displayName = LocalPlayer.DisplayName:lower()
         local userId = tostring(LocalPlayer.UserId)
 
-        -- Search common plot containers
+        -- 1. Direct LocalPlayer plot references
+        local plotVal = LocalPlayer:FindFirstChild("Plot") or LocalPlayer:FindFirstChild("Restaurant") or LocalPlayer:FindFirstChild("Tycoon")
+        if plotVal and plotVal:IsA("ObjectValue") and plotVal.Value then
+            cachedPlot = plotVal.Value
+            return cachedPlot
+        end
+        local plotAttr = LocalPlayer:GetAttribute("Plot") or LocalPlayer:GetAttribute("Restaurant")
+        if typeof(plotAttr) == "Instance" then
+            cachedPlot = plotAttr
+            return cachedPlot
+        end
+
+        -- 2. Search common plot containers in workspace
+        local map = workspace:FindFirstChild("Map")
         local searchContainers = {
             workspace:FindFirstChild("Plots"),
             workspace:FindFirstChild("Restaurants"),
+            workspace:FindFirstChild("PlayerRestaurants"),
+            workspace:FindFirstChild("PlayerPlots"),
             workspace:FindFirstChild("Tycoons"),
             workspace:FindFirstChild("Farms"),
+            map and map:FindFirstChild("Plots"),
+            map and map:FindFirstChild("Restaurants"),
             workspace
         }
 
@@ -50,17 +109,19 @@ return function(Core)
                             return item
                         end
 
-                        -- Check item name or billboard
+                        -- Check item name
                         local itemName = item.Name:lower()
                         if itemName:find(playerName, 1, true) or itemName:find(userId, 1, true) then
                             cachedPlot = item
                             return item
                         end
 
+                        -- Check billboard text
                         for _, desc in ipairs(item:GetDescendants()) do
                             if desc:IsA("TextLabel") or desc:IsA("TextButton") then
                                 local txt = (desc.Text or ""):lower()
-                                if (txt:find(playerName, 1, true) or txt:find(displayName, 1, true)) and (txt:find("restaurant", 1, true) or txt:find("plot", 1, true) or txt:find("farm", 1, true)) then
+                                if (txt:find(playerName, 1, true) or txt:find(displayName, 1, true)) and 
+                                   (txt:find("restaurant", 1, true) or txt:find("plot", 1, true) or txt:find("farm", 1, true)) then
                                     cachedPlot = item
                                     return item
                                 end
@@ -74,15 +135,14 @@ return function(Core)
         return workspace
     end
 
-    -- Helper: Extract world position from an instance (Part, Model, or Prompt)
+    -- Extract target world position safely
     local function getTargetPosition(inst)
         if not inst then return nil end
         if inst:IsA("BasePart") then
             return inst.Position
         elseif inst:IsA("Model") then
             if inst.PrimaryPart then return inst.PrimaryPart.Position end
-            local cframe = inst:GetPivot()
-            return cframe.Position
+            return inst:GetPivot().Position
         elseif inst:IsA("ProximityPrompt") then
             local p = inst.Parent
             if p and p:IsA("BasePart") then
@@ -96,33 +156,29 @@ return function(Core)
         return nil
     end
 
-    -- Teleport the player safely to a target workstation or station
+    -- Teleport player safely to a target workstation
     function Restaurant.TeleportTo(targetInstance)
-        local char = LocalPlayer.Character
-        if not char then return false end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not root or not hum or hum.Health <= 0 then return false end
+        local char, root, hum = getAliveCharacter()
+        if not char or not root or not hum then return false end
 
         local targetPos = getTargetPosition(targetInstance)
         if not targetPos then return false end
 
-        -- Prevent accidental sitting in customer chairs during teleport
-        if Config.PreventSitting and hum.Sit then
-            hum.Sit = false
+        -- Prevent accidental sitting in customer chairs
+        if Config.PreventSitting then
+            releaseSeat(hum, char)
         end
 
-        -- Calculate safe floor position via downward raycasting
+        -- Calculate safe floor position via downward raycast
         local safePos = Utility.GetGroundPosition(targetPos, {char})
 
-        -- Face toward the target
+        -- Orient avatar toward the workstation/customer
         local lookPos = Vector3.new(targetPos.X, safePos.Y, targetPos.Z)
         local targetCFrame = CFrame.lookAt(safePos, lookPos)
 
-        -- Perform teleportation
         root.CFrame = targetCFrame
 
-        -- Zero out residual physics velocity to avoid fling
+        -- Zero out velocity to prevent flinging
         pcall(function()
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
@@ -131,26 +187,32 @@ return function(Core)
         return true
     end
 
-    -- Safely trigger an in-game ProximityPrompt with enhanced properties
-    local function triggerPrompt(prompt)
+    -- Trigger a ProximityPrompt safely
+    local function triggerPrompt(prompt, debounceTime)
         if not prompt or not prompt.Parent or not prompt.Enabled then return false end
 
-        -- Ensure prompt properties are optimized for interaction
+        -- Set cooldown immediately
+        setPromptCooldown(prompt, debounceTime or 2.5)
+
         pcall(function()
             prompt.HoldDuration = 0
             prompt.RequiresLineOfSight = false
             prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance or 10, 32)
         end)
 
-        -- Custom executor fireproximityprompt if supported
+        -- Custom executor fireproximityprompt
         if type(fireproximityprompt) == "function" then
             local ok = pcall(function()
                 fireproximityprompt(prompt, 0)
             end)
             if ok then return true end
+            pcall(function()
+                fireproximityprompt(prompt)
+            end)
+            return true
         end
 
-        -- Input began simulation fallback
+        -- Fallback simulation
         pcall(function()
             if prompt.InputHoldBegin then
                 prompt:InputHoldBegin()
@@ -161,7 +223,7 @@ return function(Core)
         return true
     end
 
-    -- Hook newly created ProximityPrompts for instant interaction
+    -- Setup prompt hooks for automatic optimization
     local function setupPromptHook()
         Utility.RegisterConnection(workspace.DescendantAdded:Connect(function(desc)
             if Config.InstantPromptEnabled and desc:IsA("ProximityPrompt") then
@@ -173,7 +235,6 @@ return function(Core)
             end
         end))
 
-        -- Apply to existing prompts
         for _, desc in ipairs(workspace:GetDescendants()) do
             if desc:IsA("ProximityPrompt") then
                 pcall(function()
@@ -187,44 +248,63 @@ return function(Core)
         end
     end
 
+    -- Match prompt using action-text priority and optional object text (prevents cross-triggering)
+    local function matchPrompt(prompt, actionKeywords, objectKeywords)
+        if not isPromptReady(prompt) then return false end
+        local actionText = (prompt.ActionText or ""):lower()
+        local objectText = (prompt.ObjectText or prompt.Name or ""):lower()
+
+        -- 1. Match ActionText (Primary)
+        for _, kw in ipairs(actionKeywords) do
+            kw = kw:lower()
+            if actionText:find(kw, 1, true) then
+                return true
+            end
+        end
+
+        -- 2. Match ObjectText if specified
+        if objectKeywords then
+            for _, kw in ipairs(objectKeywords) do
+                kw = kw:lower()
+                if objectText:find(kw, 1, true) then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
     -- Find matching active prompts within the scoped plot
-    local function findMatchingPrompts(keywords)
+    local function findMatchingPrompts(actionKeywords, objectKeywords)
         local rootContainer = Restaurant.GetPlayerPlot()
         local matches = {}
 
         for _, obj in ipairs(rootContainer:GetDescendants()) do
             if obj:IsA("ProximityPrompt") and obj.Enabled then
-                local action = (obj.ActionText or ""):lower()
-                local name = (obj.ObjectText or obj.Name or ""):lower()
-                local parentName = (obj.Parent and obj.Parent.Name or ""):lower()
-
-                for _, kw in ipairs(keywords) do
-                    kw = kw:lower()
-                    if action:find(kw, 1, true) or name:find(kw, 1, true) or parentName:find(kw, 1, true) then
-                        table.insert(matches, obj)
-                        break
-                    end
+                if matchPrompt(obj, actionKeywords, objectKeywords) then
+                    table.insert(matches, obj)
                 end
             end
         end
         return matches
     end
 
-    -- Process a queue of prompts sequentially with teleportation and safety delays
-    local function processPromptQueue(prompts, maxPerCycle)
+    -- Process queue sequentially with teleportation and debounce
+    local function processPromptQueue(prompts, maxPerCycle, debounceDuration)
         local limit = maxPerCycle or 3
         local processed = 0
 
         for _, prompt in ipairs(prompts) do
             if not Core.State.Running then break end
-            if not prompt or not prompt.Parent or not prompt.Enabled then continue end
+            if not isPromptReady(prompt) then continue end
 
             if Config.AutoTeleportEnabled then
                 Restaurant.TeleportTo(prompt)
                 task.wait(math.clamp(Config.TeleportDelay or 0.15, 0.05, 1))
             end
 
-            triggerPrompt(prompt)
+            triggerPrompt(prompt, debounceDuration)
             processed = processed + 1
 
             if processed >= limit then break end
@@ -233,74 +313,102 @@ return function(Core)
         return processed
     end
 
-    -- Specific Workflow Handlers
+    -- Handlers with ActionText priority
     function Restaurant.HandleSeating()
         if not Config.AutoSeatEnabled then return end
-        local prompts = findMatchingPrompts({"seat", "customer", "lead", "table", "chair", "welcome", "host", "invite"})
-        processPromptQueue(prompts, 2)
+        local prompts = findMatchingPrompts(
+            {"seat", "host", "lead", "welcome", "invite"},
+            {"customer", "guest"}
+        )
+        processPromptQueue(prompts, 2, 3.5)
     end
 
     function Restaurant.HandleOrdering()
         if not Config.AutoOrderEnabled then return end
-        local prompts = findMatchingPrompts({"order", "take order", "menu", "ask", "ticket"})
-        processPromptQueue(prompts, 3)
+        local prompts = findMatchingPrompts(
+            {"order", "take order", "menu", "ask"},
+            {"order", "ticket"}
+        )
+        processPromptQueue(prompts, 3, 3.0)
     end
 
     function Restaurant.HandleCooking()
         if not Config.AutoCookEnabled then return end
-        local prompts = findMatchingPrompts({"cook", "prepare", "bake", "fry", "stove", "grill", "oven", "pot", "pan", "station", "brew"})
-        processPromptQueue(prompts, 3)
+        local prompts = findMatchingPrompts(
+            {"cook", "prepare", "bake", "fry", "grill", "boil", "brew", "flip", "chop"},
+            {"stove", "oven", "grill", "station", "pan", "pot"}
+        )
+        processPromptQueue(prompts, 3, 2.5)
     end
 
     function Restaurant.HandleServing()
         if not Config.AutoServeEnabled then return end
-        local prompts = findMatchingPrompts({"serve", "deliver", "dish", "plate", "food", "tray", "counter"})
-        processPromptQueue(prompts, 3)
+        local prompts = findMatchingPrompts(
+            {"serve", "deliver", "bring", "give"},
+            {"dish", "plate", "food", "tray", "meal"}
+        )
+        processPromptQueue(prompts, 3, 2.5)
     end
 
     function Restaurant.HandleCleaning()
         if not Config.AutoCleanEnabled then return end
-        local prompts = findMatchingPrompts({"clean", "dirty", "trash", "wash", "clear", "wipe", "sink", "bus"})
-        processPromptQueue(prompts, 4)
+        local prompts = findMatchingPrompts(
+            {"clean", "wash", "wipe", "clear", "bus", "trash", "empty"},
+            {"dish", "dishes", "plate", "table", "tray", "sink"}
+        )
+        processPromptQueue(prompts, 4, 3.0)
     end
 
     function Restaurant.HandleFarming()
         if not Config.AutoFarmEnabled then return end
-        local prompts = findMatchingPrompts({"harvest", "crop", "plant", "water", "gather", "pick", "egg", "milk", "animal", "feed", "seed", "wheat", "tomato"})
-        processPromptQueue(prompts, 3)
+        local prompts = findMatchingPrompts(
+            {"harvest", "plant", "water", "gather", "pick", "shear", "milk", "feed", "collect"},
+            {"crop", "wheat", "tomato", "pumpkin", "cow", "chicken", "tree", "seed", "plant", "animal", "egg"}
+        )
+        processPromptQueue(prompts, 3, 3.0)
     end
 
     function Restaurant.HandleCashCollection()
         if not Config.AutoCollectCashEnabled then return end
-        -- Collect via prompts
-        local prompts = findMatchingPrompts({"cash", "coin", "tip", "bill", "pay", "collect", "register", "money"})
-        processPromptQueue(prompts, 4)
+        -- Register & tip prompts
+        local prompts = findMatchingPrompts(
+            {"collect", "take", "claim", "withdraw", "empty"},
+            {"cash", "coin", "tip", "tips", "bill", "money", "register"}
+        )
+        processPromptQueue(prompts, 3, 4.0)
 
-        -- Collect via dropped touch-interest coins / cash parts in player plot
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and Config.AutoCollectCashEnabled then
-            local container = Restaurant.GetPlayerPlot()
-            for _, item in ipairs(container:GetDescendants()) do
-                if item:IsA("BasePart") then
-                    local name = item.Name:lower()
-                    if (name:find("coin") or name:find("cash") or name:find("money") or name:find("tip")) then
-                        if Config.AutoTeleportEnabled then
-                            Restaurant.TeleportTo(item)
-                            task.wait(0.05)
-                        end
+        -- Dropped physical coins / cash parts
+        local char, root = getAliveCharacter()
+        if not root then return end
+
+        local container = Restaurant.GetPlayerPlot()
+        local hasFireTouch = (type(firetouchinterest) == "function")
+        local coinsCollected = 0
+
+        for _, item in ipairs(container:GetDescendants()) do
+            if item:IsA("BasePart") and not item.Anchored and item.Parent ~= char then
+                local name = item.Name:lower()
+                if (name:find("coin") or name:find("cash") or name:find("money") or name:find("tip")) then
+                    if hasFireTouch then
                         pcall(function()
                             firetouchinterest(root, item, 0)
                             task.wait()
                             firetouchinterest(root, item, 1)
                         end)
+                        coinsCollected = coinsCollected + 1
+                        if coinsCollected >= 15 then break end
+                    elseif Config.AutoTeleportEnabled then
+                        Restaurant.TeleportTo(item)
+                        task.wait(0.08)
+                        coinsCollected = coinsCollected + 1
+                        if coinsCollected >= 5 then break end
                     end
                 end
             end
         end
     end
 
-    -- Main automation loop running safely in the background
+    -- Main automation loop with strict priority order
     local runningLoop = false
     function Restaurant.StartLoop()
         if runningLoop then return end
@@ -310,35 +418,42 @@ return function(Core)
             while Core.State.Running and runningLoop do
                 local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
 
-                -- Keep chair sit guard active if enabled
-                if Config.PreventSitting and LocalPlayer.Character then
-                    local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Sit then
-                        hum.Sit = false
+                local char, _, hum = getAliveCharacter()
+                if char and hum and hum.Health > 0 then
+                    -- 1. Harvest farm goods (keeps kitchen supplied)
+                    if Config.AutoFarmEnabled then
+                        pcall(Restaurant.HandleFarming)
                     end
-                end
 
-                -- Run prioritized workflow cycle
-                if Config.AutoFarmEnabled then
-                    pcall(Restaurant.HandleFarming)
-                end
-                if Config.AutoCollectCashEnabled then
-                    pcall(Restaurant.HandleCashCollection)
-                end
-                if Config.AutoCleanEnabled then
-                    pcall(Restaurant.HandleCleaning)
-                end
-                if Config.AutoSeatEnabled then
-                    pcall(Restaurant.HandleSeating)
-                end
-                if Config.AutoOrderEnabled then
-                    pcall(Restaurant.HandleOrdering)
-                end
-                if Config.AutoCookEnabled then
-                    pcall(Restaurant.HandleCooking)
-                end
-                if Config.AutoServeEnabled then
-                    pcall(Restaurant.HandleServing)
+                    -- 2. Collect cash/tips (frees registers/tables)
+                    if Config.AutoCollectCashEnabled then
+                        pcall(Restaurant.HandleCashCollection)
+                    end
+
+                    -- 3. Clean tables (frees seats for new guests)
+                    if Config.AutoCleanEnabled then
+                        pcall(Restaurant.HandleCleaning)
+                    end
+
+                    -- 4. Seat waiting customers (now that tables are clear)
+                    if Config.AutoSeatEnabled then
+                        pcall(Restaurant.HandleSeating)
+                    end
+
+                    -- 5. Take customer orders
+                    if Config.AutoOrderEnabled then
+                        pcall(Restaurant.HandleOrdering)
+                    end
+
+                    -- 6. Cook food at stations
+                    if Config.AutoCookEnabled then
+                        pcall(Restaurant.HandleCooking)
+                    end
+
+                    -- 7. Serve prepared dishes
+                    if Config.AutoServeEnabled then
+                        pcall(Restaurant.HandleServing)
+                    end
                 end
 
                 task.wait(delayTime)
@@ -350,12 +465,13 @@ return function(Core)
     function Restaurant.Init()
         setupPromptHook()
         Restaurant.StartLoop()
-        print("🍽️ Run a Restaurant automation module loaded with teleportation & plot scoping.")
+        print("🍽️ Run a Restaurant automation loaded: debounce, seat safety, and plot scoping active.")
     end
 
     function Restaurant.Cleanup()
         runningLoop = false
         cachedPlot = nil
+        table.clear(promptCooldowns)
     end
 
     return Restaurant
