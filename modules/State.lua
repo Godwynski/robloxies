@@ -14,6 +14,9 @@ return function(Core)
             StorageRestocked = 0,
             QuestsClaimed = 0,
             ExpansionsPurchased = 0,
+            ItemsPurchased = 0,
+            ItemsPlaced = 0,
+            StaffHired = 0,
         },
     }
     return State

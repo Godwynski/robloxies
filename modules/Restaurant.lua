@@ -314,6 +314,8 @@ return function(Core)
             Restock = {},
             Farm = {},
             Expand = {},
+            Buy = {},
+            Place = {},
         }
 
         local searchList = {}
@@ -363,6 +365,10 @@ return function(Core)
                         table.insert(categorized.Restock, obj)
                     elseif combined:find("harvest") or combined:find("crop") or combined:find("wheat") or combined:find("plant") or combined:find("gather") or combined:find("pick") then
                         table.insert(categorized.Farm, obj)
+                    elseif combined:find("place") or combined:find("build") or combined:find("assemble") or combined:find("put down") then
+                        table.insert(categorized.Place, obj)
+                    elseif (combined:find("buy") or combined:find("purchase")) and not combined:find("floor") and not combined:find("expand") then
+                        table.insert(categorized.Buy, obj)
                     elseif combined:find("expand") or combined:find("floor") or combined:find("unlock") or combined:find("purchase") or combined:find("buy") then
                         table.insert(categorized.Expand, obj)
                     end
@@ -494,6 +500,182 @@ return function(Core)
         if #p.Expand > 0 then executeAction(p.Expand[1], 6.0, "ExpansionsPurchased") end
     end
 
+    local lastBuyCheck = 0
+    function Restaurant.HandleAutoBuy()
+        if not Config.AutoBuyEnabled then return false end
+        local now = os.clock()
+        if now - lastBuyCheck < 2.5 then return false end
+        lastBuyCheck = now
+
+        -- 1. Check in-world shop prompts
+        local prompts = Restaurant.ScanPrompts()
+        if #prompts.Buy > 0 then
+            for _, p in ipairs(prompts.Buy) do
+                local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
+                local isStove = text:find("stove") or text:find("oven") or text:find("grill")
+                local isTable = text:find("table") or text:find("chair") or text:find("seat")
+                local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
+
+                local shouldBuy = (Config.AutoBuyStoves and isStove) or (Config.AutoBuyTables and isTable) or (Config.AutoBuyAppliances and isAppliance) or (not isStove and not isTable and not isAppliance)
+                if shouldBuy then
+                    local ok = executeAction(p, 4.0, "ItemsPurchased")
+                    if ok then return true end
+                end
+            end
+        end
+
+        -- 2. Check Shop GUI in PlayerGui
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local bText = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local bName = btn.Name:lower()
+                    local pName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local gpName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
+
+                    if (bText:find("buy") or bText:find("purchase") or bName:find("buy") or bName:find("purchase")) and not bText:find("robux") then
+                        local combined = (bText .. " " .. bName .. " " .. pName .. " " .. gpName):lower()
+                        local isStove = combined:find("stove") or combined:find("oven") or combined:find("grill")
+                        local isTable = combined:find("table") or combined:find("chair")
+                        local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge")
+
+                        if (Config.AutoBuyStoves and isStove) or (Config.AutoBuyTables and isTable) or (Config.AutoBuyAppliances and isAppliance) or (not isStove and not isTable and not isAppliance) then
+                            pcall(function()
+                                if type(firesignal) == "function" and btn.Activated then
+                                    firesignal(btn.Activated)
+                                elseif btn.Activate then
+                                    btn:Activate()
+                                end
+                            end)
+                            State.Stats.ItemsPurchased = State.Stats.ItemsPurchased + 1
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local lastPlaceCheck = 0
+    local placeGridIndex = 0
+    function Restaurant.HandleAutoPlace()
+        if not Config.AutoPlaceEnabled then return false end
+        local now = os.clock()
+        if now - lastPlaceCheck < 2.0 then return false end
+        lastPlaceCheck = now
+
+        -- 1. Check in-world "Place" / "Build" prompts on player's plot
+        local prompts = Restaurant.ScanPrompts()
+        if #prompts.Place > 0 then
+            local ok = executeAction(prompts.Place[1], 3.0, "ItemsPlaced")
+            if ok then return true end
+        end
+
+        -- 2. Check Build / Inventory GUI in PlayerGui for unplaced items
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local char, root = getAliveCharacter()
+        local center = Restaurant.RestaurantCenter or (root and root.Position)
+        if pg and center and char then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local bText = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local bName = btn.Name:lower()
+                    local pName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                    if (bText == "place" or bText:find("place") or bName:find("place") or bText == "deploy" or bText == "build") and not bText:find("cancel") and not bName:find("close") then
+                        -- Trigger place button on item
+                        pcall(function()
+                            if type(firesignal) == "function" and btn.Activated then
+                                firesignal(btn.Activated)
+                            elseif btn.Activate then
+                                btn:Activate()
+                            end
+                        end)
+
+                        -- Calculate open floor grid coordinate near restaurant center
+                        placeGridIndex = (placeGridIndex + 1) % 36
+                        local ring = math.floor(placeGridIndex / 8) + 1
+                        local angle = (placeGridIndex % 8) * (math.pi / 4)
+                        local dist = ring * 7
+                        local targetGridPos = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+                        local safeFloor = Utility.GetGroundPosition(targetGridPos, {char})
+
+                        -- Teleport near position so placement raycasts succeed
+                        if Config.AutoTeleportEnabled and root then
+                            root.CFrame = CFrame.new(safeFloor + Vector3.new(0, 3, 0))
+                            task.wait(0.12)
+                        end
+
+                        -- Check for placement confirm button in UI
+                        for _, confirmBtn in ipairs(pg:GetDescendants()) do
+                            if (confirmBtn:IsA("TextButton") or confirmBtn:IsA("ImageButton")) and confirmBtn.Visible then
+                                local cText = (confirmBtn:IsA("TextButton") and confirmBtn.Text or ""):lower()
+                                local cName = confirmBtn.Name:lower()
+                                if cText == "confirm" or cText == "✓" or cText:find("confirm") or cName:find("confirm") then
+                                    pcall(function()
+                                        if type(firesignal) == "function" and confirmBtn.Activated then
+                                            firesignal(confirmBtn.Activated)
+                                        elseif confirmBtn.Activate then
+                                            confirmBtn:Activate()
+                                        end
+                                    end)
+                                    break
+                                end
+                            end
+                        end
+
+                        -- Check ReplicatedStorage placement remote
+                        local rs = game:GetService("ReplicatedStorage")
+                        local placeRemote = rs:FindFirstChild("PlaceItem", true) or rs:FindFirstChild("PlaceObject", true) or rs:FindFirstChild("PlaceFurniture", true) or rs:FindFirstChild("BuildItem", true)
+                        if placeRemote and placeRemote:IsA("RemoteEvent") then
+                            pcall(function()
+                                placeRemote:FireServer(bName, CFrame.new(safeFloor))
+                            end)
+                        end
+
+                        State.Stats.ItemsPlaced = State.Stats.ItemsPlaced + 1
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local lastStaffCheck = 0
+    function Restaurant.HandleStaffManage()
+        if not Config.AutoHireStaffEnabled then return false end
+        local now = os.clock()
+        if now - lastStaffCheck < 4.0 then return false end
+        lastStaffCheck = now
+
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return false end
+
+        for _, btn in ipairs(pg:GetDescendants()) do
+            if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                local name = btn.Name:lower()
+                local pName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                if (text:find("hire") or text:find("recruit") or name:find("hire") or (pName:find("staff") and text:find("upgrade"))) and not text:find("robux") then
+                    pcall(function()
+                        if type(firesignal) == "function" and btn.Activated then
+                            firesignal(btn.Activated)
+                        elseif btn.Activate then
+                            btn:Activate()
+                        end
+                        State.Stats.StaffHired = State.Stats.StaffHired + 1
+                    end)
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     -- Master Autonomous Priority Dispatcher Loop
     local runningLoop = false
     function Restaurant.StartLoop()
@@ -559,7 +741,19 @@ return function(Core)
                     elseif (isMaster or Config.AutoFarmEnabled) and #prompts.Farm > 0 then
                         executeAction(prompts.Farm[1], 3.0, "CropsHarvested")
 
-                    -- 10. Floor & Land Expansion
+                    -- 10. Auto-Place stored furniture & appliances
+                    elseif (isMaster or Config.AutoPlaceEnabled) and Restaurant.HandleAutoPlace() then
+                        -- handled in HandleAutoPlace
+
+                    -- 11. Auto-Buy equipment & appliances
+                    elseif (isMaster or Config.AutoBuyEnabled) and Restaurant.HandleAutoBuy() then
+                        -- handled in HandleAutoBuy
+
+                    -- 12. Auto-Hire & Upgrade staff
+                    elseif Config.AutoHireStaffEnabled and Restaurant.HandleStaffManage() then
+                        -- handled in HandleStaffManage
+
+                    -- 13. Floor & Land Expansion
                     elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
                         executeAction(prompts.Expand[1], 6.0, "ExpansionsPurchased")
 

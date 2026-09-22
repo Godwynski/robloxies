@@ -42,6 +42,7 @@ return function(Core)
             local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
             local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
             local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0 | 🏰 Expansions: 0")
+            local statsLabel5 = RestTab:AddLabel("🛒 Purchased: 0 | 🔨 Placed: 0 | 👨‍🍳 Staff: 0")
 
             -- Sync live stats every second
             task.spawn(function()
@@ -52,6 +53,7 @@ return function(Core)
                         statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
                         statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
                         statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d | 🏰 Expansions: %d", s.CropsHarvested, s.StorageRestocked, s.ExpansionsPurchased))
+                        statsLabel5:SetText(string.format("🛒 Purchased: %d | 🔨 Placed: %d | 👨‍🍳 Staff: %d", s.ItemsPurchased, s.ItemsPlaced, s.StaffHired))
                     end)
                     task.wait(0.8)
                 end
@@ -98,6 +100,15 @@ return function(Core)
             RestTab:AddToggle("Auto-Restock Kitchen Storage", Config.AutoRestockEnabled, function(val)
                 Config.AutoRestockEnabled = val
                 UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Buy Stoves & Appliances", Config.AutoBuyEnabled, function(val)
+                Config.AutoBuyEnabled = val
+            end)
+            RestTab:AddToggle("Auto-Place Stored Furniture", Config.AutoPlaceEnabled, function(val)
+                Config.AutoPlaceEnabled = val
+            end)
+            RestTab:AddToggle("Auto-Hire & Upgrade Staff", Config.AutoHireStaffEnabled, function(val)
+                Config.AutoHireStaffEnabled = val
             end)
             RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
                 Config.AutoClaimQuestsEnabled = val
@@ -185,6 +196,33 @@ return function(Core)
                     local old = btn.Text
                     btn.Text = "Dispatched!"
                     task.delay(1.2, function() btn.Text = old end)
+                end
+            end)
+            RestTab:AddButton("🛒 Auto-Buy Next Equipment Now", function(btn)
+                if Core.Restaurant and Core.Restaurant.HandleAutoBuy then
+                    Config.AutoBuyEnabled = true
+                    pcall(Core.Restaurant.HandleAutoBuy)
+                    local old = btn.Text
+                    btn.Text = "Checked Shop!"
+                    task.delay(1.5, function() btn.Text = old end)
+                end
+            end)
+            RestTab:AddButton("🔨 Auto-Place Stored Items Now", function(btn)
+                if Core.Restaurant and Core.Restaurant.HandleAutoPlace then
+                    Config.AutoPlaceEnabled = true
+                    pcall(Core.Restaurant.HandleAutoPlace)
+                    local old = btn.Text
+                    btn.Text = "Placed on Grid!"
+                    task.delay(1.5, function() btn.Text = old end)
+                end
+            end)
+            RestTab:AddButton("👨‍🍳 Auto-Hire Available Staff Now", function(btn)
+                if Core.Restaurant and Core.Restaurant.HandleStaffManage then
+                    Config.AutoHireStaffEnabled = true
+                    pcall(Core.Restaurant.HandleStaffManage)
+                    local old = btn.Text
+                    btn.Text = "Hired Staff!"
+                    task.delay(1.5, function() btn.Text = old end)
                 end
             end)
             RestTab:AddButton("Teleport to Restaurant Center", function(btn)
