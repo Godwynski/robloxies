@@ -1,6 +1,6 @@
-# 🏃 Roblox Movement Utility
+# 🍽️ Run a Restaurant Utility
 
-A lightweight, modular, and plain Roblox player movement utility featuring speed modification, jump customization, infinite jumping, and collision-safe no-clip.
+An automation and movement utility for the Roblox game **Run a Restaurant** (by Burnt Toast Labs!), featuring automatic seating, order taking, cooking, serving, cleaning, cash/tip collection, instant interactions, and character physics enhancements.
 
 ---
 
@@ -20,26 +20,35 @@ A lightweight, modular, and plain Roblox player movement utility featuring speed
 Load directly into your executor:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/plain/init.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/run-a-restaurant/init.lua"))()
 ```
 
 ### 2. Standalone Single-File Bundle
 Or run the bundled standalone version:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/plain/dist/main.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/run-a-restaurant/dist/main.lua"))()
 ```
 
 ---
 
 ## ⚡ Features
 
-- **WalkSpeed Override** — Smoothly alter character walking speed with automatic original speed caching and restoration upon disable or respawn.
-- **JumpPower & JumpHeight** — Override jump power with dynamic gravity support (`JumpHeight = JumpPower² / (2 * workspace.Gravity)`), restoring default values when disabled or respawning.
-- **Collision-Safe No-Clip** — Suppress `CanCollide` on character parts using `RunService.Stepped` to walk through obstacles, restoring parts collision on disable.
-- **Infinite Jump** — Jump continuously in mid-air via `UserInputService.JumpRequest` and humanoid state transitions.
-- **Minimal Movement UI** — Clean, draggable, minimize-capable interface designed solely for movement controls, with touch/mobile support.
-- **Clean Lifecycle Teardown** — Full connection cleanup, speed/jump restoration, and part collision restoration on re-execution or close.
+### 🍽️ Restaurant Automation
+- **Auto-Seat Customers** — Automatically detects waiting customers at the entrance or host stand and seats them at vacant tables.
+- **Auto-Take Orders** — Takes orders from seated customers as soon as they are ready.
+- **Auto-Cook Food** — Automatically triggers cooking stations, grills, and ovens to prepare food tickets.
+- **Auto-Serve Dishes** — Delivers cooked meals from counters to waiting tables.
+- **Auto-Clean Tables** — Clears dirty dishes and wipes tables immediately after customers leave.
+- **Auto-Collect Cash & Tips** — Automatically sweeps coins, cash drops, and register tips across the restaurant.
+- **Instant Proximity Prompts** — Removes hold duration (`HoldDuration = 0`) and line-of-sight requirements for lightning-fast interactions.
+- **Configurable Action Loop** — Adjustable loop speed slider to balance throughput and stealth.
+
+### 🏃 Integrated Movement
+- **WalkSpeed Override** — Sprint through large restaurants with smooth speed overrides and automatic restore.
+- **JumpPower & JumpHeight** — Jump over furniture and counters with dynamic gravity compensation.
+- **No-Clip** — Walk freely through walls, tables, and customers without getting stuck.
+- **Infinite Jump** — Jump continuously in mid-air.
 
 ---
 
@@ -47,7 +56,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/p
 
 | Key | Action |
 | :--- | :--- |
-| `RightShift` | Toggle Movement GUI |
+| `RightShift` | Toggle Restaurant GUI |
 | `N` | Toggle No-Clip |
 
 *Additional keybinds for Speed, Jump, and Infinite Jump can be bound in the Settings tab.*
@@ -57,13 +66,14 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/p
 ## 🏗️ Architecture
 
 ```
-init.lua           → Entry point, lifecycle guard, and module loader
+init.lua           → Entry point, lifecycle teardown, and module coordinator
 modules/
-  Config.lua       → Movement settings, keybinds, and JSON persistence
-  State.lua        → Runtime state and active connection registry
-  Utility.lua      → Connection registration and cleanup termination
-  Movement.lua     → Physics manipulation, No-Clip, Speed, and Jump logic
-  UI.lua           → Movement UI coordinator and settings tab builder
+  Config.lua       → Restaurant automation and movement settings with JSON persistence
+  State.lua        → Runtime state and connection registry
+  Utility.lua      → Connection registration and termination cleanup
+  Restaurant.lua   → Workflow automation (seat, order, cook, serve, clean, cash)
+  Movement.lua     → Physics overrides (Speed, Jump, No-Clip, InfJump)
+  UI.lua           → Tab director (Restaurant, Movement, Settings)
   UILibrary.lua    → Clean, draggable, and touch-compatible UI library
   MainLoop.lua     → Input event dispatcher and keybind handler
 ```
@@ -72,10 +82,10 @@ modules/
 
 ## 🛠️ Build & Distribution
 
-To bundle all modules into a standalone single-file script:
+To compile all modules into a standalone single-file distribution:
 
 ```bash
 npm run build
 ```
 
-The bundled script will be output to `dist/main.lua`.
+The output bundle will be saved to `dist/main.lua`.

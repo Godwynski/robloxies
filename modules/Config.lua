@@ -1,5 +1,15 @@
 return function(Core)
     local Config = {
+        -- Restaurant Automation
+        AutoSeatEnabled = false,
+        AutoOrderEnabled = false,
+        AutoCookEnabled = false,
+        AutoServeEnabled = false,
+        AutoCleanEnabled = false,
+        AutoCollectCashEnabled = false,
+        InstantPromptEnabled = true,
+        ActionDelay = 0.3,
+
         -- Movement Physics
         WalkSpeedEnabled = false,
         WalkSpeed = 16,
@@ -17,7 +27,7 @@ return function(Core)
     }
 
     local HttpService = game:GetService("HttpService")
-    local fileName = "Movement_Config.json"
+    local fileName = "Restaurant_Config.json"
 
     function Config:Save()
         if type(writefile) ~= "function" then return false end

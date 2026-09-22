@@ -1,7 +1,7 @@
 {
-  "name": "roblox-movement",
+  "name": "roblox-run-a-restaurant",
   "version": "1.0.0",
-  "description": "A lightweight, plain Roblox player movement utility",
+  "description": "An automation and movement utility for Roblox Run a Restaurant",
   "main": "init.lua",
   "scripts": {
     "build": "node build.js"

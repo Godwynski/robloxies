@@ -1,19 +1,22 @@
 -- init.lua
-local repoURL = "https://raw.githubusercontent.com/Godwynski/robloxies/plain/"
+local repoURL = "https://raw.githubusercontent.com/Godwynski/robloxies/run-a-restaurant/"
 
 -- Terminate previous instance if running
+if _G.__Restaurant_Running then
+    pcall(function() _G.__Restaurant_Terminate() end)
+end
 if _G.__Movement_Running then
     pcall(function() _G.__Movement_Terminate() end)
 end
 if _G.__PureAutoAim_Running then
     pcall(function() _G.__PureAutoAim_Terminate() end)
 end
-_G.__Movement_Running = true
+_G.__Restaurant_Running = true
 
 -- Clean up any lingering GUI instances
 local hiddenUI = (gethui and gethui()) or game:GetService("CoreGui")
 for _, gui in ipairs(hiddenUI:GetChildren()) do
-    if gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
+    if gui.Name == "RestaurantUtilityPanel" or gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
         pcall(function() gui:Destroy() end)
     end
 end
@@ -21,14 +24,14 @@ pcall(function()
     local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
     if pg then
         for _, gui in ipairs(pg:GetChildren()) do
-            if gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
+            if gui.Name == "RestaurantUtilityPanel" or gui.Name == "RobloxMovementPanel" or gui.Name == "PureAutoAimPanel" then
                 pcall(function() gui:Destroy() end)
             end
         end
     end
 end)
 
-print("Initializing Movement Utility...")
+print("Initializing Run a Restaurant Utility...")
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
@@ -46,6 +49,16 @@ local Core = {
 Core.Config = (function()
 return function(Core)
     local Config = {
+        -- Restaurant Automation
+        AutoSeatEnabled = false,
+        AutoOrderEnabled = false,
+        AutoCookEnabled = false,
+        AutoServeEnabled = false,
+        AutoCleanEnabled = false,
+        AutoCollectCashEnabled = false,
+        InstantPromptEnabled = true,
+        ActionDelay = 0.3,
+
         -- Movement Physics
         WalkSpeedEnabled = false,
         WalkSpeed = 16,
@@ -63,7 +76,7 @@ return function(Core)
     }
 
     local HttpService = game:GetService("HttpService")
-    local fileName = "Movement_Config.json"
+    local fileName = "Restaurant_Config.json"
 
     function Config:Save()
         if type(writefile) ~= "function" then return false end
@@ -150,6 +163,7 @@ return function(Core)
         local State = Core.State
         State.Running = false
         _G.__Movement_Running = false
+        _G.__Restaurant_Running = false
 
         -- Disconnect all event connections
         for _, conn in ipairs(State.ActiveConnections) do
@@ -158,6 +172,11 @@ return function(Core)
             end
         end
         table.clear(State.ActiveConnections)
+
+        -- Clean up Restaurant module
+        if Core.Restaurant and Core.Restaurant.Cleanup then
+            pcall(Core.Restaurant.Cleanup)
+        end
 
         -- Restore Movement if active
         if Core.Movement and Core.Movement.Cleanup then
@@ -384,7 +403,7 @@ return function(Core)
                     if isfile and isfile("dist/main.lua") then
                         loadstring(readfile("dist/main.lua"))()
                     else
-                        loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/plain/dist/main.lua?nocache=" .. tostring(tick())))()
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/run-a-restaurant/dist/main.lua?nocache=" .. tostring(tick())))()
                     end
                 end)
                 if not ok then warn("[UILibrary] Refresh failed:", tostring(err)) end
@@ -848,16 +867,20 @@ end)()(Core)
         local Theme = UILibrary.Theme or {}
 
         -- Create the main window
-        local Window = UILibrary:CreateWindow("🏃 Movement Utility")
+        local Window = UILibrary:CreateWindow("🍽️ Run a Restaurant Utility")
         UI.Window = Window
 
         if UILibrary.FloatIcon then
-            UILibrary.FloatIcon.Text = "🏃"
+            UILibrary.FloatIcon.Text = "🍽️"
         end
 
         function UI.UpdateFloatStatus()
             if not UILibrary.FloatingCircle or not UILibrary.FloatingCircle.Visible then return end
-            if Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled then
+            local active = Config.AutoSeatEnabled or Config.AutoOrderEnabled or Config.AutoCookEnabled or
+                           Config.AutoServeEnabled or Config.AutoCleanEnabled or Config.AutoCollectCashEnabled or
+                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
+
+            if active then
                 UILibrary.FloatStroke.Color = Theme.TextAccent
                 UILibrary.FloatingCircle.BackgroundColor3 = Color3.fromRGB(28, 22, 54)
             else
@@ -866,6 +889,61 @@ end)()(Core)
             end
         end
 
+        -- Build the Restaurant Automation Tab
+        function UI.BuildRestaurantTab()
+            local RestTab = Window:AddTab("Restaurant")
+
+            RestTab:AddSection("AUTOMATION WORKFLOW")
+            RestTab:AddToggle("Auto-Seat Customers", Config.AutoSeatEnabled, function(val)
+                Config.AutoSeatEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Take Orders", Config.AutoOrderEnabled, function(val)
+                Config.AutoOrderEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Cook Food", Config.AutoCookEnabled, function(val)
+                Config.AutoCookEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Serve Dishes", Config.AutoServeEnabled, function(val)
+                Config.AutoServeEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Clean Tables", Config.AutoCleanEnabled, function(val)
+                Config.AutoCleanEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+            RestTab:AddToggle("Auto-Collect Cash / Tips", Config.AutoCollectCashEnabled, function(val)
+                Config.AutoCollectCashEnabled = val
+                UI.UpdateFloatStatus()
+            end)
+
+            RestTab:AddSection("INTERACTIONS")
+            RestTab:AddToggle("Instant Proximity Prompts", Config.InstantPromptEnabled, function(val)
+                Config.InstantPromptEnabled = val
+            end)
+            RestTab:AddSlider("Action Loop Speed (s)", math.floor(Config.ActionDelay * 10), 1, 20, function(val)
+                Config.ActionDelay = val / 10
+            end)
+
+            RestTab:AddSection("QUICK ACTIONS")
+            RestTab:AddButton("Trigger All Nearby Prompts", function(btn)
+                if Core.Restaurant then
+                    pcall(Core.Restaurant.HandleSeating)
+                    pcall(Core.Restaurant.HandleOrdering)
+                    pcall(Core.Restaurant.HandleCooking)
+                    pcall(Core.Restaurant.HandleServing)
+                    pcall(Core.Restaurant.HandleCleaning)
+                    pcall(Core.Restaurant.HandleCashCollection)
+                    local old = btn.Text
+                    btn.Text = "Triggered!"
+                    task.delay(1.2, function() btn.Text = old end)
+                end
+            end)
+        end
+
+        -- Build the Settings Tab
         function UI.BuildSettingsTab()
             local SettingsTab = Window:AddTab("Settings")
             SettingsTab:AddSection("KEYBINDS")
@@ -901,7 +979,181 @@ end
 end)()(Core)
 Core.UI.Init()
 
--- 4. Load Movement Module
+-- 4. Load Automation & Movement Modules
+Core.Restaurant = (function()
+return function(Core)
+    local Restaurant = {}
+
+    local Config = Core.Config
+    local Utility = Core.Utility
+    local Services = Core.Services
+    local LocalPlayer = Services.Players.LocalPlayer
+
+    -- Helper: Fire or trigger a ProximityPrompt safely
+    local function triggerPrompt(prompt)
+        if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+        
+        -- Custom executor fireproximityprompt if supported
+        if type(fireproximityprompt) == "function" then
+            local ok = pcall(function()
+                fireproximityprompt(prompt, 0)
+            end)
+            if ok then return true end
+        end
+
+        -- Fallback: Zero hold duration
+        pcall(function()
+            prompt.HoldDuration = 0
+            prompt.RequiresLineOfSight = false
+        end)
+        return true
+    end
+
+    -- Hook newly created ProximityPrompts for instant interaction
+    local function setupPromptHook()
+        Utility.RegisterConnection(workspace.DescendantAdded:Connect(function(desc)
+            if Config.InstantPromptEnabled and desc:IsA("ProximityPrompt") then
+                pcall(function()
+                    desc.HoldDuration = 0
+                    desc.RequiresLineOfSight = false
+                end)
+            end
+        end))
+
+        -- Apply to existing prompts
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                pcall(function()
+                    if Config.InstantPromptEnabled then
+                        desc.HoldDuration = 0
+                        desc.RequiresLineOfSight = false
+                    end
+                end)
+            end
+        end
+    end
+
+    -- Scan workspace for matching prompts by action text, name, or object type
+    local function scanAndTrigger(keywords)
+        local count = 0
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                local action = (obj.ActionText or ""):lower()
+                local name = (obj.ObjectText or obj.Name or ""):lower()
+                local parentName = (obj.Parent and obj.Parent.Name or ""):lower()
+
+                for _, kw in ipairs(keywords) do
+                    kw = kw:lower()
+                    if action:find(kw, 1, true) or name:find(kw, 1, true) or parentName:find(kw, 1, true) then
+                        triggerPrompt(obj)
+                        count = count + 1
+                        break
+                    end
+                end
+            end
+        end
+        return count
+    end
+
+    -- Specific Workflow Handlers
+    function Restaurant.HandleSeating()
+        if not Config.AutoSeatEnabled then return end
+        scanAndTrigger({"seat", "customer", "lead", "table", "chair", "welcome", "host"})
+    end
+
+    function Restaurant.HandleOrdering()
+        if not Config.AutoOrderEnabled then return end
+        scanAndTrigger({"order", "take order", "menu", "ask"})
+    end
+
+    function Restaurant.HandleCooking()
+        if not Config.AutoCookEnabled then return end
+        scanAndTrigger({"cook", "prepare", "bake", "fry", "stove", "grill", "oven", "pot", "pan"})
+    end
+
+    function Restaurant.HandleServing()
+        if not Config.AutoServeEnabled then return end
+        scanAndTrigger({"serve", "deliver", "dish", "plate", "food", "tray"})
+    end
+
+    function Restaurant.HandleCleaning()
+        if not Config.AutoCleanEnabled then return end
+        scanAndTrigger({"clean", "dirty", "trash", "wash", "clear", "wipe", "sink"})
+    end
+
+    function Restaurant.HandleCashCollection()
+        if not Config.AutoCollectCashEnabled then return end
+        -- Check for cash prompts
+        scanAndTrigger({"cash", "coin", "tip", "bill", "pay", "collect", "register", "money"})
+
+        -- Also check for dropped touch-interest coins / cash parts in workspace
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root and Config.AutoCollectCashEnabled then
+            for _, item in ipairs(workspace:GetChildren()) do
+                local name = item.Name:lower()
+                if (name:find("coin") or name:find("cash") or name:find("money") or name:find("tip")) and item:IsA("BasePart") then
+                    pcall(function()
+                        firetouchinterest(root, item, 0)
+                        task.wait()
+                        firetouchinterest(root, item, 1)
+                    end)
+                end
+            end
+        end
+    end
+
+    -- Main automation loop running safely in the background
+    local runningLoop = false
+    function Restaurant.StartLoop()
+        if runningLoop then return end
+        runningLoop = true
+
+        task.spawn(function()
+            while Core.State.Running and runningLoop do
+                local delayTime = math.clamp(Config.ActionDelay or 0.3, 0.05, 5)
+
+                if Config.AutoSeatEnabled then
+                    pcall(Restaurant.HandleSeating)
+                end
+                if Config.AutoOrderEnabled then
+                    pcall(Restaurant.HandleOrdering)
+                end
+                if Config.AutoCookEnabled then
+                    pcall(Restaurant.HandleCooking)
+                end
+                if Config.AutoServeEnabled then
+                    pcall(Restaurant.HandleServing)
+                end
+                if Config.AutoCleanEnabled then
+                    pcall(Restaurant.HandleCleaning)
+                end
+                if Config.AutoCollectCashEnabled then
+                    pcall(Restaurant.HandleCashCollection)
+                end
+
+                task.wait(delayTime)
+            end
+            runningLoop = false
+        end)
+    end
+
+    function Restaurant.Init()
+        setupPromptHook()
+        Restaurant.StartLoop()
+        print("🍽️ Restaurant automation module initialized.")
+    end
+
+    function Restaurant.Cleanup()
+        runningLoop = false
+    end
+
+    return Restaurant
+end
+
+end)()(Core)
+Core.Restaurant.Init()
+
 Core.Movement = (function()
 return function(Core)
     local Movement = {}
@@ -1076,10 +1328,11 @@ end
 end)()(Core)
 Core.Movement.Init()
 
--- 5. Build Settings Tab & Select Movement Tab
+-- 5. Build Tabs & Select Restaurant Tab
+Core.UI.BuildRestaurantTab()
 Core.UI.BuildSettingsTab()
 if Core.UI and Core.UI.Window then
-    pcall(function() Core.UI.Window:SelectTab("Movement") end)
+    pcall(function() Core.UI.Window:SelectTab("Restaurant") end)
 end
 
 -- 6. Start Keybind & Event Loop
@@ -1167,5 +1420,5 @@ end
 end)()(Core)
 Core.MainLoop.Init()
 
-print("Movement Utility loaded successfully!")
-_G.__Movement_Terminate = Core.Utility.Terminate
+print("🍽️ Run a Restaurant Utility loaded successfully!")
+_G.__Restaurant_Terminate = Core.Utility.Terminate

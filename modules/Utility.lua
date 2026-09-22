@@ -25,6 +25,7 @@ return function(Core)
         local State = Core.State
         State.Running = false
         _G.__Movement_Running = false
+        _G.__Restaurant_Running = false
 
         -- Disconnect all event connections
         for _, conn in ipairs(State.ActiveConnections) do
@@ -33,6 +34,11 @@ return function(Core)
             end
         end
         table.clear(State.ActiveConnections)
+
+        -- Clean up Restaurant module
+        if Core.Restaurant and Core.Restaurant.Cleanup then
+            pcall(Core.Restaurant.Cleanup)
+        end
 
         -- Restore Movement if active
         if Core.Movement and Core.Movement.Cleanup then
