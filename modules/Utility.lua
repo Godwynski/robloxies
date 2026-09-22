@@ -172,6 +172,12 @@ return function(Core)
         State.Running = false
         _G.__Movement_Running = false
         _G.__Restaurant_Running = false
+        _G.__Movement_Terminate = nil
+        _G.__Restaurant_Terminate = nil
+        _G.loadModule = nil
+        pcall(function()
+            if getgenv then getgenv().loadModule = nil end
+        end)
 
         -- Restore 3D rendering in case GPU saver was active
         pcall(function()
@@ -191,17 +197,37 @@ return function(Core)
             pcall(Core.Restaurant.Cleanup)
         end
 
-        -- Restore Movement if active
+        -- Restore Movement physics if active
         if Core.Movement and Core.Movement.Cleanup then
             pcall(Core.Movement.Cleanup)
         end
 
-        -- Clean up UI ScreenGui if active
+        -- Clean up UI ScreenGui directly if cached
         pcall(function()
             if Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.Interface then
                 Core.UI.Window.Library.Interface:Destroy()
             end
         end)
+
+        -- Clean up all UI ScreenGui instances across all possible containers
+        local containers = {
+            (gethui and gethui()) or nil,
+            Services.CoreGui,
+            Services.Players.LocalPlayer and Services.Players.LocalPlayer:FindFirstChild("PlayerGui"),
+        }
+        for _, parent in ipairs(containers) do
+            if parent then
+                pcall(function()
+                    for _, child in ipairs(parent:GetChildren()) do
+                        if child.Name == "RestaurantUtilityPanel" or child.Name == "RobloxMovementPanel" or child.Name == "PureAutoAimPanel" then
+                            pcall(function() child:Destroy() end)
+                        end
+                    end
+                end)
+            end
+        end
+
+        print("🍽️ Run a Restaurant Utility has been completely unloaded.")
     end
 
     return Utility

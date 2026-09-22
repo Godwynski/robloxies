@@ -367,6 +367,12 @@ return function(Core)
         State.Running = false
         _G.__Movement_Running = false
         _G.__Restaurant_Running = false
+        _G.__Movement_Terminate = nil
+        _G.__Restaurant_Terminate = nil
+        _G.loadModule = nil
+        pcall(function()
+            if getgenv then getgenv().loadModule = nil end
+        end)
 
         -- Restore 3D rendering in case GPU saver was active
         pcall(function()
@@ -386,17 +392,37 @@ return function(Core)
             pcall(Core.Restaurant.Cleanup)
         end
 
-        -- Restore Movement if active
+        -- Restore Movement physics if active
         if Core.Movement and Core.Movement.Cleanup then
             pcall(Core.Movement.Cleanup)
         end
 
-        -- Clean up UI ScreenGui if active
+        -- Clean up UI ScreenGui directly if cached
         pcall(function()
             if Core.UI and Core.UI.Window and Core.UI.Window.Library and Core.UI.Window.Library.Interface then
                 Core.UI.Window.Library.Interface:Destroy()
             end
         end)
+
+        -- Clean up all UI ScreenGui instances across all possible containers
+        local containers = {
+            (gethui and gethui()) or nil,
+            Services.CoreGui,
+            Services.Players.LocalPlayer and Services.Players.LocalPlayer:FindFirstChild("PlayerGui"),
+        }
+        for _, parent in ipairs(containers) do
+            if parent then
+                pcall(function()
+                    for _, child in ipairs(parent:GetChildren()) do
+                        if child.Name == "RestaurantUtilityPanel" or child.Name == "RobloxMovementPanel" or child.Name == "PureAutoAimPanel" then
+                            pcall(function() child:Destroy() end)
+                        end
+                    end
+                end)
+            end
+        end
+
+        print("🍽️ Run a Restaurant Utility has been completely unloaded.")
     end
 
     return Utility
@@ -519,7 +545,7 @@ return function(Core)
 
     function UILibrary:CreateWindow(titleText)
         local Interface = Instance.new("ScreenGui")
-        Interface.Name = "RobloxMovementPanel"
+        Interface.Name = "RestaurantUtilityPanel"
         Interface.ResetOnSpawn = false
         Interface.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -584,14 +610,21 @@ return function(Core)
         CloseBtn.Size = UDim2.new(0, 28, 0, 28)
         CloseBtn.Position = UDim2.new(1, -33, 0, 5)
         CloseBtn.BackgroundColor3 = Theme.CloseButton
-        CloseBtn.Text = "X"
+        CloseBtn.Text = "✕"
         CloseBtn.TextColor3 = Theme.TextPrimary
         CloseBtn.Font = Enum.Font.GothamBold
         CloseBtn.TextSize = 13
         Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+        CloseBtn.MouseEnter:Connect(function()
+            tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(255, 45, 65)}, 0.15)
+        end)
+        CloseBtn.MouseLeave:Connect(function()
+            tween(CloseBtn, {BackgroundColor3 = Theme.CloseButton}, 0.15)
+        end)
+
         Utility.RegisterConnection(CloseBtn.Activated:Connect(function()
             Utility.Terminate()
-            Interface:Destroy()
         end))
 
         local RefreshBtn = Instance.new("TextButton")
@@ -670,6 +703,10 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 floatDragging = true; floatHasMoved = false; floatDragStart = input.Position; floatStartPos = FloatingCircle.Position
             end
+        end))
+
+        Utility.RegisterConnection(FloatingCircle.MouseButton2Click:Connect(function()
+            Utility.Terminate()
         end))
 
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)
@@ -1302,6 +1339,9 @@ end)()(Core)
                     end
                 end
             end)
+            RestTab:AddButton("🔴 Unload & Close Utility", function()
+                Utility.Terminate()
+            end)
         end
 
         -- Build the Settings Tab
@@ -1330,6 +1370,11 @@ end)()(Core)
                     btn.Text = success and "Loaded!" or "Error Loading"
                     task.delay(1.5, function() btn.Text = oldText end)
                 end
+            end)
+
+            SettingsTab:AddSection("UNLOAD SCRIPT")
+            SettingsTab:AddButton("🔴 Unload & Close Script Completely", function()
+                Utility.Terminate()
             end)
         end
     end
@@ -1933,6 +1978,14 @@ return function(Core)
         cachedPlot = nil
         Restaurant.RestaurantCenter = nil
         table.clear(promptCooldowns)
+
+        local _, root = getAliveCharacter()
+        if root then
+            pcall(function()
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
     end
 
     return Restaurant
@@ -1963,18 +2016,14 @@ return function(Core)
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then
-            if originalWalkSpeed ~= nil then
-                hum.WalkSpeed = originalWalkSpeed
-                originalWalkSpeed = nil
-            end
-            if originalJumpPower ~= nil then
-                hum.JumpPower = originalJumpPower
-                originalJumpPower = nil
-            end
-            if originalJumpHeight ~= nil then
-                hum.JumpHeight = originalJumpHeight
-                originalJumpHeight = nil
-            end
+            hum.WalkSpeed = (originalWalkSpeed ~= nil) and originalWalkSpeed or 16
+            originalWalkSpeed = nil
+
+            hum.JumpPower = (originalJumpPower ~= nil) and originalJumpPower or 50
+            originalJumpPower = nil
+
+            hum.JumpHeight = (originalJumpHeight ~= nil) and originalJumpHeight or 7.2
+            originalJumpHeight = nil
         end
 
         if next(noClipCache) then
@@ -1984,6 +2033,13 @@ return function(Core)
                 end
             end
             table.clear(noClipCache)
+        end
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
         end
     end
 

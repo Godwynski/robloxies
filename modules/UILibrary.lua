@@ -103,7 +103,7 @@ return function(Core)
 
     function UILibrary:CreateWindow(titleText)
         local Interface = Instance.new("ScreenGui")
-        Interface.Name = "RobloxMovementPanel"
+        Interface.Name = "RestaurantUtilityPanel"
         Interface.ResetOnSpawn = false
         Interface.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -168,14 +168,21 @@ return function(Core)
         CloseBtn.Size = UDim2.new(0, 28, 0, 28)
         CloseBtn.Position = UDim2.new(1, -33, 0, 5)
         CloseBtn.BackgroundColor3 = Theme.CloseButton
-        CloseBtn.Text = "X"
+        CloseBtn.Text = "✕"
         CloseBtn.TextColor3 = Theme.TextPrimary
         CloseBtn.Font = Enum.Font.GothamBold
         CloseBtn.TextSize = 13
         Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+        CloseBtn.MouseEnter:Connect(function()
+            tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(255, 45, 65)}, 0.15)
+        end)
+        CloseBtn.MouseLeave:Connect(function()
+            tween(CloseBtn, {BackgroundColor3 = Theme.CloseButton}, 0.15)
+        end)
+
         Utility.RegisterConnection(CloseBtn.Activated:Connect(function()
             Utility.Terminate()
-            Interface:Destroy()
         end))
 
         local RefreshBtn = Instance.new("TextButton")
@@ -254,6 +261,10 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 floatDragging = true; floatHasMoved = false; floatDragStart = input.Position; floatStartPos = FloatingCircle.Position
             end
+        end))
+
+        Utility.RegisterConnection(FloatingCircle.MouseButton2Click:Connect(function()
+            Utility.Terminate()
         end))
 
         Utility.RegisterConnection(Header.InputBegan:Connect(function(input)

@@ -62,6 +62,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 - **Chair Sit Prevention** — Automatically keeps the avatar standing so you never get stuck sitting in customer chairs.
 - **Memory Sanitation Engine** — Automatic periodic garbage collection and table cache recycling for stable 12+ hour overnight farming.
 - **GPU Saver Mode** — Optional 3D render disabler for low-power, multi-hour background farming.
+- **Complete Script Unload** — Dedicated Close header button (`✕`), right-click floating icon shortcut, and Unload buttons in both Restaurant and Settings tabs that disconnect all listeners, stop all background threads, restore character WalkSpeed/JumpPower/collisions to standard Roblox defaults, and destroy all ScreenGuis cleanly.
 - **Configurable Action Loop** — Adjustable station delay and cycle speed sliders.
 
 ### 🏃 Integrated Movement

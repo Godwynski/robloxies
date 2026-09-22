@@ -588,6 +588,14 @@ return function(Core)
         cachedPlot = nil
         Restaurant.RestaurantCenter = nil
         table.clear(promptCooldowns)
+
+        local _, root = getAliveCharacter()
+        if root then
+            pcall(function()
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
     end
 
     return Restaurant

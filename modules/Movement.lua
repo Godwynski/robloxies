@@ -19,18 +19,14 @@ return function(Core)
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then
-            if originalWalkSpeed ~= nil then
-                hum.WalkSpeed = originalWalkSpeed
-                originalWalkSpeed = nil
-            end
-            if originalJumpPower ~= nil then
-                hum.JumpPower = originalJumpPower
-                originalJumpPower = nil
-            end
-            if originalJumpHeight ~= nil then
-                hum.JumpHeight = originalJumpHeight
-                originalJumpHeight = nil
-            end
+            hum.WalkSpeed = (originalWalkSpeed ~= nil) and originalWalkSpeed or 16
+            originalWalkSpeed = nil
+
+            hum.JumpPower = (originalJumpPower ~= nil) and originalJumpPower or 50
+            originalJumpPower = nil
+
+            hum.JumpHeight = (originalJumpHeight ~= nil) and originalJumpHeight or 7.2
+            originalJumpHeight = nil
         end
 
         if next(noClipCache) then
@@ -40,6 +36,13 @@ return function(Core)
                 end
             end
             table.clear(noClipCache)
+        end
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    pcall(function() part.CanCollide = true end)
+                end
+            end
         end
     end
 

@@ -199,6 +199,9 @@ return function(Core)
                     end
                 end
             end)
+            RestTab:AddButton("🔴 Unload & Close Utility", function()
+                Utility.Terminate()
+            end)
         end
 
         -- Build the Settings Tab
@@ -227,6 +230,11 @@ return function(Core)
                     btn.Text = success and "Loaded!" or "Error Loading"
                     task.delay(1.5, function() btn.Text = oldText end)
                 end
+            end)
+
+            SettingsTab:AddSection("UNLOAD SCRIPT")
+            SettingsTab:AddButton("🔴 Unload & Close Script Completely", function()
+                Utility.Terminate()
             end)
         end
     end
