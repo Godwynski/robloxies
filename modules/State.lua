@@ -13,6 +13,7 @@ return function(Core)
             DeliveriesCompleted = 0,
             StorageRestocked = 0,
             QuestsClaimed = 0,
+            ExpansionsPurchased = 0,
         },
     }
     return State

@@ -35,7 +35,10 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 ## ⚡ Features
 
 ### 🍽️ Restaurant Automation
-- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, and quests claimed.
+- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, quests claimed, and expansions purchased.
+- **VIP & Celebrity Priority** — Sorts and prioritizes VIP, gold, and celebrity customers first for maximum tip multipliers and revenue.
+- **Auto-Expand Floors & Land** — Automatically triggers expansion, floor unlock, and plot purchase prompts to continually scale your restaurant capacity AFK.
+- **24/7 Auto-Rejoin Disconnect Guard** — Automatically detects connection errors, kicks, or server drops via `GuiService` / `CoreGui` and teleports back into the server.
 - **Teleport to Workstations** — Teleports the character directly to active tasks (tables, stoves, dirty dishes, registers) with floor raycasting and velocity zeroing to prevent fling or clipping.
 - **Multi-Floor Safe Raycast** — Bounded vertical raycasting ensures safe navigation across multi-story restaurant expansions without falling through floors.
 - **Own Plot Scoping** — Automatically detects and filters all interactions exclusively to your own restaurant/farm plot.

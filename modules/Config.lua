@@ -11,6 +11,8 @@ return function(Core)
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
         AutoClaimQuestsEnabled = true,
+        AutoExpandEnabled = false,
+        VIPPriorityEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
 
@@ -23,6 +25,7 @@ return function(Core)
 
         -- AFK & Performance
         AntiAFKEnabled = true,
+        AutoRejoinEnabled = true,
         GPUSaverEnabled = false,
 
         -- Movement Physics

@@ -41,7 +41,7 @@ return function(Core)
             local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Quests: 0")
             local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
             local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
-            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0")
+            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0 | 🏰 Expansions: 0")
 
             -- Sync live stats every second
             task.spawn(function()
@@ -51,7 +51,7 @@ return function(Core)
                         statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Quests: %d", s.CashCollected, s.QuestsClaimed))
                         statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
                         statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
-                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d", s.CropsHarvested, s.StorageRestocked))
+                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d | 🏰 Expansions: %d", s.CropsHarvested, s.StorageRestocked, s.ExpansionsPurchased))
                     end)
                     task.wait(0.8)
                 end
@@ -98,6 +98,12 @@ return function(Core)
             RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
                 Config.AutoClaimQuestsEnabled = val
             end)
+            RestTab:AddToggle("VIP & Celebrity Customer Priority", Config.VIPPriorityEnabled, function(val)
+                Config.VIPPriorityEnabled = val
+            end)
+            RestTab:AddToggle("Auto-Expand Floors & Land", Config.AutoExpandEnabled, function(val)
+                Config.AutoExpandEnabled = val
+            end)
 
             -- 3. TELEPORTATION & NAVIGATION
             RestTab:AddSection("TELEPORTATION & NAVIGATION")
@@ -124,6 +130,9 @@ return function(Core)
             end)
             RestTab:AddToggle("Anti-AFK Disconnect Guard", Config.AntiAFKEnabled, function(val)
                 Config.AntiAFKEnabled = val
+            end)
+            RestTab:AddToggle("24/7 Auto-Rejoin on Disconnect", Config.AutoRejoinEnabled, function(val)
+                Config.AutoRejoinEnabled = val
             end)
             RestTab:AddToggle("GPU Saver / Performance Mode", Config.GPUSaverEnabled, function(val)
                 Config.GPUSaverEnabled = val

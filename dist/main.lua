@@ -60,6 +60,8 @@ return function(Core)
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
         AutoClaimQuestsEnabled = true,
+        AutoExpandEnabled = false,
+        VIPPriorityEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
 
@@ -72,6 +74,7 @@ return function(Core)
 
         -- AFK & Performance
         AntiAFKEnabled = true,
+        AutoRejoinEnabled = true,
         GPUSaverEnabled = false,
 
         -- Movement Physics
@@ -156,6 +159,7 @@ return function(Core)
             DeliveriesCompleted = 0,
             StorageRestocked = 0,
             QuestsClaimed = 0,
+            ExpansionsPurchased = 0,
         },
     }
     return State
@@ -308,6 +312,41 @@ return function(Core)
             end
         end))
     end
+
+    -- Setup 24/7 Auto-Rejoin on Disconnect or Server Kick
+    function Utility.SetupAutoRejoin()
+        local TeleportService = game:GetService("TeleportService")
+        local GuiService = game:GetService("GuiService")
+
+        pcall(function()
+            local overlay = Services.CoreGui:WaitForChild("RobloxPromptGui", 5)
+            if overlay then
+                local prompt = overlay:WaitForChild("promptOverlay", 5)
+                if prompt then
+                    Utility.RegisterConnection(prompt.ChildAdded:Connect(function(child)
+                        if Config.AutoRejoinEnabled and (child.Name == "ErrorPrompt" or child.Name:find("Error")) then
+                            task.wait(2)
+                            pcall(function()
+                                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                            end)
+                        end
+                    end))
+                end
+            end
+        end)
+
+        pcall(function()
+            Utility.RegisterConnection(GuiService.ErrorMessageChanged:Connect(function()
+                if Config.AutoRejoinEnabled then
+                    task.wait(2)
+                    pcall(function()
+                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+                    end)
+                end
+            end))
+        end)
+    end
+    Utility.SetupAutoRejoin()
 
     function Utility.Terminate()
         local State = Core.State
@@ -1091,7 +1130,7 @@ end)()(Core)
             local statsLabel1 = RestTab:AddLabel("💵 Cash Swept: $0 | 🎁 Quests: 0")
             local statsLabel2 = RestTab:AddLabel("👥 Seated: 0 | 📋 Orders: 0 | 🍳 Cooked: 0")
             local statsLabel3 = RestTab:AddLabel("🍽️ Served: 0 | 🧼 Cleaned: 0 | 📦 Delivered: 0")
-            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0")
+            local statsLabel4 = RestTab:AddLabel("🌾 Harvested: 0 | 🧊 Restocked: 0 | 🏰 Expansions: 0")
 
             -- Sync live stats every second
             task.spawn(function()
@@ -1101,7 +1140,7 @@ end)()(Core)
                         statsLabel1:SetText(string.format("💵 Cash Swept: %d items | 🎁 Quests: %d", s.CashCollected, s.QuestsClaimed))
                         statsLabel2:SetText(string.format("👥 Seated: %d | 📋 Orders: %d | 🍳 Cooked: %d", s.CustomersSeated, s.OrdersTaken, s.DishesCooked))
                         statsLabel3:SetText(string.format("🍽️ Served: %d | 🧼 Cleaned: %d | 📦 Delivered: %d", s.DishesServed, s.TablesCleaned, s.DeliveriesCompleted))
-                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d", s.CropsHarvested, s.StorageRestocked))
+                        statsLabel4:SetText(string.format("🌾 Harvested: %d | 🧊 Restocked: %d | 🏰 Expansions: %d", s.CropsHarvested, s.StorageRestocked, s.ExpansionsPurchased))
                     end)
                     task.wait(0.8)
                 end
@@ -1148,6 +1187,12 @@ end)()(Core)
             RestTab:AddToggle("Auto-Claim Quests & Daily Gifts", Config.AutoClaimQuestsEnabled, function(val)
                 Config.AutoClaimQuestsEnabled = val
             end)
+            RestTab:AddToggle("VIP & Celebrity Customer Priority", Config.VIPPriorityEnabled, function(val)
+                Config.VIPPriorityEnabled = val
+            end)
+            RestTab:AddToggle("Auto-Expand Floors & Land", Config.AutoExpandEnabled, function(val)
+                Config.AutoExpandEnabled = val
+            end)
 
             -- 3. TELEPORTATION & NAVIGATION
             RestTab:AddSection("TELEPORTATION & NAVIGATION")
@@ -1174,6 +1219,9 @@ end)()(Core)
             end)
             RestTab:AddToggle("Anti-AFK Disconnect Guard", Config.AntiAFKEnabled, function(val)
                 Config.AntiAFKEnabled = val
+            end)
+            RestTab:AddToggle("24/7 Auto-Rejoin on Disconnect", Config.AutoRejoinEnabled, function(val)
+                Config.AutoRejoinEnabled = val
             end)
             RestTab:AddToggle("GPU Saver / Performance Mode", Config.GPUSaverEnabled, function(val)
                 Config.GPUSaverEnabled = val
@@ -1566,6 +1614,19 @@ return function(Core)
                 end
             end
         end
+
+        -- VIP & Celebrity customer priority: place high-value customers at front of queue
+        if Config.VIPPriorityEnabled and #matches > 1 then
+            table.sort(matches, function(a, b)
+                local aName = (a.ObjectText or a.Name or (a.Parent and a.Parent.Name or "")):lower()
+                local bName = (b.ObjectText or b.Name or (b.Parent and b.Parent.Name or "")):lower()
+                local aIsVip = (aName:find("vip", 1, true) or aName:find("gold", 1, true) or aName:find("rich", 1, true) or aName:find("celebrity", 1, true) or aName:find("star", 1, true)) ~= nil
+                local bIsVip = (bName:find("vip", 1, true) or bName:find("gold", 1, true) or bName:find("rich", 1, true) or bName:find("celebrity", 1, true) or bName:find("star", 1, true)) ~= nil
+                if aIsVip and not bIsVip then return true end
+                return false
+            end)
+        end
+
         return matches
     end
 
@@ -1673,6 +1734,16 @@ return function(Core)
         State.Stats.StorageRestocked = State.Stats.StorageRestocked + count
     end
 
+    function Restaurant.HandleExpansion()
+        if not Config.AutoExpandEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"expand", "floor", "unlock", "purchase", "upgrade", "buy"},
+            {"floor", "plot", "land", "expand", "room", "greenhouse"}
+        )
+        local count = processPromptQueue(prompts, 1, 6.0)
+        State.Stats.ExpansionsPurchased = State.Stats.ExpansionsPurchased + count
+    end
+
     function Restaurant.HandleCashCollection()
         if not Config.AutoCollectCashEnabled then return end
         -- Register & tip prompts
@@ -1755,7 +1826,12 @@ return function(Core)
                         pcall(Restaurant.HandleDelivery)
                     end
 
-                    -- 4. Collect cash/tips (frees registers & tables)
+                    -- 4. Auto-expand floors and land plots
+                    if Config.AutoExpandEnabled then
+                        pcall(Restaurant.HandleExpansion)
+                    end
+
+                    -- 5. Collect cash/tips (frees registers & tables)
                     if Config.AutoCollectCashEnabled then
                         pcall(Restaurant.HandleCashCollection)
                     end

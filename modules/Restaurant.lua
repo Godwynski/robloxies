@@ -303,6 +303,19 @@ return function(Core)
                 end
             end
         end
+
+        -- VIP & Celebrity customer priority: place high-value customers at front of queue
+        if Config.VIPPriorityEnabled and #matches > 1 then
+            table.sort(matches, function(a, b)
+                local aName = (a.ObjectText or a.Name or (a.Parent and a.Parent.Name or "")):lower()
+                local bName = (b.ObjectText or b.Name or (b.Parent and b.Parent.Name or "")):lower()
+                local aIsVip = (aName:find("vip", 1, true) or aName:find("gold", 1, true) or aName:find("rich", 1, true) or aName:find("celebrity", 1, true) or aName:find("star", 1, true)) ~= nil
+                local bIsVip = (bName:find("vip", 1, true) or bName:find("gold", 1, true) or bName:find("rich", 1, true) or bName:find("celebrity", 1, true) or bName:find("star", 1, true)) ~= nil
+                if aIsVip and not bIsVip then return true end
+                return false
+            end)
+        end
+
         return matches
     end
 
@@ -410,6 +423,16 @@ return function(Core)
         State.Stats.StorageRestocked = State.Stats.StorageRestocked + count
     end
 
+    function Restaurant.HandleExpansion()
+        if not Config.AutoExpandEnabled then return end
+        local prompts = findMatchingPrompts(
+            {"expand", "floor", "unlock", "purchase", "upgrade", "buy"},
+            {"floor", "plot", "land", "expand", "room", "greenhouse"}
+        )
+        local count = processPromptQueue(prompts, 1, 6.0)
+        State.Stats.ExpansionsPurchased = State.Stats.ExpansionsPurchased + count
+    end
+
     function Restaurant.HandleCashCollection()
         if not Config.AutoCollectCashEnabled then return end
         -- Register & tip prompts
@@ -492,7 +515,12 @@ return function(Core)
                         pcall(Restaurant.HandleDelivery)
                     end
 
-                    -- 4. Collect cash/tips (frees registers & tables)
+                    -- 4. Auto-expand floors and land plots
+                    if Config.AutoExpandEnabled then
+                        pcall(Restaurant.HandleExpansion)
+                    end
+
+                    -- 5. Collect cash/tips (frees registers & tables)
                     if Config.AutoCollectCashEnabled then
                         pcall(Restaurant.HandleCashCollection)
                     end
