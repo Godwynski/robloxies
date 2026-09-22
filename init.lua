@@ -31,6 +31,27 @@ pcall(function()
     end
 end)
 
+-- Helper loader supporting both modular HttpGet and bundled execution
+local loadModule
+loadModule = function(modulePath)
+    local ok, res = pcall(require, modulePath)
+    if ok and res then return res end
+
+    local filePath = modulePath:gsub("%.", "/") .. ".lua"
+    local url = repoURL .. filePath
+    local success, src = pcall(game.HttpGet, game, url)
+    if not success or not src or #src == 0 then
+        error("Failed to download module '" .. modulePath .. "' from " .. url)
+    end
+    local fn, err = loadstring(src)
+    if not fn then
+        error("Failed to compile module '" .. modulePath .. "': " .. tostring(err))
+    end
+    return fn()
+end
+_G.loadModule = loadModule
+if getgenv then getgenv().loadModule = loadModule end
+
 print("Initializing Run a Restaurant Utility...")
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -46,30 +67,30 @@ local Core = {
 }
 
 -- 2. Load Core Data & Utility
-Core.Config = require("modules.Config")(Core)
-Core.State = require("modules.State")(Core)
-Core.Utility = require("modules.Utility")(Core)
+Core.Config = loadModule("modules.Config")(Core)
+Core.State = loadModule("modules.State")(Core)
+Core.Utility = loadModule("modules.Utility")(Core)
 
--- 3. Load UI Director
-Core.UI = require("modules.UI")(Core)
+-- 3. Load UI Director & Build Restaurant Tab First
+Core.UI = loadModule("modules.UI")(Core)
 Core.UI.Init()
+Core.UI.BuildRestaurantTab()
 
 -- 4. Load Automation & Movement Modules
-Core.Restaurant = require("modules.Restaurant")(Core)
+Core.Restaurant = loadModule("modules.Restaurant")(Core)
 Core.Restaurant.Init()
 
-Core.Movement = require("modules.Movement")(Core)
+Core.Movement = loadModule("modules.Movement")(Core)
 Core.Movement.Init()
 
--- 5. Build Tabs & Select Restaurant Tab
-Core.UI.BuildRestaurantTab()
+-- 5. Build Settings Tab & Select Restaurant Tab
 Core.UI.BuildSettingsTab()
 if Core.UI and Core.UI.Window then
     pcall(function() Core.UI.Window:SelectTab("Restaurant") end)
 end
 
 -- 6. Start Keybind & Event Loop
-Core.MainLoop = require("modules.MainLoop")(Core)
+Core.MainLoop = loadModule("modules.MainLoop")(Core)
 Core.MainLoop.Init()
 
 print("🍽️ Run a Restaurant Utility loaded successfully!")

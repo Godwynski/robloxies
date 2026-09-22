@@ -1,5 +1,8 @@
 return function(Core)
     local Config = {
+        -- Master Switch
+        MasterAutoFarmEnabled = false,
+
         -- Restaurant Core Automation
         AutoSeatEnabled = false,
         AutoOrderEnabled = false,
@@ -15,6 +18,8 @@ return function(Core)
         VIPPriorityEnabled = true,
         InstantPromptEnabled = true,
         ActionDelay = 0.3,
+        StationStayDelay = 0.22,
+        MaxScanRadius = 120,
 
         -- Teleport & Navigation
         AutoTeleportEnabled = true,
@@ -25,7 +30,7 @@ return function(Core)
 
         -- AFK & Performance
         AntiAFKEnabled = true,
-        AutoRejoinEnabled = true,
+        AutoRejoinEnabled = false,
         GPUSaverEnabled = false,
 
         -- Movement Physics

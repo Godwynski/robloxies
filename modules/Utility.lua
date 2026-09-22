@@ -144,10 +144,9 @@ return function(Core)
         end))
     end
 
-    -- Setup 24/7 Auto-Rejoin on Disconnect or Server Kick
+    -- Setup 24/7 Auto-Rejoin on Disconnect or Server Kick (Only on explicit ErrorPrompt)
     function Utility.SetupAutoRejoin()
         local TeleportService = game:GetService("TeleportService")
-        local GuiService = game:GetService("GuiService")
 
         pcall(function()
             local overlay = Services.CoreGui:WaitForChild("RobloxPromptGui", 5)
@@ -155,8 +154,8 @@ return function(Core)
                 local prompt = overlay:WaitForChild("promptOverlay", 5)
                 if prompt then
                     Utility.RegisterConnection(prompt.ChildAdded:Connect(function(child)
-                        if Config.AutoRejoinEnabled and (child.Name == "ErrorPrompt" or child.Name:find("Error")) then
-                            task.wait(2)
+                        if Config.AutoRejoinEnabled and child.Name == "ErrorPrompt" then
+                            task.wait(2.5)
                             pcall(function()
                                 TeleportService:Teleport(game.PlaceId, LocalPlayer)
                             end)
@@ -164,17 +163,6 @@ return function(Core)
                     end))
                 end
             end
-        end)
-
-        pcall(function()
-            Utility.RegisterConnection(GuiService.ErrorMessageChanged:Connect(function()
-                if Config.AutoRejoinEnabled then
-                    task.wait(2)
-                    pcall(function()
-                        TeleportService:Teleport(game.PlaceId, LocalPlayer)
-                    end)
-                end
-            end))
         end)
     end
     Utility.SetupAutoRejoin()

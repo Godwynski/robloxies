@@ -4,8 +4,8 @@ const path = require('path');
 function bundle(file) {
     let content = fs.readFileSync(file, 'utf8');
     
-    // Replace require("module.path")
-    content = content.replace(/require\(['"]([^'"]+)['"]\)/g, (match, modulePath) => {
+    // Replace require("module.path") and loadModule("module.path")
+    content = content.replace(/(?:require|loadModule)\(['"]([^'"]+)['"]\)/g, (match, modulePath) => {
         // Convert module.path to module/path.lua
         const filePath = modulePath.replace(/\./g, '/') + '.lua';
         

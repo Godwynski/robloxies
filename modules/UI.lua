@@ -5,7 +5,7 @@ return function(Core)
     local State = Core.State
 
     function UI.Init()
-        local UILibrary = require("modules.UILibrary")(Core)
+        local UILibrary = loadModule("modules.UILibrary")(Core)
         local Theme = UILibrary.Theme or {}
 
         -- Create the main window
@@ -59,6 +59,10 @@ return function(Core)
 
             -- 2. AUTOMATION WORKFLOW
             RestTab:AddSection("AUTOMATION WORKFLOW")
+            RestTab:AddToggle("⚡ MASTER RESTAURANT AUTO-FARM", Config.MasterAutoFarmEnabled, function(val)
+                Config.MasterAutoFarmEnabled = val
+                UI.UpdateFloatStatus()
+            end)
             RestTab:AddToggle("Auto-Seat Customers", Config.AutoSeatEnabled, function(val)
                 Config.AutoSeatEnabled = val
                 UI.UpdateFloatStatus()
@@ -110,8 +114,11 @@ return function(Core)
             RestTab:AddToggle("Auto-Teleport to Stations", Config.AutoTeleportEnabled, function(val)
                 Config.AutoTeleportEnabled = val
             end)
-            RestTab:AddSlider("Station Delay (x10 ms)", math.floor((Config.TeleportDelay or 0.15) * 100), 5, 100, function(val)
-                Config.TeleportDelay = val / 100
+            RestTab:AddSlider("Station Stay Delay (s)", math.floor((Config.StationStayDelay or 0.22) * 100), 8, 100, function(val)
+                Config.StationStayDelay = val / 100
+            end)
+            RestTab:AddSlider("Restaurant Radius (studs)", Config.MaxScanRadius or 120, 40, 300, function(val)
+                Config.MaxScanRadius = val
             end)
             RestTab:AddToggle("Scope to Own Plot Only", Config.PlotScopingEnabled, function(val)
                 Config.PlotScopingEnabled = val
@@ -144,6 +151,14 @@ return function(Core)
 
             -- 5. QUICK ACTIONS
             RestTab:AddSection("QUICK ACTIONS")
+            RestTab:AddButton("📍 Set Restaurant Anchor Here", function(btn)
+                if Core.Restaurant and Core.Restaurant.RecalibrateAnchor then
+                    local ok = Core.Restaurant.RecalibrateAnchor()
+                    local old = btn.Text
+                    btn.Text = ok and "📍 Anchor Calibrated!" or "Error Calibrating"
+                    task.delay(1.5, function() btn.Text = old end)
+                end
+            end)
             RestTab:AddButton("Redeem Active Promo Codes", function(btn)
                 local count = Utility.RedeemKnownCodes()
                 local old = btn.Text
@@ -174,9 +189,13 @@ return function(Core)
             end)
             RestTab:AddButton("Teleport to Restaurant Center", function(btn)
                 if Core.Restaurant then
-                    local plot = Core.Restaurant.GetPlayerPlot()
-                    if plot and plot ~= workspace then
-                        Core.Restaurant.TeleportTo(plot)
+                    local center = Core.Restaurant.RestaurantCenter
+                    if center then
+                        local char = Core.Services.Players.LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            root.CFrame = CFrame.new(center + Vector3.new(0, 3, 0))
+                        end
                     end
                 end
             end)

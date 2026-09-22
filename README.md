@@ -35,10 +35,14 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 ## ⚡ Features
 
 ### 🍽️ Restaurant Automation
+- **⚡ Master Restaurant Auto-Farm** — One-click master toggle that synchronizes all essential workflows (seating, ordering, cooking, serving, cleaning, and cash collection) smoothly without manual configuration.
+- **📍 Plot & Anchor Calibration** — Automatically locks onto your restaurant and provides a one-click in-game button to recalibrate your restaurant center, guaranteeing zero cross-plot interference.
+- **Smooth Prioritized Dispatcher** — Eliminates teleport seizures by prioritizing and attending to one critical task at a time with configurable station stay duration (0.22s) so the Roblox server reliably processes interactions.
+- **Zero-NaN Teleport Safety** — Safe workstation orientation math and downward floor raycasting guarantees the avatar lands stably in front of tables/stoves without flinging, void deaths, or getting stuck in furniture.
 - **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, quests claimed, and expansions purchased.
 - **VIP & Celebrity Priority** — Sorts and prioritizes VIP, gold, and celebrity customers first for maximum tip multipliers and revenue.
 - **Auto-Expand Floors & Land** — Automatically triggers expansion, floor unlock, and plot purchase prompts to continually scale your restaurant capacity AFK.
-- **24/7 Auto-Rejoin Disconnect Guard** — Automatically detects connection errors, kicks, or server drops via `GuiService` / `CoreGui` and teleports back into the server.
+- **24/7 Auto-Rejoin Disconnect Guard** — Automatically detects connection error prompts via `RobloxPromptGui` and teleports back into the server.
 - **Teleport to Workstations** — Teleports the character directly to active tasks (tables, stoves, dirty dishes, registers) with floor raycasting and velocity zeroing to prevent fling or clipping.
 - **Multi-Floor Safe Raycast** — Bounded vertical raycasting ensures safe navigation across multi-story restaurant expansions without falling through floors.
 - **Own Plot Scoping** — Automatically detects and filters all interactions exclusively to your own restaurant/farm plot.
