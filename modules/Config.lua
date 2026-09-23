@@ -61,6 +61,10 @@ return function(Core)
         InfiniteJumpEnabled = false,
         NoClipEnabled = false,
 
+        -- UI & Themes
+        Theme = "Violet",
+        UISoundEnabled = false,
+
         -- Keybinds
         MenuKey = Enum.KeyCode.RightShift,
         ToggleNoClipKey = Enum.KeyCode.N,

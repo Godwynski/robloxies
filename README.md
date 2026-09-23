@@ -51,12 +51,11 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 - **📍 Plot & Anchor Calibration** — Automatically locks onto your restaurant and provides a one-click in-game button to recalibrate your restaurant center, guaranteeing zero cross-plot interference.
 - **Smooth Prioritized Dispatcher** — Eliminates teleport seizures by prioritizing and attending to one critical task at a time with configurable station stay duration (0.22s) so the Roblox server reliably processes interactions.
 - **Zero-NaN Teleport Safety** — Safe workstation orientation math and downward floor raycasting guarantees the avatar lands stably in front of tables/stoves without flinging, void deaths, or getting stuck in furniture.
-- **Live Restaurant Stats HUD** — Real-time performance monitor in the GUI displaying cash swept, seated customers, orders taken, dishes cooked/served, tables cleaned, crops harvested, deliveries, rewards claimed, expansions, purchases, placements, and hired staff.
-- **VIP & Celebrity Priority** — Sorts and prioritizes VIP, gold, and celebrity customers first for maximum tip multipliers and revenue.
-- **Auto-Expand Floors & Land** — Automatically triggers expansion, floor unlock, and plot purchase prompts to continually scale your restaurant capacity AFK.
-- **24/7 Auto-Rejoin Disconnect Guard** — Automatically detects connection error prompts via `RobloxPromptGui` and teleports back into the server.
-- **Teleport to Workstations** — Teleports the character directly to active tasks (tables, stoves, dirty dishes, registers) with floor raycasting and velocity zeroing to prevent fling or clipping.
-- **Multi-Floor Safe Raycast** — Bounded vertical raycasting ensures safe navigation across multi-story restaurant expansions without falling through floors.
+- **📊 Production Analytics Dashboard** — Live telemetry console featuring a Hero Master Farm card, live session uptime timer, real-time rate calculator, and a 14-tile responsive metric grid (cash swept, customers seated, tickets cooked, dishes served, tables cleaned, deliveries, harvested produce, restocked goods, floor expansions, store purchases, items placed, staff hired, and rewards claimed).
+- **🎨 Glassmorphic Fluent UI Suite** — Left-sidebar navigation with Lucide-style icons, active sliding indicator, 5 switchable dark theme presets (Midnight Violet, Emerald Cyber, Sapphire Ocean, Sunset Amber, Obsidian Carbon), and instant search filter.
+- **🔔 Toast Notification Engine** — Smooth corner popups with type icons (Success, Info, Warning, Error), progress bars, and timed auto-dismissal.
+- **📱 Dynamic Floating HUD Widget** — Compact status pill displaying live farming heartbeat dot, session status, and one-click expand/restore.
+- **🎛️ Interactive Direct-Input Sliders & Component Descriptions** — Sliders with draggable tracks and clickable numeric badges to type exact values; every toggle includes clear, helpful sublabels.
 - **Own Plot Scoping** — Automatically detects and filters all interactions exclusively to your own restaurant/farm plot.
 - **Auto-Fulfill Delivery Orders** — Teleports to and fulfills takeout delivery packages, boxes, and scooters for massive cash multipliers.
 - **Auto-Restock Kitchen Storage** — Deposits harvested ingredients into fridges, coolers, and pantries so chefs never run out of food.

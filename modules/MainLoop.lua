@@ -14,60 +14,63 @@ return function(Core)
             if Config.MenuKey and input.KeyCode == Config.MenuKey then
                 if Core.UI and Core.UI.Window and Core.UI.Window.Library then
                     local lib = Core.UI.Window.Library
-                    if lib.FloatingCircle and lib.FloatingCircle.Visible then
-                        lib.FloatingCircle.Visible = false
-                        lib.MainContainer.Visible = true
-                        lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
-                        if lib.Tween then
-                            lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
-                        end
+                    if lib.ToggleWindow then
+                        lib:ToggleWindow()
                     elseif lib.MainContainer then
-                        if lib.MainContainer.Visible then
-                            task.spawn(function()
-                                lib.SavedHeight = lib.MainContainer.AbsoluteSize.Y
-                                if lib.Tween then
-                                    local tw = lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)}, 0.2)
-                                    pcall(function() tw.Completed:Wait() end)
-                                end
-                                lib.MainContainer.Visible = false
-                                lib.FloatingCircle.Visible = true
-                            end)
-                        else
-                            lib.MainContainer.Visible = true
-                            lib.MainContainer.Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, 0)
-                            if lib.Tween then
-                                lib.Tween(lib.MainContainer, {Size = UDim2.new(0, lib.MainContainer.Size.X.Offset, 0, lib.SavedHeight or 520)}, 0.3, Enum.EasingStyle.Back)
-                            end
-                        end
+                        lib.MainContainer.Visible = not lib.MainContainer.Visible
                     end
                 end
 
             -- Toggle No-Clip
             elseif Config.ToggleNoClipKey and input.KeyCode == Config.ToggleNoClipKey then
                 Config.NoClipEnabled = not Config.NoClipEnabled
-                if Core.UI and Core.UI.UpdateFloatStatus then
-                    pcall(Core.UI.UpdateFloatStatus)
+                if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
+                if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
+                    Core.UI.Window:Notify({
+                        Title = "No-Clip",
+                        Content = Config.NoClipEnabled and "Collision disabled (Walking through walls)" or "Collision restored to normal",
+                        Type = Config.NoClipEnabled and "Success" or "Info",
+                        Duration = 2
+                    })
                 end
 
             -- Toggle Speed Hack
             elseif Config.ToggleSpeedKey and input.KeyCode == Config.ToggleSpeedKey then
                 Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
-                if Core.UI and Core.UI.UpdateFloatStatus then
-                    pcall(Core.UI.UpdateFloatStatus)
+                if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
+                if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
+                    Core.UI.Window:Notify({
+                        Title = "Speed Hack",
+                        Content = Config.WalkSpeedEnabled and ("Sprint speed set to " .. tostring(Config.WalkSpeed)) or "WalkSpeed restored to normal",
+                        Type = Config.WalkSpeedEnabled and "Success" or "Info",
+                        Duration = 2
+                    })
                 end
 
             -- Toggle Jump Hack
             elseif Config.ToggleJumpKey and input.KeyCode == Config.ToggleJumpKey then
                 Config.JumpPowerEnabled = not Config.JumpPowerEnabled
-                if Core.UI and Core.UI.UpdateFloatStatus then
-                    pcall(Core.UI.UpdateFloatStatus)
+                if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
+                if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
+                    Core.UI.Window:Notify({
+                        Title = "Jump Hack",
+                        Content = Config.JumpPowerEnabled and ("Jump power set to " .. tostring(Config.JumpPower)) or "JumpPower restored to normal",
+                        Type = Config.JumpPowerEnabled and "Success" or "Info",
+                        Duration = 2
+                    })
                 end
 
             -- Toggle Infinite Jump
             elseif Config.ToggleInfJumpKey and input.KeyCode == Config.ToggleInfJumpKey then
                 Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
-                if Core.UI and Core.UI.UpdateFloatStatus then
-                    pcall(Core.UI.UpdateFloatStatus)
+                if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
+                if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
+                    Core.UI.Window:Notify({
+                        Title = "Infinite Jump",
+                        Content = Config.InfiniteJumpEnabled and "Mid-air jumping active" or "Infinite jump disabled",
+                        Type = Config.InfiniteJumpEnabled and "Success" or "Info",
+                        Duration = 2
+                    })
                 end
             end
         end))

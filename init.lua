@@ -74,6 +74,7 @@ Core.Utility = loadModule("modules.Utility")(Core)
 -- 3. Load UI Director & Build Tabs
 Core.UI = loadModule("modules.UI")(Core)
 Core.UI.Init()
+Core.UI.BuildDashboardTab()
 Core.UI.BuildRestaurantTab()
 Core.UI.BuildBuildTab()
 Core.UI.BuildAutomationTab()
@@ -85,10 +86,18 @@ Core.Restaurant.Init()
 Core.Movement = loadModule("modules.Movement")(Core)
 Core.Movement.Init()
 
--- 5. Build Settings Tab & Select Restaurant Tab
+-- 5. Build Settings Tab & Select Dashboard Tab
 Core.UI.BuildSettingsTab()
 if Core.UI and Core.UI.Window then
-    pcall(function() Core.UI.Window:SelectTab("Restaurant") end)
+    pcall(function()
+        Core.UI.Window:SelectTab("Dashboard")
+        Core.UI.Window:Notify({
+            Title = "Run a Restaurant PRO",
+            Content = "v2.0 loaded successfully. All systems nominal.",
+            Type = "Success",
+            Duration = 4
+        })
+    end)
 end
 
 -- 6. Start Keybind & Event Loop

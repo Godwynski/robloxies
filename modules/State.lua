@@ -3,6 +3,7 @@ return function(Core)
         ActiveConnections = {},
         InFlightTasks = setmetatable({}, {__mode = "k"}),
         Running = true,
+        StartTime = tick(),
         Stats = {
             CustomersSeated = 0,
             OrdersTaken = 0,

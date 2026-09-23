@@ -48,18 +48,34 @@ return function(Core)
 
     function Movement.Init()
         if Core.UI and Core.UI.Window then
-            local MoveTab = Core.UI.Window:AddTab("Movement")
-            MoveTab:AddSection("PHYSICS OVERRIDES")
+            local MoveTab = Core.UI.Window:AddTab("Movement", "🏃")
+            MoveTab:AddSection("PHYSICS OVERRIDES", "⚡")
             
-            MoveTab:AddToggle("Speed Hack", Config.WalkSpeedEnabled, function(val) Config.WalkSpeedEnabled = val end)
-            MoveTab:AddSlider("Walk Speed", Config.WalkSpeed, 16, 200, function(val) Config.WalkSpeed = val end)
+            MoveTab:AddToggle("Speed Hack", "Overrides character walk speed for swift travel.", Config.WalkSpeedEnabled, function(val)
+                Config.WalkSpeedEnabled = val
+                if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
+            end)
+            MoveTab:AddSlider("Walk Speed", "Adjust sprinting movement speed.", Config.WalkSpeed, 16, 250, 0, " studs/s", function(val)
+                Config.WalkSpeed = val
+            end)
             
-            MoveTab:AddToggle("Jump Hack", Config.JumpPowerEnabled, function(val) Config.JumpPowerEnabled = val end)
-            MoveTab:AddSlider("Jump Power", Config.JumpPower, 50, 300, function(val) Config.JumpPower = val end)
+            MoveTab:AddToggle("Jump Hack", "Overrides character jump power.", Config.JumpPowerEnabled, function(val)
+                Config.JumpPowerEnabled = val
+                if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
+            end)
+            MoveTab:AddSlider("Jump Power", "Adjust jumping launch power.", Config.JumpPower, 50, 350, 0, "", function(val)
+                Config.JumpPower = val
+            end)
             
-            MoveTab:AddSection("UTILITY")
-            MoveTab:AddToggle("No-Clip", Config.NoClipEnabled, function(val) Config.NoClipEnabled = val end)
-            MoveTab:AddToggle("Infinite Jump", Config.InfiniteJumpEnabled, function(val) Config.InfiniteJumpEnabled = val end)
+            MoveTab:AddSection("UTILITY", "🛡️")
+            MoveTab:AddToggle("No-Clip", "Walk freely through walls, furniture, and NPCs.", Config.NoClipEnabled, function(val)
+                Config.NoClipEnabled = val
+                if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
+            end)
+            MoveTab:AddToggle("Infinite Jump", "Allows jumping continuously in mid-air.", Config.InfiniteJumpEnabled, function(val)
+                Config.InfiniteJumpEnabled = val
+                if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
+            end)
         end
 
         -- Infinite Jump Logic
