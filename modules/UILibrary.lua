@@ -144,6 +144,18 @@ return function(Core)
     local activeKeybindBtn = nil
     local activeKeybindCb = nil
 
+    local function getViewportSize()
+        local ws = workspace or game:GetService("Workspace")
+        local cam = ws and ws.CurrentCamera
+        if cam and cam.ViewportSize.X > 0 and cam.ViewportSize.Y > 0 then
+            return cam.ViewportSize
+        end
+        if UILibrary.Interface and UILibrary.Interface.AbsoluteSize.X > 0 and UILibrary.Interface.AbsoluteSize.Y > 0 then
+            return UILibrary.Interface.AbsoluteSize
+        end
+        return Vector2.new(1920, 1080)
+    end
+
     -- =========================================================================
     -- 3. GLOBAL INPUT DISPATCHER (Desktop & Touch)
     -- =========================================================================
@@ -151,26 +163,49 @@ return function(Core)
         Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
             if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
             
-            if floatDragging then
+            if floatDragging and self.FloatingWidget then
                 local delta = input.Position - floatDragStart
                 if delta.Magnitude > 3 then
                     floatHasMoved = true
-                    local screenX = math.clamp(floatStartPos.X.Offset + delta.X, 10, Services.CoreGui.AbsoluteSize.X - 160)
-                    local screenY = math.clamp(floatStartPos.Y.Offset + delta.Y, 10, Services.CoreGui.AbsoluteSize.Y - 60)
-                    self.FloatingWidget.Position = UDim2.new(floatStartPos.X.Scale, screenX, floatStartPos.Y.Scale, screenY)
+                    local vp = getViewportSize()
+                    local pillW = self.FloatingWidget.AbsoluteSize.X > 0 and self.FloatingWidget.AbsoluteSize.X or 155
+                    local pillH = self.FloatingWidget.AbsoluteSize.Y > 0 and self.FloatingWidget.AbsoluteSize.Y or 42
+                    
+                    local curLeft = vp.X * floatStartPos.X.Scale + floatStartPos.X.Offset + delta.X
+                    local curTop = vp.Y * floatStartPos.Y.Scale + floatStartPos.Y.Offset + delta.Y
+                    local clampedX = math.clamp(curLeft, 10, math.max(10, vp.X - pillW - 10))
+                    local clampedY = math.clamp(curTop, 10, math.max(10, vp.Y - pillH - 10))
+                    
+                    self.FloatingWidget.Position = UDim2.new(0, clampedX, 0, clampedY)
+                    self.FloatingSavedPos = self.FloatingWidget.Position
                 end
-            elseif dragging then
+            elseif dragging and self.MainContainer then
                 local delta = input.Position - dragStart
-                local screenW = Services.CoreGui.AbsoluteSize.X
-                local screenH = Services.CoreGui.AbsoluteSize.Y
-                local newX = math.clamp(startPos.X.Offset + delta.X, -self.MainContainer.AbsoluteSize.X * 0.5, screenW * 0.5)
-                local newY = math.clamp(startPos.Y.Offset + delta.Y, -self.MainContainer.AbsoluteSize.Y * 0.5, screenH * 0.5)
-                self.MainContainer.Position = UDim2.new(startPos.X.Scale, newX, startPos.Y.Scale, newY)
-            elseif resizing then
+                local vp = getViewportSize()
+                local winW = self.MainContainer.AbsoluteSize.X > 0 and self.MainContainer.AbsoluteSize.X or 620
+                local winH = self.MainContainer.AbsoluteSize.Y > 0 and self.MainContainer.AbsoluteSize.Y or 490
+
+                local curLeft = vp.X * startPos.X.Scale + startPos.X.Offset + delta.X
+                local curTop = vp.Y * startPos.Y.Scale + startPos.Y.Offset + delta.Y
+
+                local clampLeft = math.clamp(curLeft, -winW + 80, math.max(0, vp.X - 80))
+                local clampTop = math.clamp(curTop, 0, math.max(0, vp.Y - 50))
+
+                local newOffsetX = clampLeft - (vp.X * startPos.X.Scale)
+                local newOffsetY = clampTop - (vp.Y * startPos.Y.Scale)
+
+                self.MainContainer.Position = UDim2.new(startPos.X.Scale, newOffsetX, startPos.Y.Scale, newOffsetY)
+            elseif resizing and self.MainContainer then
                 local delta = input.Position - resizeStart
-                local newW = math.clamp(sizeStart.X + delta.X, 480, 1100)
-                local newH = math.clamp(sizeStart.Y + delta.Y, 380, 850)
+                local vp = getViewportSize()
+                local curX = self.MainContainer.AbsolutePosition.X
+                local curY = self.MainContainer.AbsolutePosition.Y
+                local maxW = math.max(480, vp.X - curX - 10)
+                local maxH = math.max(380, vp.Y - curY - 10)
+                local newW = math.clamp(sizeStart.X + delta.X, 480, math.min(1100, maxW))
+                local newH = math.clamp(sizeStart.Y + delta.Y, 380, math.min(850, maxH))
                 self.MainContainer.Size = UDim2.new(0, newW, 0, newH)
+                self.SavedWindowSize = self.MainContainer.Size
             elseif activeSliderId then
                 local cb = sliderCallbacks[activeSliderId]
                 if cb then cb(input) end
@@ -181,6 +216,9 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 if floatDragging and not floatHasMoved then
                     self:RestoreFromFloating()
+                end
+                if dragging and self.MainContainer then
+                    self.SavedWindowPos = self.MainContainer.Position
                 end
                 floatDragging = false
                 dragging = false
@@ -389,14 +427,21 @@ return function(Core)
         sub.TextXAlignment = Enum.TextXAlignment.Left
 
         -- Dragging logic
-        pill.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                floatDragging = true
-                floatHasMoved = false
-                floatDragStart = input.Position
-                floatStartPos = pill.Position
-            end
-        end)
+        local function bindPillDrag(inst)
+            inst.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    floatDragging = true
+                    floatHasMoved = false
+                    floatDragStart = input.Position
+                    floatStartPos = pill.Position
+                end
+            end)
+        end
+        bindPillDrag(pill)
+        bindPillDrag(icon)
+        bindPillDrag(dot)
+        bindPillDrag(title)
+        bindPillDrag(sub)
 
         self.FloatingWidget = pill
         self.FloatingCircle = pill -- Alias for backward compatibility
@@ -428,6 +473,7 @@ return function(Core)
         if not self.MainContainer or not self.FloatingWidget then return end
         self:PlaySound("toggle")
         self.SavedWindowSize = self.MainContainer.Size
+        self.SavedWindowPos = self.MainContainer.Position
         local tw = tween(self.MainContainer, {
             Size = UDim2.new(0, self.MainContainer.Size.X.Offset * 0.7, 0, 0),
             Position = UDim2.new(self.MainContainer.Position.X.Scale, self.MainContainer.Position.X.Offset, self.MainContainer.Position.Y.Scale, self.MainContainer.Position.Y.Offset + 50)
@@ -435,7 +481,11 @@ return function(Core)
         tw.Completed:Connect(function()
             self.MainContainer.Visible = false
             self.FloatingWidget.Visible = true
-            self.FloatingWidget.Position = UDim2.new(0, 24, 0.5, -21)
+            if self.FloatingSavedPos then
+                self.FloatingWidget.Position = self.FloatingSavedPos
+            else
+                self.FloatingWidget.Position = UDim2.new(0, 24, 0.5, -21)
+            end
         end)
     end
 
@@ -445,6 +495,8 @@ return function(Core)
         self.FloatingWidget.Visible = false
         self.MainContainer.Visible = true
         local targetSize = self.SavedWindowSize or UDim2.new(0, 620, 0, 490)
+        local targetPos = self.SavedWindowPos or self.MainContainer.Position
+        self.MainContainer.Position = targetPos
         self.MainContainer.Size = UDim2.new(0, targetSize.X.Offset * 0.8, 0, 0)
         tween(self.MainContainer, {Size = targetSize}, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     end
@@ -528,6 +580,7 @@ return function(Core)
         Header.Size = UDim2.new(1, 0, 0, 46)
         Header.BackgroundColor3 = Theme.Header
         Header.BorderSizePixel = 0
+        Header.Active = true
         Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
         -- Bottom square filler to merge header seamlessly with body
@@ -694,7 +747,9 @@ return function(Core)
         -- 1. Center Window Button
         makeHeaderBtn("⟲", 0, Theme.CardHover, function()
             self:PlaySound("click")
-            tween(MainContainer, {Position = UDim2.new(0.5, -MainContainer.AbsoluteSize.X * 0.5, 0.5, -MainContainer.AbsoluteSize.Y * 0.5)}, 0.3, Enum.EasingStyle.Back)
+            local targetPos = UDim2.new(0.5, -MainContainer.AbsoluteSize.X * 0.5, 0.5, -MainContainer.AbsoluteSize.Y * 0.5)
+            self.SavedWindowPos = targetPos
+            tween(MainContainer, {Position = targetPos}, 0.3, Enum.EasingStyle.Back)
             self:Notify({Title = "Position Reset", Content = "Window centered on screen.", Type = "Info", Duration = 2})
         end)
 
@@ -710,13 +765,21 @@ return function(Core)
         end)
 
         -- Header Dragging
-        Header.InputBegan:Connect(function(input)
+        local function startWindowDrag(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
                 dragStart = input.Position
                 startPos = MainContainer.Position
             end
-        end)
+        end
+
+        Header.Active = true
+        Header.InputBegan:Connect(startWindowDrag)
+        HeaderSquare.InputBegan:Connect(startWindowDrag)
+        BrandIcon.InputBegan:Connect(startWindowDrag)
+        TitleLbl.InputBegan:Connect(startWindowDrag)
+        ProBadge.InputBegan:Connect(startWindowDrag)
+        StatusPill.InputBegan:Connect(startWindowDrag)
 
         -- =====================================================================
         -- 6B. BODY LAYOUT (Left Sidebar + Right Tab View)
@@ -1847,6 +1910,9 @@ return function(Core)
 
         return {
             Card = card,
+            SetTitle = function(selfObj, newTitle)
+                tLbl.Text = newTitle
+            end,
             SetContent = function(selfObj, newContent)
                 cLbl.Text = newContent
                 updateSize(newContent)

@@ -15,11 +15,21 @@ return function(Core)
         function UI.UpdateStatus()
             local active = Config.MasterAutoFarmEnabled or Config.AutoSeatEnabled or Config.AutoOrderEnabled or
                            Config.AutoCookEnabled or Config.AutoServeEnabled or Config.AutoCleanEnabled or
-                           Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or
-                           Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or Config.AutoClaimQuestsEnabled or
-                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoWashSinksEnabled or Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or
+                           Config.AutoDeliveryEnabled or Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or
+                           Config.AutoClaimQuestsEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
+                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
-            local text = Config.MasterAutoFarmEnabled and "FARMING" or (active and "ACTIVE" or "IDLE")
+            local text = "IDLE"
+            if Config.MasterAutoFarmEnabled then
+                if State.ActiveGoal and State.ActiveGoal.Title and State.ActiveGoal.Title ~= "None" then
+                    text = "GOAL: " .. State.ActiveGoal.Title:upper():sub(1, 10)
+                else
+                    text = "FARMING"
+                end
+            elseif active then
+                text = "ACTIVE"
+            end
             Window:UpdateStatus(active, text)
         end
 
@@ -51,6 +61,9 @@ return function(Core)
                 end
             })
 
+            -- Active Progressive Goal Tracker Card
+            local goalCard = DashTab:AddParagraph("📜 ACTIVE GOAL: MONITORING...", "Synchronizing with game progression. Objectives will be tracked and auto-completed here.")
+
             -- Live Analytics Metric Grid
             DashTab:AddSection("LIVE RESTAURANT ANALYTICS", "📈")
             local metricGrid = DashTab:AddMetricGrid()
@@ -63,6 +76,7 @@ return function(Core)
             metricGrid:AddMetric("Cooked", "🍳", "Dishes Cooked", 0, Color3.fromRGB(249, 115, 22))
             metricGrid:AddMetric("Served", "🍽️", "Dishes Served", 0, Color3.fromRGB(16, 185, 129))
             metricGrid:AddMetric("Cleaned", "🧼", "Tables Cleaned", 0, Color3.fromRGB(6, 182, 212))
+            metricGrid:AddMetric("Washed", "🧽", "Dishes Washed", 0, Color3.fromRGB(45, 212, 191))
             metricGrid:AddMetric("Deliveries", "📦", "Deliveries Done", 0, Color3.fromRGB(234, 179, 8))
             metricGrid:AddMetric("Harvested", "🌾", "Crops Harvested", 0, Color3.fromRGB(132, 204, 22))
             metricGrid:AddMetric("Restocked", "🧊", "Storage Restocked", 0, Color3.fromRGB(14, 165, 233))
@@ -87,6 +101,21 @@ return function(Core)
                         local ratePerHour = math.floor(((s.CashCollected or 0) / elapsed) * 3600)
                         heroCard.SetInfo(string.format("⏱ Uptime: %s  •  Rate: ~%d items/hr", uptimeStr, ratePerHour))
 
+                        -- Update active goal status
+                        if State.ActiveGoal and State.ActiveGoal.Title and State.ActiveGoal.Title ~= "None" then
+                            local g = State.ActiveGoal
+                            local progStr = (g.Progress and #g.Progress > 0) and (" [" .. g.Progress .. "]") or ""
+                            local objStr = string.format("🎯 %s%s\n⚡ Auto-Farm Directive: %s", g.Objective or "In Progress", progStr, g.Category or "Automated")
+                            if goalCard and goalCard.SetContent then
+                                if goalCard.SetTitle then goalCard:SetTitle("📜 ACTIVE GOAL: " .. g.Title:upper()) end
+                                goalCard:SetContent(objStr)
+                            end
+                            if UI.RestGoalCard and UI.RestGoalCard.SetContent then
+                                if UI.RestGoalCard.SetTitle then UI.RestGoalCard:SetTitle("📜 ACTIVE GOAL: " .. g.Title:upper()) end
+                                UI.RestGoalCard:SetContent(objStr)
+                            end
+                        end
+
                         -- Update metrics
                         local totalRewards = (s.RewardsClaimed or 0) + (s.QuestsClaimed or 0)
                         metricGrid:UpdateMetric("Cash", string.format("%d items", s.CashCollected or 0))
@@ -97,6 +126,7 @@ return function(Core)
                         metricGrid:UpdateMetric("Cooked", s.DishesCooked or 0)
                         metricGrid:UpdateMetric("Served", s.DishesServed or 0)
                         metricGrid:UpdateMetric("Cleaned", s.TablesCleaned or 0)
+                        metricGrid:UpdateMetric("Washed", s.DishesWashed or 0)
                         metricGrid:UpdateMetric("Deliveries", s.DeliveriesCompleted or 0)
                         metricGrid:UpdateMetric("Harvested", s.CropsHarvested or 0)
                         metricGrid:UpdateMetric("Restocked", s.StorageRestocked or 0)
@@ -177,6 +207,10 @@ return function(Core)
                 Config.AutoCleanEnabled = val
                 UI.UpdateStatus()
             end)
+            RestTab:AddToggle("Auto-Wash Dishes & Manage Sinks", "Deposits dirty dishes into sinks/dishwashers and scrubs dishes clean.", Config.AutoWashSinksEnabled, function(val)
+                Config.AutoWashSinksEnabled = val
+                UI.UpdateStatus()
+            end)
             RestTab:AddToggle("Auto-Collect Cash & Tips", "Continuously sweeps dropped coins, tip jars, and register earnings.", Config.AutoCollectCashEnabled, function(val)
                 Config.AutoCollectCashEnabled = val
                 UI.UpdateStatus()
@@ -202,6 +236,7 @@ return function(Core)
 
             -- Quests & Tasks Automation
             RestTab:AddSection("QUESTS & TASKS AUTOMATION", "📜")
+            UI.RestGoalCard = RestTab:AddParagraph("📜 ACTIVE GOAL: MONITORING...", "Synchronizing with game progression. Objectives will be tracked and auto-completed here.")
             RestTab:AddToggle("Auto-Do Quests", "Automatically fulfills active quest objectives, talks to quest NPCs, and prioritizes quest tasks.", Config.AutoDoQuestsEnabled, function(val)
                 Config.AutoDoQuestsEnabled = val
                 UI.UpdateStatus()

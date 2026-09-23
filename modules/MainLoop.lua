@@ -5,13 +5,24 @@ return function(Core)
     local Utility = Core.Utility
     local Services = Core.Services
 
+    local function isValidKey(key)
+        return key ~= nil and key ~= Enum.KeyCode.None and key ~= Enum.KeyCode.Unknown
+    end
+
+    local function matchesKey(boundKey, inputKey)
+        return isValidKey(boundKey) and inputKey == boundKey
+    end
+
     function MainLoop.Init()
         -- Keybind handling
         Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
+            -- Only process keyboard inputs; ignore mouse clicks, touches, and non-keyboard events
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            if not isValidKey(input.KeyCode) then return end
 
             -- Toggle Menu
-            if Config.MenuKey and input.KeyCode == Config.MenuKey then
+            if matchesKey(Config.MenuKey, input.KeyCode) then
                 if Core.UI and Core.UI.Window and Core.UI.Window.Library then
                     local lib = Core.UI.Window.Library
                     if lib.ToggleWindow then
@@ -22,8 +33,9 @@ return function(Core)
                 end
 
             -- Toggle No-Clip
-            elseif Config.ToggleNoClipKey and input.KeyCode == Config.ToggleNoClipKey then
+            elseif matchesKey(Config.ToggleNoClipKey, input.KeyCode) then
                 Config.NoClipEnabled = not Config.NoClipEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -35,8 +47,9 @@ return function(Core)
                 end
 
             -- Toggle Speed Hack
-            elseif Config.ToggleSpeedKey and input.KeyCode == Config.ToggleSpeedKey then
+            elseif matchesKey(Config.ToggleSpeedKey, input.KeyCode) then
                 Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -48,8 +61,9 @@ return function(Core)
                 end
 
             -- Toggle Jump Hack
-            elseif Config.ToggleJumpKey and input.KeyCode == Config.ToggleJumpKey then
+            elseif matchesKey(Config.ToggleJumpKey, input.KeyCode) then
                 Config.JumpPowerEnabled = not Config.JumpPowerEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -61,8 +75,9 @@ return function(Core)
                 end
 
             -- Toggle Infinite Jump
-            elseif Config.ToggleInfJumpKey and input.KeyCode == Config.ToggleInfJumpKey then
+            elseif matchesKey(Config.ToggleInfJumpKey, input.KeyCode) then
                 Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({

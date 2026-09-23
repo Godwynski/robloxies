@@ -46,12 +46,32 @@ return function(Core)
         end
     end
 
+    local speedToggleHandle = nil
+    local jumpToggleHandle = nil
+    local noClipToggleHandle = nil
+    local infJumpToggleHandle = nil
+
+    function Movement.SyncToggles()
+        if speedToggleHandle and speedToggleHandle.SetState then
+            speedToggleHandle:SetState(Config.WalkSpeedEnabled)
+        end
+        if jumpToggleHandle and jumpToggleHandle.SetState then
+            jumpToggleHandle:SetState(Config.JumpPowerEnabled)
+        end
+        if noClipToggleHandle and noClipToggleHandle.SetState then
+            noClipToggleHandle:SetState(Config.NoClipEnabled)
+        end
+        if infJumpToggleHandle and infJumpToggleHandle.SetState then
+            infJumpToggleHandle:SetState(Config.InfiniteJumpEnabled)
+        end
+    end
+
     function Movement.Init()
         if Core.UI and Core.UI.Window then
             local MoveTab = Core.UI.Window:AddTab("Movement", "🏃")
             MoveTab:AddSection("PHYSICS OVERRIDES", "⚡")
             
-            MoveTab:AddToggle("Speed Hack", "Overrides character walk speed for swift travel.", Config.WalkSpeedEnabled, function(val)
+            speedToggleHandle = MoveTab:AddToggle("Speed Hack", "Overrides character walk speed for swift travel.", Config.WalkSpeedEnabled, function(val)
                 Config.WalkSpeedEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -59,7 +79,7 @@ return function(Core)
                 Config.WalkSpeed = val
             end)
             
-            MoveTab:AddToggle("Jump Hack", "Overrides character jump power.", Config.JumpPowerEnabled, function(val)
+            jumpToggleHandle = MoveTab:AddToggle("Jump Hack", "Overrides character jump power.", Config.JumpPowerEnabled, function(val)
                 Config.JumpPowerEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -68,11 +88,11 @@ return function(Core)
             end)
             
             MoveTab:AddSection("UTILITY", "🛡️")
-            MoveTab:AddToggle("No-Clip", "Walk freely through walls, furniture, and NPCs.", Config.NoClipEnabled, function(val)
+            noClipToggleHandle = MoveTab:AddToggle("No-Clip", "Walk freely through walls, furniture, and NPCs.", Config.NoClipEnabled, function(val)
                 Config.NoClipEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
-            MoveTab:AddToggle("Infinite Jump", "Allows jumping continuously in mid-air.", Config.InfiniteJumpEnabled, function(val)
+            infJumpToggleHandle = MoveTab:AddToggle("Infinite Jump", "Allows jumping continuously in mid-air.", Config.InfiniteJumpEnabled, function(val)
                 Config.InfiniteJumpEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -124,12 +144,12 @@ return function(Core)
         Utility.RegisterConnection(RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then return end
+            if not hum or hum.Health <= 0 then return end
 
             -- Capture originals once before we override anything (#7)
             if Config.WalkSpeedEnabled then
                 if originalWalkSpeed == nil then
-                    originalWalkSpeed = hum.WalkSpeed
+                    originalWalkSpeed = (hum.WalkSpeed ~= Config.WalkSpeed and hum.WalkSpeed > 0) and hum.WalkSpeed or 16
                 end
                 if hum.WalkSpeed ~= Config.WalkSpeed then
                     hum.WalkSpeed = Config.WalkSpeed
@@ -145,7 +165,7 @@ return function(Core)
             if Config.JumpPowerEnabled then
                 if hum.UseJumpPower then
                     if originalJumpPower == nil then
-                        originalJumpPower = hum.JumpPower
+                        originalJumpPower = (hum.JumpPower ~= Config.JumpPower and hum.JumpPower > 0) and hum.JumpPower or 50
                     end
                     if hum.JumpPower ~= Config.JumpPower then
                         hum.JumpPower = Config.JumpPower

@@ -232,13 +232,13 @@ return function(Core)
         return affordable, (needed > 0 and needed or 0), (affordable and "Affordable" or "Insufficient funds")
     end
 
-    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    -- Auto-Claim all finished quests, goals, milestones, daily gifts, playtime rewards, and achievements
     function Utility.ClaimAllRewards()
         if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled and not Config.MasterAutoFarmEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local claimed = 0
 
-        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest buttons
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest, goal buttons
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
@@ -246,14 +246,13 @@ return function(Core)
                     local name = btn.Name:lower()
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
                     local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
+                    local fullContext = text .. " " .. name .. " " .. parentName .. " " .. grandParentName
 
-                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in"
-                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin") or text:find("quest")
-                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily") or name:find("quest")
-                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward") or grandParentName:find("quest")
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in" or text == "done"
+                    local hasClaimWord = fullContext:find("claim") or fullContext:find("collect") or fullContext:find("reward") or fullContext:find("gift") or fullContext:find("milestone") or fullContext:find("goal") or fullContext:find("quest")
 
                     if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
-                        if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
+                        if isClaimText or (hasClaimWord and (text:find("claim") or text:find("collect") or text:find("reward") or text:find("free") or text:find("get"))) then
                             pcall(function()
                                 if type(firesignal) == "function" and btn.Activated then
                                     firesignal(btn.Activated)
@@ -272,9 +271,9 @@ return function(Core)
         local rs = game:GetService("ReplicatedStorage")
         local remoteNames = {
             "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
-            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
-            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
-            "CompleteQuest", "TurnInQuest", "FinishQuest", "RedeemQuest"
+            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "GoalClaim", "ClaimAchievement",
+            "ClaimMilestone", "MilestoneClaim", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
+            "CompleteQuest", "CompleteGoal", "TurnInQuest", "FinishQuest", "RedeemQuest", "RedeemGoal", "Claim"
         }
         for _, rName in ipairs(remoteNames) do
             local remote = rs:FindFirstChild(rName, true)
@@ -300,24 +299,25 @@ return function(Core)
     end
     Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
 
-    -- Auto-Accept and Auto-Do Quests
+    -- Auto-Accept and Auto-Do Quests / Goals
     function Utility.AcceptAndDoQuests()
         if not Config.AutoDoQuestsEnabled and not Config.MasterAutoFarmEnabled then return nil end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local rs = game:GetService("ReplicatedStorage")
 
-        -- 1. Auto-Accept new quests from UI dialogs or lists
+        -- 1. Auto-Accept new quests / goals from dialog popups, lists, or NPCs
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
                     local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
                     local name = btn.Name:lower()
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local fullContext = text .. " " .. name .. " " .. parentName
 
-                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest"
-                    local isQuestContext = parentName:find("quest") or parentName:find("mission") or parentName:find("task") or name:find("quest") or name:find("accept")
+                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest" or text == "accept goal" or text == "yes" or text == "continue"
+                    local isQuestContext = fullContext:find("quest") or fullContext:find("goal") or fullContext:find("mission") or fullContext:find("task") or fullContext:find("bounty")
 
-                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take")))) and
+                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take") or text:find("ok")))) and
                        not text:find("robux") and not text:find("buy") and not text:find("cancel") then
                         pcall(function()
                             if type(firesignal) == "function" and btn.Activated then
@@ -331,9 +331,10 @@ return function(Core)
             end
         end
 
-        -- 2. Trigger AcceptQuest / StartQuest remotes if available in ReplicatedStorage
+        -- 2. Trigger AcceptQuest / StartQuest / Goal remotes if available in ReplicatedStorage
         local acceptRemotes = {
-            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest"
+            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest",
+            "AcceptGoal", "StartGoal", "TakeGoal"
         }
         for _, rName in ipairs(acceptRemotes) do
             local remote = rs:FindFirstChild(rName, true)
@@ -357,30 +358,182 @@ return function(Core)
             Buy = false,
             Place = false,
             Staff = false,
-            Expand = false
+            Expand = false,
+            TargetItem = nil,
+            TargetRole = nil,
+            TargetCrop = nil,
+            Title = nil,
+            Objective = nil,
+            Progress = nil,
+            Category = "None"
         }
 
+        local candidateLabels = {}
         if pg then
             for _, lbl in ipairs(pg:GetDescendants()) do
-                if lbl:IsA("TextLabel") and lbl.Visible then
+                if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text and #lbl.Text > 1 then
+                    local name = lbl.Name:lower()
                     local parentName = (lbl.Parent and lbl.Parent.Name or ""):lower()
-                    local isQuestLabel = parentName:find("quest") or parentName:find("task") or parentName:find("mission") or parentName:find("goal") or lbl.Name:lower():find("quest") or lbl.Name:lower():find("task")
-                    if isQuestLabel then
-                        local t = (lbl.Text or ""):lower()
-                        if t:find("cook") or t:find("dish") or t:find("meal") or t:find("bake") then directives.Cook = true end
-                        if t:find("serve") or t:find("deliver to table") then directives.Serve = true end
-                        if t:find("order") or t:find("ticket") then directives.Order = true end
-                        if t:find("clean") or t:find("wipe") or t:find("table") or t:find("trash") then directives.Clean = true end
-                        if t:find("seat") or t:find("customer") or t:find("guest") then directives.Seat = true end
-                        if t:find("cash") or t:find("coin") or t:find("tip") or t:find("money") or t:find("earn") then directives.Cash = true end
-                        if t:find("harvest") or t:find("crop") or t:find("wheat") or t:find("farm") then directives.Farm = true end
-                        if t:find("delivery") or t:find("package") or t:find("box") or t:find("scooter") then directives.Delivery = true end
-                        if t:find("buy") or t:find("purchase") or t:find("stove") or t:find("chair") then directives.Buy = true end
-                        if t:find("place") or t:find("furniture") or t:find("build") then directives.Place = true end
-                        if t:find("hire") or t:find("staff") or t:find("waiter") or t:find("chef") then directives.Staff = true end
-                        if t:find("expand") or t:find("floor") or t:find("land") then directives.Expand = true end
+                    local grandParentName = (lbl.Parent and lbl.Parent.Parent and lbl.Parent.Parent.Name or ""):lower()
+                    local fullContext = name .. " " .. parentName .. " " .. grandParentName
+
+                    local isGoalLabel = fullContext:find("goal") or fullContext:find("quest") or fullContext:find("mission")
+                                     or fullContext:find("task") or fullContext:find("objective") or fullContext:find("tracker")
+                    if isGoalLabel then
+                        table.insert(candidateLabels, lbl)
                     end
                 end
+            end
+        end
+
+        local bestTitle = nil
+        local bestObjective = nil
+        local bestProgress = nil
+
+        for _, lbl in ipairs(candidateLabels) do
+            local rawText = lbl.Text:gsub("^%s+", ""):gsub("%s+$", "")
+            local lowerText = rawText:lower()
+            local name = lbl.Name:lower()
+
+            -- Check for progress pattern e.g. (1/2), ($140/$200), (50%)
+            local prog = rawText:match("(%d+/%d+)") or rawText:match("(%$?%d+[%d%,]*%s*/%s*%$?%d+[%d%,]*)") or rawText:match("(%d+%%)")
+            if prog and not bestProgress then
+                bestProgress = prog
+            end
+
+            -- Check if label is named title, header, or name
+            if (name:find("title") or name:find("header") or name:find("name")) and not lowerText:find("!") and #rawText < 35 then
+                bestTitle = rawText
+            end
+
+            -- Check for action verbs in objective text
+            local isObjectiveText = lowerText:find("cook") or lowerText:find("serve") or lowerText:find("clean")
+                                 or lowerText:find("order") or lowerText:find("seat") or lowerText:find("earn")
+                                 or lowerText:find("buy") or lowerText:find("place") or lowerText:find("hire")
+                                 or lowerText:find("harvest") or lowerText:find("expand") or lowerText:find("customer")
+                                 or lowerText:find("dish") or lowerText:find("meal")
+            if isObjectiveText and not bestObjective then
+                bestObjective = rawText
+            elseif not bestTitle and #rawText > 0 and #rawText < 30 and not isObjectiveText and not prog then
+                bestTitle = rawText
+            end
+        end
+
+        local objLower = (bestObjective or ""):lower()
+        if #objLower == 0 and bestTitle then
+            objLower = bestTitle:lower()
+        end
+
+        local targetItem = nil
+        local targetRole = nil
+        local targetCrop = nil
+        local primaryCat = "None"
+
+        if #objLower > 0 then
+            -- 1. Cook
+            if objLower:find("cook") or objLower:find("bake") or objLower:find("meal") then
+                directives.Cook = true
+                primaryCat = "Cook"
+            end
+            -- 2. Serve
+            if objLower:find("serve") or objLower:find("deliver to table") then
+                directives.Serve = true
+                if primaryCat == "None" then primaryCat = "Serve" end
+            end
+            -- 3. Clean
+            if objLower:find("clean") or objLower:find("wipe") or objLower:find("dish") or objLower:find("scrub") then
+                directives.Clean = true
+                if primaryCat == "None" then primaryCat = "Clean" end
+            end
+            -- 4. Order
+            if objLower:find("order") or objLower:find("ticket") then
+                directives.Order = true
+                if primaryCat == "None" then primaryCat = "Order" end
+            end
+            -- 5. Seat
+            if objLower:find("seat") or objLower:find("customer") or objLower:find("guest") then
+                directives.Seat = true
+                if primaryCat == "None" then primaryCat = "Seat" end
+            end
+            -- 6. Earn / Cash
+            if objLower:find("earn") or objLower:find("cash") or objLower:find("coin") or objLower:find("tip") or objLower:find("money") then
+                directives.Cash = true
+                if primaryCat == "None" then primaryCat = "Cash" end
+            end
+            -- 7. Buy
+            if objLower:find("buy") or objLower:find("purchase") then
+                directives.Buy = true
+                primaryCat = "Buy"
+                -- Extract target item name (e.g. "Buy a Wooden Chair!", "Buy 3 Tomato Plant!", "Buy a Rusty Sink!")
+                local item = objLower:match("buy%s+a?%s+(.-)[!%?%.%(]") or objLower:match("buy%s+%d*%s*(.-)[!%?%.%(]") or objLower:match("purchase%s+a?%s*(.-)[!%?%.%(]") or objLower:match("buy%s+a?%s+(.+)$")
+                if item then
+                    item = item:gsub("^a%s+", ""):gsub("^%d+%s*", ""):gsub("^the%s+", ""):gsub("[%!%?%.%)]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #item > 2 then targetItem = item end
+                end
+            end
+            -- 8. Place
+            if objLower:find("place") or objLower:find("build") then
+                directives.Place = true
+                if primaryCat == "None" or primaryCat == "Buy" then primaryCat = "Place" end
+                -- Extract target item name (e.g. "Place a Wooden Chair!", "Place 1 Wooden Table!")
+                local item = objLower:match("place%s+a?%s+(.-)[!%?%.%(]") or objLower:match("place%s+%d*%s*(.-)[!%?%.%(]") or objLower:match("build%s+a?%s*(.-)[!%?%.%(]") or objLower:match("place%s+a?%s+(.+)$")
+                if item then
+                    item = item:gsub("^a%s+", ""):gsub("^%d+%s*", ""):gsub("^the%s+", ""):gsub("[%!%?%.%)]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #item > 2 then targetItem = item end
+                end
+            end
+            -- 9. Hire Staff
+            if objLower:find("hire") or objLower:find("recruit") then
+                directives.Staff = true
+                primaryCat = "Staff"
+                if objLower:find("cleaner") or objLower:find("dishwasher") then
+                    targetRole = "Cleaner"
+                elseif objLower:find("cook") or objLower:find("chef") then
+                    targetRole = "Cook"
+                elseif objLower:find("waiter") or objLower:find("server") then
+                    targetRole = "Waiter"
+                end
+            end
+            -- 10. Farm / Harvest
+            if objLower:find("harvest") or objLower:find("crop") or objLower:find("farm") or objLower:find("wheat") or objLower:find("tomato") then
+                directives.Farm = true
+                if primaryCat == "None" then primaryCat = "Farm" end
+                if objLower:find("wheat") then targetCrop = "Wheat"
+                elseif objLower:find("tomato") then targetCrop = "Tomato"
+                elseif objLower:find("carrot") then targetCrop = "Carrot"
+                elseif objLower:find("corn") then targetCrop = "Corn"
+                elseif objLower:find("potato") then targetCrop = "Potato"
+                end
+            end
+            -- 11. Delivery
+            if objLower:find("delivery") or objLower:find("package") or objLower:find("scooter") then
+                directives.Delivery = true
+                if primaryCat == "None" then primaryCat = "Delivery" end
+            end
+            -- 12. Expand
+            if objLower:find("expand") or objLower:find("floor") or objLower:find("land") then
+                directives.Expand = true
+                if primaryCat == "None" then primaryCat = "Expand" end
+            end
+        end
+
+        directives.TargetItem = targetItem
+        directives.TargetRole = targetRole
+        directives.TargetCrop = targetCrop
+        directives.Category = primaryCat
+        directives.Title = bestTitle
+        directives.Objective = bestObjective
+        directives.Progress = bestProgress
+
+        if Core.State and Core.State.ActiveGoal then
+            if bestTitle or bestObjective then
+                Core.State.ActiveGoal.Title = bestTitle or (Core.State.ActiveGoal.Title ~= "None" and Core.State.ActiveGoal.Title or "Active Goal")
+                Core.State.ActiveGoal.Objective = bestObjective or (bestTitle or "In Progress")
+                Core.State.ActiveGoal.Progress = bestProgress or ""
+                Core.State.ActiveGoal.Category = primaryCat
+                Core.State.ActiveGoal.TargetItem = targetItem
+                Core.State.ActiveGoal.TargetRole = targetRole
+                Core.State.ActiveGoal.TargetCrop = targetCrop
             end
         end
 

@@ -79,7 +79,10 @@ return function(Core)
         AutoCookEnabled = false,
         AutoServeEnabled = false,
         AutoCleanEnabled = false,
+        AutoWashSinksEnabled = true,
         AutoCollectCashEnabled = false,
+        HandCapacity = 1,
+        StrictHandPriority = true,
         AutoFarmEnabled = false,
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
@@ -147,9 +150,9 @@ return function(Core)
 
         -- Movement Physics
         WalkSpeedEnabled = false,
-        WalkSpeed = 16,
+        WalkSpeed = 32,
         JumpPowerEnabled = false,
-        JumpPower = 50,
+        JumpPower = 70,
         InfiniteJumpEnabled = false,
         NoClipEnabled = false,
 
@@ -222,12 +225,30 @@ return function(Core)
         InFlightTasks = setmetatable({}, {__mode = "k"}),
         Running = true,
         StartTime = tick(),
+        HoldingType = "None", -- "DirtyDishes", "Food", "None"
+        HoldingCount = 0,
+        HandsFull = false,
+        HandsFullUntil = 0,
+        SinksFull = false,
+        SinksFullUntil = 0,
+        InteractionBlockedUntil = 0,
+        ActivePrompt = nil,
+        LastActionType = nil,
+        ActiveGoal = {
+            Title = "None",
+            Objective = "Monitoring...",
+            Progress = "0%",
+            Category = "None",
+            TargetItem = nil,
+            TargetRole = nil,
+        },
         Stats = {
             CustomersSeated = 0,
             OrdersTaken = 0,
             DishesCooked = 0,
             DishesServed = 0,
             TablesCleaned = 0,
+            DishesWashed = 0,
             CashCollected = 0,
             CropsHarvested = 0,
             DeliveriesCompleted = 0,
@@ -480,13 +501,13 @@ return function(Core)
         return affordable, (needed > 0 and needed or 0), (affordable and "Affordable" or "Insufficient funds")
     end
 
-    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    -- Auto-Claim all finished quests, goals, milestones, daily gifts, playtime rewards, and achievements
     function Utility.ClaimAllRewards()
         if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled and not Config.MasterAutoFarmEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local claimed = 0
 
-        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest buttons
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest, goal buttons
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
@@ -494,14 +515,13 @@ return function(Core)
                     local name = btn.Name:lower()
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
                     local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
+                    local fullContext = text .. " " .. name .. " " .. parentName .. " " .. grandParentName
 
-                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in"
-                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin") or text:find("quest")
-                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily") or name:find("quest")
-                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward") or grandParentName:find("quest")
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in" or text == "done"
+                    local hasClaimWord = fullContext:find("claim") or fullContext:find("collect") or fullContext:find("reward") or fullContext:find("gift") or fullContext:find("milestone") or fullContext:find("goal") or fullContext:find("quest")
 
                     if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
-                        if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
+                        if isClaimText or (hasClaimWord and (text:find("claim") or text:find("collect") or text:find("reward") or text:find("free") or text:find("get"))) then
                             pcall(function()
                                 if type(firesignal) == "function" and btn.Activated then
                                     firesignal(btn.Activated)
@@ -520,9 +540,9 @@ return function(Core)
         local rs = game:GetService("ReplicatedStorage")
         local remoteNames = {
             "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
-            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
-            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
-            "CompleteQuest", "TurnInQuest", "FinishQuest", "RedeemQuest"
+            "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "GoalClaim", "ClaimAchievement",
+            "ClaimMilestone", "MilestoneClaim", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
+            "CompleteQuest", "CompleteGoal", "TurnInQuest", "FinishQuest", "RedeemQuest", "RedeemGoal", "Claim"
         }
         for _, rName in ipairs(remoteNames) do
             local remote = rs:FindFirstChild(rName, true)
@@ -548,24 +568,25 @@ return function(Core)
     end
     Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
 
-    -- Auto-Accept and Auto-Do Quests
+    -- Auto-Accept and Auto-Do Quests / Goals
     function Utility.AcceptAndDoQuests()
         if not Config.AutoDoQuestsEnabled and not Config.MasterAutoFarmEnabled then return nil end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local rs = game:GetService("ReplicatedStorage")
 
-        -- 1. Auto-Accept new quests from UI dialogs or lists
+        -- 1. Auto-Accept new quests / goals from dialog popups, lists, or NPCs
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
                     local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
                     local name = btn.Name:lower()
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local fullContext = text .. " " .. name .. " " .. parentName
 
-                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest"
-                    local isQuestContext = parentName:find("quest") or parentName:find("mission") or parentName:find("task") or name:find("quest") or name:find("accept")
+                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest" or text == "accept goal" or text == "yes" or text == "continue"
+                    local isQuestContext = fullContext:find("quest") or fullContext:find("goal") or fullContext:find("mission") or fullContext:find("task") or fullContext:find("bounty")
 
-                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take")))) and
+                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take") or text:find("ok")))) and
                        not text:find("robux") and not text:find("buy") and not text:find("cancel") then
                         pcall(function()
                             if type(firesignal) == "function" and btn.Activated then
@@ -579,9 +600,10 @@ return function(Core)
             end
         end
 
-        -- 2. Trigger AcceptQuest / StartQuest remotes if available in ReplicatedStorage
+        -- 2. Trigger AcceptQuest / StartQuest / Goal remotes if available in ReplicatedStorage
         local acceptRemotes = {
-            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest"
+            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest",
+            "AcceptGoal", "StartGoal", "TakeGoal"
         }
         for _, rName in ipairs(acceptRemotes) do
             local remote = rs:FindFirstChild(rName, true)
@@ -605,30 +627,182 @@ return function(Core)
             Buy = false,
             Place = false,
             Staff = false,
-            Expand = false
+            Expand = false,
+            TargetItem = nil,
+            TargetRole = nil,
+            TargetCrop = nil,
+            Title = nil,
+            Objective = nil,
+            Progress = nil,
+            Category = "None"
         }
 
+        local candidateLabels = {}
         if pg then
             for _, lbl in ipairs(pg:GetDescendants()) do
-                if lbl:IsA("TextLabel") and lbl.Visible then
+                if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text and #lbl.Text > 1 then
+                    local name = lbl.Name:lower()
                     local parentName = (lbl.Parent and lbl.Parent.Name or ""):lower()
-                    local isQuestLabel = parentName:find("quest") or parentName:find("task") or parentName:find("mission") or parentName:find("goal") or lbl.Name:lower():find("quest") or lbl.Name:lower():find("task")
-                    if isQuestLabel then
-                        local t = (lbl.Text or ""):lower()
-                        if t:find("cook") or t:find("dish") or t:find("meal") or t:find("bake") then directives.Cook = true end
-                        if t:find("serve") or t:find("deliver to table") then directives.Serve = true end
-                        if t:find("order") or t:find("ticket") then directives.Order = true end
-                        if t:find("clean") or t:find("wipe") or t:find("table") or t:find("trash") then directives.Clean = true end
-                        if t:find("seat") or t:find("customer") or t:find("guest") then directives.Seat = true end
-                        if t:find("cash") or t:find("coin") or t:find("tip") or t:find("money") or t:find("earn") then directives.Cash = true end
-                        if t:find("harvest") or t:find("crop") or t:find("wheat") or t:find("farm") then directives.Farm = true end
-                        if t:find("delivery") or t:find("package") or t:find("box") or t:find("scooter") then directives.Delivery = true end
-                        if t:find("buy") or t:find("purchase") or t:find("stove") or t:find("chair") then directives.Buy = true end
-                        if t:find("place") or t:find("furniture") or t:find("build") then directives.Place = true end
-                        if t:find("hire") or t:find("staff") or t:find("waiter") or t:find("chef") then directives.Staff = true end
-                        if t:find("expand") or t:find("floor") or t:find("land") then directives.Expand = true end
+                    local grandParentName = (lbl.Parent and lbl.Parent.Parent and lbl.Parent.Parent.Name or ""):lower()
+                    local fullContext = name .. " " .. parentName .. " " .. grandParentName
+
+                    local isGoalLabel = fullContext:find("goal") or fullContext:find("quest") or fullContext:find("mission")
+                                     or fullContext:find("task") or fullContext:find("objective") or fullContext:find("tracker")
+                    if isGoalLabel then
+                        table.insert(candidateLabels, lbl)
                     end
                 end
+            end
+        end
+
+        local bestTitle = nil
+        local bestObjective = nil
+        local bestProgress = nil
+
+        for _, lbl in ipairs(candidateLabels) do
+            local rawText = lbl.Text:gsub("^%s+", ""):gsub("%s+$", "")
+            local lowerText = rawText:lower()
+            local name = lbl.Name:lower()
+
+            -- Check for progress pattern e.g. (1/2), ($140/$200), (50%)
+            local prog = rawText:match("(%d+/%d+)") or rawText:match("(%$?%d+[%d%,]*%s*/%s*%$?%d+[%d%,]*)") or rawText:match("(%d+%%)")
+            if prog and not bestProgress then
+                bestProgress = prog
+            end
+
+            -- Check if label is named title, header, or name
+            if (name:find("title") or name:find("header") or name:find("name")) and not lowerText:find("!") and #rawText < 35 then
+                bestTitle = rawText
+            end
+
+            -- Check for action verbs in objective text
+            local isObjectiveText = lowerText:find("cook") or lowerText:find("serve") or lowerText:find("clean")
+                                 or lowerText:find("order") or lowerText:find("seat") or lowerText:find("earn")
+                                 or lowerText:find("buy") or lowerText:find("place") or lowerText:find("hire")
+                                 or lowerText:find("harvest") or lowerText:find("expand") or lowerText:find("customer")
+                                 or lowerText:find("dish") or lowerText:find("meal")
+            if isObjectiveText and not bestObjective then
+                bestObjective = rawText
+            elseif not bestTitle and #rawText > 0 and #rawText < 30 and not isObjectiveText and not prog then
+                bestTitle = rawText
+            end
+        end
+
+        local objLower = (bestObjective or ""):lower()
+        if #objLower == 0 and bestTitle then
+            objLower = bestTitle:lower()
+        end
+
+        local targetItem = nil
+        local targetRole = nil
+        local targetCrop = nil
+        local primaryCat = "None"
+
+        if #objLower > 0 then
+            -- 1. Cook
+            if objLower:find("cook") or objLower:find("bake") or objLower:find("meal") then
+                directives.Cook = true
+                primaryCat = "Cook"
+            end
+            -- 2. Serve
+            if objLower:find("serve") or objLower:find("deliver to table") then
+                directives.Serve = true
+                if primaryCat == "None" then primaryCat = "Serve" end
+            end
+            -- 3. Clean
+            if objLower:find("clean") or objLower:find("wipe") or objLower:find("dish") or objLower:find("scrub") then
+                directives.Clean = true
+                if primaryCat == "None" then primaryCat = "Clean" end
+            end
+            -- 4. Order
+            if objLower:find("order") or objLower:find("ticket") then
+                directives.Order = true
+                if primaryCat == "None" then primaryCat = "Order" end
+            end
+            -- 5. Seat
+            if objLower:find("seat") or objLower:find("customer") or objLower:find("guest") then
+                directives.Seat = true
+                if primaryCat == "None" then primaryCat = "Seat" end
+            end
+            -- 6. Earn / Cash
+            if objLower:find("earn") or objLower:find("cash") or objLower:find("coin") or objLower:find("tip") or objLower:find("money") then
+                directives.Cash = true
+                if primaryCat == "None" then primaryCat = "Cash" end
+            end
+            -- 7. Buy
+            if objLower:find("buy") or objLower:find("purchase") then
+                directives.Buy = true
+                primaryCat = "Buy"
+                -- Extract target item name (e.g. "Buy a Wooden Chair!", "Buy 3 Tomato Plant!", "Buy a Rusty Sink!")
+                local item = objLower:match("buy%s+a?%s+(.-)[!%?%.%(]") or objLower:match("buy%s+%d*%s*(.-)[!%?%.%(]") or objLower:match("purchase%s+a?%s*(.-)[!%?%.%(]") or objLower:match("buy%s+a?%s+(.+)$")
+                if item then
+                    item = item:gsub("^a%s+", ""):gsub("^%d+%s*", ""):gsub("^the%s+", ""):gsub("[%!%?%.%)]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #item > 2 then targetItem = item end
+                end
+            end
+            -- 8. Place
+            if objLower:find("place") or objLower:find("build") then
+                directives.Place = true
+                if primaryCat == "None" or primaryCat == "Buy" then primaryCat = "Place" end
+                -- Extract target item name (e.g. "Place a Wooden Chair!", "Place 1 Wooden Table!")
+                local item = objLower:match("place%s+a?%s+(.-)[!%?%.%(]") or objLower:match("place%s+%d*%s*(.-)[!%?%.%(]") or objLower:match("build%s+a?%s*(.-)[!%?%.%(]") or objLower:match("place%s+a?%s+(.+)$")
+                if item then
+                    item = item:gsub("^a%s+", ""):gsub("^%d+%s*", ""):gsub("^the%s+", ""):gsub("[%!%?%.%)]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #item > 2 then targetItem = item end
+                end
+            end
+            -- 9. Hire Staff
+            if objLower:find("hire") or objLower:find("recruit") then
+                directives.Staff = true
+                primaryCat = "Staff"
+                if objLower:find("cleaner") or objLower:find("dishwasher") then
+                    targetRole = "Cleaner"
+                elseif objLower:find("cook") or objLower:find("chef") then
+                    targetRole = "Cook"
+                elseif objLower:find("waiter") or objLower:find("server") then
+                    targetRole = "Waiter"
+                end
+            end
+            -- 10. Farm / Harvest
+            if objLower:find("harvest") or objLower:find("crop") or objLower:find("farm") or objLower:find("wheat") or objLower:find("tomato") then
+                directives.Farm = true
+                if primaryCat == "None" then primaryCat = "Farm" end
+                if objLower:find("wheat") then targetCrop = "Wheat"
+                elseif objLower:find("tomato") then targetCrop = "Tomato"
+                elseif objLower:find("carrot") then targetCrop = "Carrot"
+                elseif objLower:find("corn") then targetCrop = "Corn"
+                elseif objLower:find("potato") then targetCrop = "Potato"
+                end
+            end
+            -- 11. Delivery
+            if objLower:find("delivery") or objLower:find("package") or objLower:find("scooter") then
+                directives.Delivery = true
+                if primaryCat == "None" then primaryCat = "Delivery" end
+            end
+            -- 12. Expand
+            if objLower:find("expand") or objLower:find("floor") or objLower:find("land") then
+                directives.Expand = true
+                if primaryCat == "None" then primaryCat = "Expand" end
+            end
+        end
+
+        directives.TargetItem = targetItem
+        directives.TargetRole = targetRole
+        directives.TargetCrop = targetCrop
+        directives.Category = primaryCat
+        directives.Title = bestTitle
+        directives.Objective = bestObjective
+        directives.Progress = bestProgress
+
+        if Core.State and Core.State.ActiveGoal then
+            if bestTitle or bestObjective then
+                Core.State.ActiveGoal.Title = bestTitle or (Core.State.ActiveGoal.Title ~= "None" and Core.State.ActiveGoal.Title or "Active Goal")
+                Core.State.ActiveGoal.Objective = bestObjective or (bestTitle or "In Progress")
+                Core.State.ActiveGoal.Progress = bestProgress or ""
+                Core.State.ActiveGoal.Category = primaryCat
+                Core.State.ActiveGoal.TargetItem = targetItem
+                Core.State.ActiveGoal.TargetRole = targetRole
+                Core.State.ActiveGoal.TargetCrop = targetCrop
             end
         end
 
@@ -941,6 +1115,18 @@ return function(Core)
     local activeKeybindBtn = nil
     local activeKeybindCb = nil
 
+    local function getViewportSize()
+        local ws = workspace or game:GetService("Workspace")
+        local cam = ws and ws.CurrentCamera
+        if cam and cam.ViewportSize.X > 0 and cam.ViewportSize.Y > 0 then
+            return cam.ViewportSize
+        end
+        if UILibrary.Interface and UILibrary.Interface.AbsoluteSize.X > 0 and UILibrary.Interface.AbsoluteSize.Y > 0 then
+            return UILibrary.Interface.AbsoluteSize
+        end
+        return Vector2.new(1920, 1080)
+    end
+
     -- =========================================================================
     -- 3. GLOBAL INPUT DISPATCHER (Desktop & Touch)
     -- =========================================================================
@@ -948,26 +1134,49 @@ return function(Core)
         Utility.RegisterConnection(UserInputService.InputChanged:Connect(function(input)
             if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
             
-            if floatDragging then
+            if floatDragging and self.FloatingWidget then
                 local delta = input.Position - floatDragStart
                 if delta.Magnitude > 3 then
                     floatHasMoved = true
-                    local screenX = math.clamp(floatStartPos.X.Offset + delta.X, 10, Services.CoreGui.AbsoluteSize.X - 160)
-                    local screenY = math.clamp(floatStartPos.Y.Offset + delta.Y, 10, Services.CoreGui.AbsoluteSize.Y - 60)
-                    self.FloatingWidget.Position = UDim2.new(floatStartPos.X.Scale, screenX, floatStartPos.Y.Scale, screenY)
+                    local vp = getViewportSize()
+                    local pillW = self.FloatingWidget.AbsoluteSize.X > 0 and self.FloatingWidget.AbsoluteSize.X or 155
+                    local pillH = self.FloatingWidget.AbsoluteSize.Y > 0 and self.FloatingWidget.AbsoluteSize.Y or 42
+                    
+                    local curLeft = vp.X * floatStartPos.X.Scale + floatStartPos.X.Offset + delta.X
+                    local curTop = vp.Y * floatStartPos.Y.Scale + floatStartPos.Y.Offset + delta.Y
+                    local clampedX = math.clamp(curLeft, 10, math.max(10, vp.X - pillW - 10))
+                    local clampedY = math.clamp(curTop, 10, math.max(10, vp.Y - pillH - 10))
+                    
+                    self.FloatingWidget.Position = UDim2.new(0, clampedX, 0, clampedY)
+                    self.FloatingSavedPos = self.FloatingWidget.Position
                 end
-            elseif dragging then
+            elseif dragging and self.MainContainer then
                 local delta = input.Position - dragStart
-                local screenW = Services.CoreGui.AbsoluteSize.X
-                local screenH = Services.CoreGui.AbsoluteSize.Y
-                local newX = math.clamp(startPos.X.Offset + delta.X, -self.MainContainer.AbsoluteSize.X * 0.5, screenW * 0.5)
-                local newY = math.clamp(startPos.Y.Offset + delta.Y, -self.MainContainer.AbsoluteSize.Y * 0.5, screenH * 0.5)
-                self.MainContainer.Position = UDim2.new(startPos.X.Scale, newX, startPos.Y.Scale, newY)
-            elseif resizing then
+                local vp = getViewportSize()
+                local winW = self.MainContainer.AbsoluteSize.X > 0 and self.MainContainer.AbsoluteSize.X or 620
+                local winH = self.MainContainer.AbsoluteSize.Y > 0 and self.MainContainer.AbsoluteSize.Y or 490
+
+                local curLeft = vp.X * startPos.X.Scale + startPos.X.Offset + delta.X
+                local curTop = vp.Y * startPos.Y.Scale + startPos.Y.Offset + delta.Y
+
+                local clampLeft = math.clamp(curLeft, -winW + 80, math.max(0, vp.X - 80))
+                local clampTop = math.clamp(curTop, 0, math.max(0, vp.Y - 50))
+
+                local newOffsetX = clampLeft - (vp.X * startPos.X.Scale)
+                local newOffsetY = clampTop - (vp.Y * startPos.Y.Scale)
+
+                self.MainContainer.Position = UDim2.new(startPos.X.Scale, newOffsetX, startPos.Y.Scale, newOffsetY)
+            elseif resizing and self.MainContainer then
                 local delta = input.Position - resizeStart
-                local newW = math.clamp(sizeStart.X + delta.X, 480, 1100)
-                local newH = math.clamp(sizeStart.Y + delta.Y, 380, 850)
+                local vp = getViewportSize()
+                local curX = self.MainContainer.AbsolutePosition.X
+                local curY = self.MainContainer.AbsolutePosition.Y
+                local maxW = math.max(480, vp.X - curX - 10)
+                local maxH = math.max(380, vp.Y - curY - 10)
+                local newW = math.clamp(sizeStart.X + delta.X, 480, math.min(1100, maxW))
+                local newH = math.clamp(sizeStart.Y + delta.Y, 380, math.min(850, maxH))
                 self.MainContainer.Size = UDim2.new(0, newW, 0, newH)
+                self.SavedWindowSize = self.MainContainer.Size
             elseif activeSliderId then
                 local cb = sliderCallbacks[activeSliderId]
                 if cb then cb(input) end
@@ -978,6 +1187,9 @@ return function(Core)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 if floatDragging and not floatHasMoved then
                     self:RestoreFromFloating()
+                end
+                if dragging and self.MainContainer then
+                    self.SavedWindowPos = self.MainContainer.Position
                 end
                 floatDragging = false
                 dragging = false
@@ -1186,14 +1398,21 @@ return function(Core)
         sub.TextXAlignment = Enum.TextXAlignment.Left
 
         -- Dragging logic
-        pill.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                floatDragging = true
-                floatHasMoved = false
-                floatDragStart = input.Position
-                floatStartPos = pill.Position
-            end
-        end)
+        local function bindPillDrag(inst)
+            inst.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    floatDragging = true
+                    floatHasMoved = false
+                    floatDragStart = input.Position
+                    floatStartPos = pill.Position
+                end
+            end)
+        end
+        bindPillDrag(pill)
+        bindPillDrag(icon)
+        bindPillDrag(dot)
+        bindPillDrag(title)
+        bindPillDrag(sub)
 
         self.FloatingWidget = pill
         self.FloatingCircle = pill -- Alias for backward compatibility
@@ -1225,6 +1444,7 @@ return function(Core)
         if not self.MainContainer or not self.FloatingWidget then return end
         self:PlaySound("toggle")
         self.SavedWindowSize = self.MainContainer.Size
+        self.SavedWindowPos = self.MainContainer.Position
         local tw = tween(self.MainContainer, {
             Size = UDim2.new(0, self.MainContainer.Size.X.Offset * 0.7, 0, 0),
             Position = UDim2.new(self.MainContainer.Position.X.Scale, self.MainContainer.Position.X.Offset, self.MainContainer.Position.Y.Scale, self.MainContainer.Position.Y.Offset + 50)
@@ -1232,7 +1452,11 @@ return function(Core)
         tw.Completed:Connect(function()
             self.MainContainer.Visible = false
             self.FloatingWidget.Visible = true
-            self.FloatingWidget.Position = UDim2.new(0, 24, 0.5, -21)
+            if self.FloatingSavedPos then
+                self.FloatingWidget.Position = self.FloatingSavedPos
+            else
+                self.FloatingWidget.Position = UDim2.new(0, 24, 0.5, -21)
+            end
         end)
     end
 
@@ -1242,6 +1466,8 @@ return function(Core)
         self.FloatingWidget.Visible = false
         self.MainContainer.Visible = true
         local targetSize = self.SavedWindowSize or UDim2.new(0, 620, 0, 490)
+        local targetPos = self.SavedWindowPos or self.MainContainer.Position
+        self.MainContainer.Position = targetPos
         self.MainContainer.Size = UDim2.new(0, targetSize.X.Offset * 0.8, 0, 0)
         tween(self.MainContainer, {Size = targetSize}, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     end
@@ -1325,6 +1551,7 @@ return function(Core)
         Header.Size = UDim2.new(1, 0, 0, 46)
         Header.BackgroundColor3 = Theme.Header
         Header.BorderSizePixel = 0
+        Header.Active = true
         Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
         -- Bottom square filler to merge header seamlessly with body
@@ -1491,7 +1718,9 @@ return function(Core)
         -- 1. Center Window Button
         makeHeaderBtn("⟲", 0, Theme.CardHover, function()
             self:PlaySound("click")
-            tween(MainContainer, {Position = UDim2.new(0.5, -MainContainer.AbsoluteSize.X * 0.5, 0.5, -MainContainer.AbsoluteSize.Y * 0.5)}, 0.3, Enum.EasingStyle.Back)
+            local targetPos = UDim2.new(0.5, -MainContainer.AbsoluteSize.X * 0.5, 0.5, -MainContainer.AbsoluteSize.Y * 0.5)
+            self.SavedWindowPos = targetPos
+            tween(MainContainer, {Position = targetPos}, 0.3, Enum.EasingStyle.Back)
             self:Notify({Title = "Position Reset", Content = "Window centered on screen.", Type = "Info", Duration = 2})
         end)
 
@@ -1507,13 +1736,21 @@ return function(Core)
         end)
 
         -- Header Dragging
-        Header.InputBegan:Connect(function(input)
+        local function startWindowDrag(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
                 dragStart = input.Position
                 startPos = MainContainer.Position
             end
-        end)
+        end
+
+        Header.Active = true
+        Header.InputBegan:Connect(startWindowDrag)
+        HeaderSquare.InputBegan:Connect(startWindowDrag)
+        BrandIcon.InputBegan:Connect(startWindowDrag)
+        TitleLbl.InputBegan:Connect(startWindowDrag)
+        ProBadge.InputBegan:Connect(startWindowDrag)
+        StatusPill.InputBegan:Connect(startWindowDrag)
 
         -- =====================================================================
         -- 6B. BODY LAYOUT (Left Sidebar + Right Tab View)
@@ -2644,6 +2881,9 @@ return function(Core)
 
         return {
             Card = card,
+            SetTitle = function(selfObj, newTitle)
+                tLbl.Text = newTitle
+            end,
             SetContent = function(selfObj, newContent)
                 cLbl.Text = newContent
                 updateSize(newContent)
@@ -2664,11 +2904,21 @@ end)()(Core)
         function UI.UpdateStatus()
             local active = Config.MasterAutoFarmEnabled or Config.AutoSeatEnabled or Config.AutoOrderEnabled or
                            Config.AutoCookEnabled or Config.AutoServeEnabled or Config.AutoCleanEnabled or
-                           Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or
-                           Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or Config.AutoClaimQuestsEnabled or
-                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoWashSinksEnabled or Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or
+                           Config.AutoDeliveryEnabled or Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or
+                           Config.AutoClaimQuestsEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
+                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
-            local text = Config.MasterAutoFarmEnabled and "FARMING" or (active and "ACTIVE" or "IDLE")
+            local text = "IDLE"
+            if Config.MasterAutoFarmEnabled then
+                if State.ActiveGoal and State.ActiveGoal.Title and State.ActiveGoal.Title ~= "None" then
+                    text = "GOAL: " .. State.ActiveGoal.Title:upper():sub(1, 10)
+                else
+                    text = "FARMING"
+                end
+            elseif active then
+                text = "ACTIVE"
+            end
             Window:UpdateStatus(active, text)
         end
 
@@ -2700,6 +2950,9 @@ end)()(Core)
                 end
             })
 
+            -- Active Progressive Goal Tracker Card
+            local goalCard = DashTab:AddParagraph("📜 ACTIVE GOAL: MONITORING...", "Synchronizing with game progression. Objectives will be tracked and auto-completed here.")
+
             -- Live Analytics Metric Grid
             DashTab:AddSection("LIVE RESTAURANT ANALYTICS", "📈")
             local metricGrid = DashTab:AddMetricGrid()
@@ -2712,6 +2965,7 @@ end)()(Core)
             metricGrid:AddMetric("Cooked", "🍳", "Dishes Cooked", 0, Color3.fromRGB(249, 115, 22))
             metricGrid:AddMetric("Served", "🍽️", "Dishes Served", 0, Color3.fromRGB(16, 185, 129))
             metricGrid:AddMetric("Cleaned", "🧼", "Tables Cleaned", 0, Color3.fromRGB(6, 182, 212))
+            metricGrid:AddMetric("Washed", "🧽", "Dishes Washed", 0, Color3.fromRGB(45, 212, 191))
             metricGrid:AddMetric("Deliveries", "📦", "Deliveries Done", 0, Color3.fromRGB(234, 179, 8))
             metricGrid:AddMetric("Harvested", "🌾", "Crops Harvested", 0, Color3.fromRGB(132, 204, 22))
             metricGrid:AddMetric("Restocked", "🧊", "Storage Restocked", 0, Color3.fromRGB(14, 165, 233))
@@ -2736,6 +2990,21 @@ end)()(Core)
                         local ratePerHour = math.floor(((s.CashCollected or 0) / elapsed) * 3600)
                         heroCard.SetInfo(string.format("⏱ Uptime: %s  •  Rate: ~%d items/hr", uptimeStr, ratePerHour))
 
+                        -- Update active goal status
+                        if State.ActiveGoal and State.ActiveGoal.Title and State.ActiveGoal.Title ~= "None" then
+                            local g = State.ActiveGoal
+                            local progStr = (g.Progress and #g.Progress > 0) and (" [" .. g.Progress .. "]") or ""
+                            local objStr = string.format("🎯 %s%s\n⚡ Auto-Farm Directive: %s", g.Objective or "In Progress", progStr, g.Category or "Automated")
+                            if goalCard and goalCard.SetContent then
+                                if goalCard.SetTitle then goalCard:SetTitle("📜 ACTIVE GOAL: " .. g.Title:upper()) end
+                                goalCard:SetContent(objStr)
+                            end
+                            if UI.RestGoalCard and UI.RestGoalCard.SetContent then
+                                if UI.RestGoalCard.SetTitle then UI.RestGoalCard:SetTitle("📜 ACTIVE GOAL: " .. g.Title:upper()) end
+                                UI.RestGoalCard:SetContent(objStr)
+                            end
+                        end
+
                         -- Update metrics
                         local totalRewards = (s.RewardsClaimed or 0) + (s.QuestsClaimed or 0)
                         metricGrid:UpdateMetric("Cash", string.format("%d items", s.CashCollected or 0))
@@ -2746,6 +3015,7 @@ end)()(Core)
                         metricGrid:UpdateMetric("Cooked", s.DishesCooked or 0)
                         metricGrid:UpdateMetric("Served", s.DishesServed or 0)
                         metricGrid:UpdateMetric("Cleaned", s.TablesCleaned or 0)
+                        metricGrid:UpdateMetric("Washed", s.DishesWashed or 0)
                         metricGrid:UpdateMetric("Deliveries", s.DeliveriesCompleted or 0)
                         metricGrid:UpdateMetric("Harvested", s.CropsHarvested or 0)
                         metricGrid:UpdateMetric("Restocked", s.StorageRestocked or 0)
@@ -2826,6 +3096,10 @@ end)()(Core)
                 Config.AutoCleanEnabled = val
                 UI.UpdateStatus()
             end)
+            RestTab:AddToggle("Auto-Wash Dishes & Manage Sinks", "Deposits dirty dishes into sinks/dishwashers and scrubs dishes clean.", Config.AutoWashSinksEnabled, function(val)
+                Config.AutoWashSinksEnabled = val
+                UI.UpdateStatus()
+            end)
             RestTab:AddToggle("Auto-Collect Cash & Tips", "Continuously sweeps dropped coins, tip jars, and register earnings.", Config.AutoCollectCashEnabled, function(val)
                 Config.AutoCollectCashEnabled = val
                 UI.UpdateStatus()
@@ -2851,6 +3125,7 @@ end)()(Core)
 
             -- Quests & Tasks Automation
             RestTab:AddSection("QUESTS & TASKS AUTOMATION", "📜")
+            UI.RestGoalCard = RestTab:AddParagraph("📜 ACTIVE GOAL: MONITORING...", "Synchronizing with game progression. Objectives will be tracked and auto-completed here.")
             RestTab:AddToggle("Auto-Do Quests", "Automatically fulfills active quest objectives, talks to quest NPCs, and prioritizes quest tasks.", Config.AutoDoQuestsEnabled, function(val)
                 Config.AutoDoQuestsEnabled = val
                 UI.UpdateStatus()
@@ -3263,6 +3538,7 @@ return function(Core)
 
     local function isPromptReady(prompt)
         if not prompt or not prompt.Parent or not prompt.Enabled then return false end
+        if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return false end
         local exp = promptCooldowns[prompt]
         if exp and os.clock() < exp then return false end
         return true
@@ -3287,6 +3563,159 @@ return function(Core)
     local function setPromptCooldown(prompt, duration)
         if prompt then
             promptCooldowns[prompt] = os.clock() + (duration or 2.5)
+        end
+    end
+
+    -- =========================================================================
+    -- HAND INVENTORY & CARRIED ITEMS DETECTOR
+    -- =========================================================================
+    function Restaurant.GetHoldingState()
+        local char = LocalPlayer and LocalPlayer.Character
+        if not char then return "None", 0, false end
+
+        local now = os.clock()
+        local handsFullFromNotification = (State.HandsFull and now < (State.HandsFullUntil or 0))
+        if not handsFullFromNotification then
+            State.HandsFull = false
+        end
+
+        local holdingType = "None"
+        local count = 0
+
+        -- 1. Inspect Character children (Equipped Tools, welded models, or plates)
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") or child:IsA("Model") or child:IsA("BasePart") then
+                local name = child.Name:lower()
+                local isBodyPart = (name == "humanoidrootpart" or name == "head" or name:find("torso") or name:find("arm") or name:find("leg") or name:find("hand") or name:find("foot") or name:find("accessory") or name:find("hair"))
+                if not isBodyPart then
+                    if name:find("dirty") or name:find("dish") or name:find("plate") or name:find("bowl") or name:find("cup") or name:find("trash") or name:find("tray") then
+                        if not name:find("food") and not name:find("burger") and not name:find("meal") and not name:find("cooked") and not name:find("pizza") then
+                            holdingType = "DirtyDishes"
+                            count = count + 1
+                        end
+                    elseif name:find("food") or name:find("meal") or name:find("burger") or name:find("pizza") or name:find("steak") or name:find("pasta") or name:find("sushi") or name:find("drink") or name:find("cooked") then
+                        holdingType = "Food"
+                        count = count + 1
+                    end
+                end
+            end
+        end
+
+        -- 2. Inspect Player & Character Attributes (standard pattern in restaurant engines)
+        local attrHolding = char:GetAttribute("Holding") or char:GetAttribute("Carrying") or (LocalPlayer and (LocalPlayer:GetAttribute("Holding") or LocalPlayer:GetAttribute("Carrying")))
+        if attrHolding and type(attrHolding) == "string" then
+            local lower = attrHolding:lower()
+            if lower:find("dirty") or lower:find("dish") or lower:find("plate") then
+                holdingType = "DirtyDishes"
+                count = math.max(count, 1)
+            elseif lower:find("food") or lower:find("meal") or lower:find("cook") then
+                holdingType = "Food"
+                count = math.max(count, 1)
+            end
+        end
+
+        local dishCountAttr = char:GetAttribute("Dishes") or char:GetAttribute("DishCount")
+        if dishCountAttr and type(dishCountAttr) == "number" and dishCountAttr > 0 then
+            count = math.max(count, dishCountAttr)
+            if holdingType == "None" then holdingType = "DirtyDishes" end
+        end
+
+        -- 3. If notification marked hands full, inherit from recent action context
+        if handsFullFromNotification and holdingType == "None" then
+            if State.HoldingType and State.HoldingType ~= "None" then
+                holdingType = State.HoldingType
+            elseif State.LastActionType == "Clean" then
+                holdingType = "DirtyDishes"
+            elseif State.LastActionType == "Serve" or State.LastActionType == "Cook" then
+                holdingType = "Food"
+            else
+                holdingType = "DirtyDishes"
+            end
+            count = math.max(count, 1)
+        end
+
+        State.HoldingType = holdingType
+        State.HoldingCount = count
+        local isFull = handsFullFromNotification or (count >= (Config.HandCapacity or 1))
+
+        return holdingType, count, isFull
+    end
+
+    -- =========================================================================
+    -- REACTIVE GAME NOTIFICATION & TOAST INTERCEPTOR
+    -- =========================================================================
+    local listenerHooked = false
+    function Restaurant.SetupGameNotificationListener()
+        if listenerHooked then return end
+        listenerHooked = true
+
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+
+        local function checkMessage(text)
+            if not text or type(text) ~= "string" or #text < 3 then return end
+            local lower = text:lower()
+
+            -- 1. Hands Full Alert ("your hands are full rn")
+            if lower:find("hands are full") or lower:find("hand is full") or lower:find("carrying too much") or lower:find("cannot carry") or lower:find("inventory full") then
+                State.HandsFull = true
+                State.HandsFullUntil = os.clock() + 7.5
+                if State.LastActionType == "Clean" or State.HoldingType == "DirtyDishes" then
+                    State.HoldingType = "DirtyDishes"
+                elseif State.LastActionType == "Serve" or State.LastActionType == "Cook" then
+                    State.HoldingType = "Food"
+                end
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 4.5)
+                end
+
+            -- 2. Sinks Full Alert ("sinks are full buy more in shop")
+            elseif lower:find("sink") and (lower:find("full") or lower:find("shop") or lower:find("buy")) then
+                State.SinksFull = true
+                State.SinksFullUntil = os.clock() + 10.0
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 5.0)
+                end
+                -- Attempt automatic purchase of sink if appliance auto-buy is enabled
+                if Config.AutoBuyAppliances or Config.AutoBuyEnabled then
+                    task.spawn(function()
+                        pcall(Restaurant.HandleAutoBuy)
+                    end)
+                end
+
+            -- 3. You can't do that right now ("you cant do that rn" / "already in use" / "busy")
+            elseif lower:find("cant do that") or lower:find("can't do that") or lower:find("cannot do that") or lower:find("not right now") or lower:find("already in use") or lower:find("station in use") or lower:find("station busy") or lower:find("someone is using") then
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 4.0)
+                end
+                State.InteractionBlockedUntil = os.clock() + 0.5
+
+            -- 4. Not enough money / Cannot afford
+            elseif lower:find("not enough money") or lower:find("cannot afford") or lower:find("need more cash") then
+                if State.ActivePrompt then
+                    unaffordableBackoff[State.ActivePrompt] = os.clock() + (Config.AffordabilityBackoff or 30)
+                end
+            end
+        end
+
+        -- Observe all newly created toast/hint labels in PlayerGui
+        Utility.RegisterConnection(pg.DescendantAdded:Connect(function(desc)
+            if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                checkMessage(desc.Text)
+                Utility.RegisterConnection(desc:GetPropertyChangedSignal("Text"):Connect(function()
+                    checkMessage(desc.Text)
+                end))
+            end
+        end))
+
+        -- Inspect all currently existing labels in PlayerGui
+        for _, desc in ipairs(pg:GetDescendants()) do
+            if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+                checkMessage(desc.Text)
+                Utility.RegisterConnection(desc:GetPropertyChangedSignal("Text"):Connect(function()
+                    checkMessage(desc.Text)
+                end))
+            end
         end
     end
 
@@ -3514,9 +3943,11 @@ return function(Core)
     end
 
     -- Trigger a ProximityPrompt safely
-    local function triggerPrompt(prompt, debounceTime)
+    local function triggerPrompt(prompt, debounceTime, actionType)
         if not prompt or not prompt.Parent or not prompt.Enabled then return false end
 
+        State.ActivePrompt = prompt
+        State.LastActionType = actionType
         setPromptCooldown(prompt, debounceTime or 2.5)
 
         if Config.InstantPromptEnabled then
@@ -3526,30 +3957,37 @@ return function(Core)
             end)
         end
 
+        local holdTime = prompt.HoldDuration or 0
+
         -- 1. Try executor native fireproximityprompt
         if type(fireproximityprompt) == "function" then
             local ok = pcall(function()
                 fireproximityprompt(prompt)
             end)
-            if ok then return true end
-            pcall(function()
-                fireproximityprompt(prompt, 1)
-            end)
+            if not ok then
+                pcall(function()
+                    fireproximityprompt(prompt, 1)
+                end)
+            end
+            if holdTime > 0 and not Config.InstantPromptEnabled then
+                task.wait(holdTime + 0.05)
+            else
+                task.wait(0.08)
+            end
             return true
         end
 
-        -- 2. Fallback input simulation
-        local holdTime = prompt.HoldDuration or 0
-        if Config.InstantPromptEnabled then
-            holdTime = 0
-            pcall(function() prompt.HoldDuration = 0 end)
+        -- 2. Fallback input simulation with safe duration to avoid server rejection
+        local simulatedHold = holdTime
+        if Config.InstantPromptEnabled and holdTime > 0 then
+            simulatedHold = math.min(holdTime, 0.28)
         end
 
         pcall(function()
             if prompt.InputHoldBegin then
                 prompt:InputHoldBegin()
-                if holdTime > 0 then
-                    task.wait(holdTime + 0.05)
+                if simulatedHold > 0 then
+                    task.wait(simulatedHold)
                 else
                     task.wait(0.05)
                 end
@@ -3574,6 +4012,7 @@ return function(Core)
             Cook = {},
             Serve = {},
             Clean = {},
+            Sink = {},
             Seat = {},
             Delivery = {},
             Restock = {},
@@ -3626,11 +4065,15 @@ return function(Core)
                         table.insert(categorized.Cook, obj)
 
                     -- 4. Serve Prepared Dishes
-                    elseif combined:find("serve") or combined:find("bring") or combined:find("plate") or (combined:find("dish") and not combined:find("sink")) then
+                    elseif combined:find("serve") or combined:find("bring") or combined:find("plate") or (combined:find("dish") and not (combined:find("sink") or combined:find("wash") or combined:find("clean") or combined:find("dirty"))) then
                         table.insert(categorized.Serve, obj)
 
-                    -- 5. Clean Dirty Tables
-                    elseif combined:find("clean") or combined:find("wash") or combined:find("wipe") or combined:find("dirty") or combined:find("bus") or combined:find("trash") or combined:find("sink") then
+                    -- 5A. Sinks, Dishwashers & Washing Stations (Separated from dining tables)
+                    elseif combined:find("sink") or combined:find("dishwasher") or combined:find("dish washer") or combined:find("rinse") or combined:find("scrub") or combined:find("clean dish") or combined:find("deposit dish") or combined:find("empty sink") or (combined:find("wash") and not combined:find("hand")) then
+                        table.insert(categorized.Sink, obj)
+
+                    -- 5B. Clean Dirty Dining Tables (Bussing Tables)
+                    elseif (combined:find("clean") or combined:find("wipe") or combined:find("dirty") or combined:find("bus") or combined:find("trash") or combined:find("clear")) and not (combined:find("sink") or combined:find("wash") or combined:find("dishwasher")) then
                         table.insert(categorized.Clean, obj)
 
                     -- 6. Add / Place Furniture, Chairs & Tables (BEFORE Customer Seating)
@@ -3724,6 +4167,7 @@ return function(Core)
     -- Trigger nearby prompts across ANY enabled category opportunistically (same room/station)
     function Restaurant.TriggerOpportunisticNearby(centerPos, allPrompts, radius)
         if not Config.RemotePromptBatching or not centerPos or not allPrompts then return 0 end
+        if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return 0 end
         radius = radius or 14
         local triggeredCount = 0
         local isMaster = Config.MasterAutoFarmEnabled
@@ -3734,6 +4178,7 @@ return function(Core)
             Cook = { enabled = isMaster or Config.AutoCookEnabled, stat = "DishesCooked", cooldown = 2.5 },
             Serve = { enabled = isMaster or Config.AutoServeEnabled, stat = "DishesServed", cooldown = 2.5 },
             Clean = { enabled = isMaster or Config.AutoCleanEnabled, stat = "TablesCleaned", cooldown = 3.0 },
+            Sink = { enabled = isMaster or Config.AutoWashSinksEnabled, stat = "DishesWashed", cooldown = 2.5 },
             Seat = { enabled = isMaster or Config.AutoSeatEnabled, stat = "CustomersSeated", cooldown = 3.0 },
             Delivery = { enabled = isMaster or Config.AutoDeliveryEnabled, stat = "DeliveriesCompleted", cooldown = 4.0 },
             Restock = { enabled = isMaster or Config.AutoRestockEnabled, stat = "StorageRestocked", cooldown = 3.5 },
@@ -3747,21 +4192,23 @@ return function(Core)
                         local pos = getTargetPosition(prompt)
                         if pos and (pos - centerPos).Magnitude <= radius then
                             State.InFlightTasks[prompt] = true
-                            task.spawn(function()
-                                pcall(function()
-                                    triggerPrompt(prompt, catInfo.cooldown)
+                            pcall(function()
+                                triggerPrompt(prompt, catInfo.cooldown, catName)
+                                task.wait(0.18)
+                                if prompt and prompt.Parent and not prompt.Enabled then
                                     if State.Stats[catInfo.stat] ~= nil then
                                         State.Stats[catInfo.stat] = State.Stats[catInfo.stat] + 1
                                     end
-                                end)
-                                State.InFlightTasks[prompt] = nil
+                                end
                             end)
+                            State.InFlightTasks[prompt] = nil
                             triggeredCount = triggeredCount + 1
-                            if triggeredCount >= 3 then break end
+                            if triggeredCount >= 1 then break end
                         end
                     end
                 end
             end
+            if triggeredCount >= 1 then break end
         end
         return triggeredCount
     end
@@ -3776,30 +4223,50 @@ return function(Core)
         end
 
         local start = os.clock()
+        local completed = false
         while (os.clock() - start) < timeout do
             -- 1. Prompt or parent was destroyed (e.g., dirty dishes cleaned, meal picked up, customer seated)
             if not prompt or not prompt.Parent then
+                completed = true
                 break
             end
             -- 2. Prompt disabled by game logic (e.g., stove began cooking, customer order accepted)
             if not prompt.Enabled then
+                completed = true
+                break
+            end
+            -- 3. Check if server reported blocked action
+            if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then
+                completed = false
                 break
             end
             task.wait(0.04)
         end
 
-        -- 3. Post-action settling delay to guarantee server replication before moving avatar
+        if not completed and prompt and prompt.Parent and prompt.Enabled then
+            -- Interaction failed or rejected on server -> apply cooldown to prevent spamming
+            setPromptCooldown(prompt, 3.5)
+        else
+            completed = true
+        end
+
+        State.ActivePrompt = nil
+
+        -- Post-action settling delay to guarantee server replication before moving avatar
         local settle = math.clamp(Config.PostActionDelay or 0.18, 0.05, 1.0)
         task.wait(settle)
-        return true
+        return completed
     end
 
     -- Execute a single action cleanly with strict task completion and mutex safety
-    local function executeAction(prompt, cooldown, statKey)
+    local function executeAction(prompt, cooldown, statKey, actionType)
         if not prompt or not prompt.Parent then return false end
         if State.InFlightTasks[prompt] then return false end
+        if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return false end
 
         State.InFlightTasks[prompt] = true
+        State.ActivePrompt = prompt
+        State.LastActionType = actionType
 
         local success = false
         pcall(function()
@@ -3812,33 +4279,43 @@ return function(Core)
             end
 
             -- 2. Trigger prompt
-            triggerPrompt(prompt, cooldown or 2.5)
+            triggerPrompt(prompt, cooldown or 2.5, actionType)
 
             -- 3. STRICT TASK COMPLETION: Wait until task finishes before proceeding
+            local ok = true
             if Config.StrictTaskCompletion then
-                waitForTaskCompletion(prompt, 1.6)
+                ok = waitForTaskCompletion(prompt, 1.6)
             else
                 task.wait(0.08)
+                State.ActivePrompt = nil
             end
 
-            -- 4. Increment statistics
-            if statKey and State.Stats[statKey] ~= nil then
+            -- 4. Increment statistics only if action succeeded
+            if ok and statKey and State.Stats[statKey] ~= nil then
                 State.Stats[statKey] = State.Stats[statKey] + 1
             end
 
-            success = true
+            -- 5. Refresh holding state
+            Restaurant.GetHoldingState()
+
+            success = ok
         end)
 
         State.InFlightTasks[prompt] = nil
+        State.ActivePrompt = nil
         return success
     end
 
     -- Execute a workstation cluster cleanly with sequential completion at the station
-    local function executeCluster(primaryPrompt, cluster, cooldown, statKey, allPrompts)
+    local function executeCluster(primaryPrompt, cluster, cooldown, statKey, allPrompts, actionType)
         if not primaryPrompt or not primaryPrompt.Parent then return false end
         if State.InFlightTasks[primaryPrompt] then return false end
+        if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return false end
 
         State.InFlightTasks[primaryPrompt] = true
+        State.ActivePrompt = primaryPrompt
+        State.LastActionType = actionType
+
         for _, p in ipairs(cluster) do
             State.InFlightTasks[p] = true
         end
@@ -3854,13 +4331,15 @@ return function(Core)
             end
 
             -- 2. Trigger primary prompt and ensure it is completed
-            triggerPrompt(primaryPrompt, cooldown or 2.5)
+            triggerPrompt(primaryPrompt, cooldown or 2.5, actionType)
+            local ok = true
             if Config.StrictTaskCompletion then
-                waitForTaskCompletion(primaryPrompt, 1.6)
+                ok = waitForTaskCompletion(primaryPrompt, 1.6)
             else
                 task.wait(0.08)
+                State.ActivePrompt = nil
             end
-            if statKey and State.Stats[statKey] ~= nil then
+            if ok and statKey and State.Stats[statKey] ~= nil then
                 State.Stats[statKey] = State.Stats[statKey] + 1
             end
             State.InFlightTasks[primaryPrompt] = nil
@@ -3868,13 +4347,21 @@ return function(Core)
             -- 3. Complete each cluster prompt sequentially while standing at the station
             for _, prompt in ipairs(cluster) do
                 if prompt and prompt.Parent and prompt.Enabled and isPromptReady(prompt) then
-                    triggerPrompt(prompt, cooldown or 2.5)
+                    -- Verify holding state: stop picking up more if hands full!
+                    local _, _, handsFull = Restaurant.GetHoldingState()
+                    if handsFull and (actionType == "Clean" or actionType == "Serve") then
+                        break
+                    end
+
+                    triggerPrompt(prompt, cooldown or 2.5, actionType)
+                    local cOk = true
                     if Config.StrictTaskCompletion then
-                        waitForTaskCompletion(prompt, 1.6)
+                        cOk = waitForTaskCompletion(prompt, 1.6)
                     else
                         task.wait(0.08)
+                        State.ActivePrompt = nil
                     end
-                    if statKey and State.Stats[statKey] ~= nil then
+                    if cOk and statKey and State.Stats[statKey] ~= nil then
                         State.Stats[statKey] = State.Stats[statKey] + 1
                     end
                 end
@@ -3887,10 +4374,12 @@ return function(Core)
                 Restaurant.TriggerOpportunisticNearby(primaryPos, allPrompts, 14)
             end
 
+            Restaurant.GetHoldingState()
             success = true
         end)
 
         State.InFlightTasks[primaryPrompt] = nil
+        State.ActivePrompt = nil
         for _, p in ipairs(cluster) do
             State.InFlightTasks[p] = nil
         end
@@ -3969,10 +4458,34 @@ return function(Core)
     end
     function Restaurant.HandleCleaning()
         local p = Restaurant.ScanPrompts()
+        local holdingType, _, handsFull = Restaurant.GetHoldingState()
+        local sinksFull = State.SinksFull and (os.clock() < (State.SinksFullUntil or 0))
+
+        -- If holding dirty dishes or hands are full, route to Sink first!
+        if holdingType == "DirtyDishes" or handsFull then
+            if #p.Sink > 0 then
+                local primary = p.Sink[1]
+                executeAction(primary, 2.5, "DishesWashed", "Sink")
+                return
+            end
+        end
+
+        -- If sinks are full, do not pick up more dishes from tables
+        if sinksFull then return end
+
         if #p.Clean > 0 then
             local primary = p.Clean[1]
             local cluster = Restaurant.GetNearbyCluster(primary, p.Clean, 14, Config.StationBatchSize or 3)
-            executeCluster(primary, cluster, 3.0, "TablesCleaned", p)
+            executeCluster(primary, cluster, 3.0, "TablesCleaned", p, "Clean")
+        end
+    end
+
+    function Restaurant.HandleSinkWashing()
+        local p = Restaurant.ScanPrompts()
+        if #p.Sink > 0 then
+            local primary = p.Sink[1]
+            local cluster = Restaurant.GetNearbyCluster(primary, p.Sink, 14, Config.StationBatchSize or 3)
+            executeCluster(primary, cluster, 2.5, "DishesWashed", p, "Sink")
         end
     end
     function Restaurant.HandleSeating()
@@ -4036,11 +4549,14 @@ return function(Core)
     end
 
     local lastBuyCheck = 0
-    function Restaurant.HandleAutoBuy()
-        if not Config.AutoBuyEnabled then return false end
+    function Restaurant.HandleAutoBuy(targetItemName)
+        local isQuestBuy = (targetItemName ~= nil and type(targetItemName) == "string" and #targetItemName > 0)
+        if not isQuestBuy and not Config.AutoBuyEnabled and not Config.MasterAutoFarmEnabled then return false end
         local now = os.clock()
         if now - lastBuyCheck < 2.5 then return false end
         lastBuyCheck = now
+
+        local targetItemLower = isQuestBuy and targetItemName:lower() or nil
 
         -- 1. Check in-world shop prompts
         local prompts = Restaurant.ScanPrompts()
@@ -4048,30 +4564,41 @@ return function(Core)
             for _, p in ipairs(prompts.Buy) do
                 if isPromptReady(p) and not State.InFlightTasks[p] then
                     local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
-                    local isStove = text:find("stove") or text:find("oven")
-                    local isGrill = text:find("grill") or text:find("fryer") or text:find("smoker")
-                    local isTable = text:find("table") and not text:find("chair")
-                    local isChair = text:find("chair") or text:find("seat") or text:find("stool") or text:find("booth") or text:find("bench")
-                    local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
-                    local isCounter = text:find("counter") or text:find("prep") or text:find("station")
-                    local isLighting = text:find("light") or text:find("lamp") or text:find("chandelier")
-                    local isFurniture = text:find("furniture") or text:find("decor") or text:find("shelf") or text:find("plant") or text:find("tree") or text:find("painting")
+                    
+                    local shouldBuy = false
+                    if isQuestBuy and targetItemLower then
+                        shouldBuy = text:find(targetItemLower, 1, true) ~= nil
+                    else
+                        local isStove = text:find("stove") or text:find("oven")
+                        local isGrill = text:find("grill") or text:find("fryer") or text:find("smoker")
+                        local isTable = text:find("table") and not text:find("chair")
+                        local isChair = text:find("chair") or text:find("seat") or text:find("stool") or text:find("booth") or text:find("bench")
+                        local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
+                        local isCounter = text:find("counter") or text:find("prep") or text:find("station")
+                        local isLighting = text:find("light") or text:find("lamp") or text:find("chandelier")
+                        local isFurniture = text:find("furniture") or text:find("decor") or text:find("shelf") or text:find("plant") or text:find("tree") or text:find("painting")
 
-                    local shouldBuy = (Config.AutoBuyStoves and isStove)
-                                   or (Config.AutoBuyGrills and isGrill)
-                                   or (Config.AutoBuyTables and isTable)
-                                   or (Config.AutoBuyChairs and isChair)
-                                   or (Config.AutoBuyAppliances and isAppliance)
-                                   or (Config.AutoBuyCounters and isCounter)
-                                   or (Config.AutoBuyLighting and isLighting)
-                                   or (Config.AutoBuyFurniture and isFurniture)
+                        shouldBuy = (Config.AutoBuyStoves and isStove)
+                                       or (Config.AutoBuyGrills and isGrill)
+                                       or (Config.AutoBuyTables and isTable)
+                                       or (Config.AutoBuyChairs and isChair)
+                                       or (Config.AutoBuyAppliances and isAppliance)
+                                       or (Config.AutoBuyCounters and isCounter)
+                                       or (Config.AutoBuyLighting and isLighting)
+                                       or (Config.AutoBuyFurniture and isFurniture)
+                    end
 
                     if shouldBuy then
                         local price = Utility.ParsePrice(text, p)
                         local canAfford, needed = Utility.CanAfford(price)
                         if canAfford then
                             local ok = executeAction(p, 4.0, "ItemsPurchased")
-                            if ok then return true end
+                            if ok then
+                                if isQuestBuy then
+                                    State.Stats.QuestsCompleted = (State.Stats.QuestsCompleted or 0) + 1
+                                end
+                                return true
+                            end
                         else
                             unaffordableBackoff[p] = os.clock() + (Config.AffordabilityBackoff or 30)
                         end
@@ -4092,23 +4619,29 @@ return function(Core)
 
                     if (bText:find("buy") or bText:find("purchase") or bName:find("buy") or bName:find("purchase")) and not bText:find("robux") then
                         local combined = (bText .. " " .. bName .. " " .. pName .. " " .. gpName):lower()
-                        local isStove = combined:find("stove") or combined:find("oven")
-                        local isGrill = combined:find("grill") or combined:find("fryer") or combined:find("smoker")
-                        local isTable = combined:find("table") and not combined:find("chair")
-                        local isChair = combined:find("chair") or combined:find("seat") or combined:find("stool") or combined:find("booth") or combined:find("bench")
-                        local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge") or combined:find("cooler")
-                        local isCounter = combined:find("counter") or combined:find("prep") or combined:find("station")
-                        local isLighting = combined:find("light") or combined:find("lamp")
-                        local isFurniture = combined:find("furniture") or combined:find("decor") or combined:find("plant") or combined:find("tree")
+                        
+                        local shouldBuy = false
+                        if isQuestBuy and targetItemLower then
+                            shouldBuy = combined:find(targetItemLower, 1, true) ~= nil
+                        else
+                            local isStove = combined:find("stove") or combined:find("oven")
+                            local isGrill = combined:find("grill") or combined:find("fryer") or combined:find("smoker")
+                            local isTable = combined:find("table") and not combined:find("chair")
+                            local isChair = combined:find("chair") or combined:find("seat") or combined:find("stool") or combined:find("booth") or combined:find("bench")
+                            local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge") or combined:find("cooler")
+                            local isCounter = combined:find("counter") or combined:find("prep") or combined:find("station")
+                            local isLighting = combined:find("light") or combined:find("lamp")
+                            local isFurniture = combined:find("furniture") or combined:find("decor") or combined:find("plant") or combined:find("tree")
 
-                        local shouldBuy = (Config.AutoBuyStoves and isStove)
-                                       or (Config.AutoBuyGrills and isGrill)
-                                       or (Config.AutoBuyTables and isTable)
-                                       or (Config.AutoBuyChairs and isChair)
-                                       or (Config.AutoBuyAppliances and isAppliance)
-                                       or (Config.AutoBuyCounters and isCounter)
-                                       or (Config.AutoBuyLighting and isLighting)
-                                       or (Config.AutoBuyFurniture and isFurniture)
+                            shouldBuy = (Config.AutoBuyStoves and isStove)
+                                           or (Config.AutoBuyGrills and isGrill)
+                                           or (Config.AutoBuyTables and isTable)
+                                           or (Config.AutoBuyChairs and isChair)
+                                           or (Config.AutoBuyAppliances and isAppliance)
+                                           or (Config.AutoBuyCounters and isCounter)
+                                           or (Config.AutoBuyLighting and isLighting)
+                                           or (Config.AutoBuyFurniture and isFurniture)
+                        end
 
                         if shouldBuy then
                             local price = Utility.ParsePrice(combined, btn)
@@ -4121,7 +4654,10 @@ return function(Core)
                                         btn:Activate()
                                     end
                                 end)
-                                State.Stats.ItemsPurchased = State.Stats.ItemsPurchased + 1
+                                State.Stats.ItemsPurchased = (State.Stats.ItemsPurchased or 0) + 1
+                                if isQuestBuy then
+                                    State.Stats.QuestsCompleted = (State.Stats.QuestsCompleted or 0) + 1
+                                end
                                 task.wait(Config.PostActionDelay or 0.2)
                                 return true
                             end
@@ -4134,8 +4670,9 @@ return function(Core)
     end
 
     local lastStaffCheck = 0
-    function Restaurant.HandleStaffManage()
-        if not Config.AutoHireStaffEnabled then return false end
+    function Restaurant.HandleStaffManage(targetRole)
+        local isQuestHire = (targetRole ~= nil and type(targetRole) == "string" and #targetRole > 0)
+        if not isQuestHire and not Config.AutoHireStaffEnabled and not Config.MasterAutoFarmEnabled then return false end
         local now = os.clock()
         if now - lastStaffCheck < 3.5 then return false end
         lastStaffCheck = now
@@ -4152,14 +4689,19 @@ return function(Core)
 
                 local isHire = (combined:find("hire") or combined:find("upgrade") or combined:find("recruit") or combined:find("level up")) and not combined:find("robux")
                 if isHire then
-                    local isCook = combined:find("cook") or combined:find("chef")
-                    local isWaiter = combined:find("waiter") or combined:find("server")
-                    local isCleaner = combined:find("clean") or combined:find("busser") or combined:find("janitor")
+                    local shouldHire = false
+                    if isQuestHire then
+                        shouldHire = combined:find(targetRole:lower(), 1, true) ~= nil
+                    else
+                        local isCook = combined:find("cook") or combined:find("chef")
+                        local isWaiter = combined:find("waiter") or combined:find("server")
+                        local isCleaner = combined:find("clean") or combined:find("busser") or combined:find("janitor")
 
-                    local shouldHire = (Config.AutoHireCooks and isCook)
-                                    or (Config.AutoHireWaiters and isWaiter)
-                                    or (Config.AutoHireCleaners and isCleaner)
-                                    or (not isCook and not isWaiter and not isCleaner and (Config.AutoHireCooks or Config.AutoHireWaiters or Config.AutoHireCleaners))
+                        shouldHire = (Config.AutoHireCooks and isCook)
+                                        or (Config.AutoHireWaiters and isWaiter)
+                                        or (Config.AutoHireCleaners and isCleaner)
+                                        or (not isCook and not isWaiter and not isCleaner and (Config.AutoHireCooks or Config.AutoHireWaiters or Config.AutoHireCleaners))
+                    end
 
                     if shouldHire then
                         local price = Utility.ParsePrice(combined, btn)
@@ -4174,6 +4716,9 @@ return function(Core)
                             end)
                             if State.Stats.StaffHired ~= nil then
                                 State.Stats.StaffHired = State.Stats.StaffHired + 1
+                            end
+                            if isQuestHire then
+                                State.Stats.QuestsCompleted = (State.Stats.QuestsCompleted or 0) + 1
                             end
                             task.wait(Config.PostActionDelay or 0.2)
                             return true
@@ -4314,11 +4859,14 @@ return function(Core)
 
     local lastPlaceCheck = 0
     local placeGridIndex = 0
-    function Restaurant.HandleAutoPlace()
-        if not Config.AutoPlaceEnabled then return false end
+    function Restaurant.HandleAutoPlace(targetItemName)
+        local isQuestPlace = (targetItemName ~= nil and type(targetItemName) == "string" and #targetItemName > 0)
+        if not isQuestPlace and not Config.AutoPlaceEnabled and not Config.MasterAutoFarmEnabled then return false end
         local now = os.clock()
         if now - lastPlaceCheck < 1.8 then return false end
         lastPlaceCheck = now
+
+        local targetItemLower = isQuestPlace and targetItemName:lower() or nil
 
         -- 1. Check in-world "Place" / "Build" prompts on player's plot
         local prompts = Restaurant.ScanPrompts()
@@ -4326,18 +4874,29 @@ return function(Core)
             for _, p in ipairs(prompts.Place) do
                 if isPromptReady(p) and not State.InFlightTasks[p] then
                     local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
-                    local isTable = text:find("table")
-                    local isChair = text:find("chair") or text:find("seat")
-                    local isFurniture = text:find("furniture") or text:find("decor")
+                    
+                    local shouldPlace = false
+                    if isQuestPlace and targetItemLower then
+                        shouldPlace = text:find(targetItemLower, 1, true) ~= nil
+                    else
+                        local isTable = text:find("table")
+                        local isChair = text:find("chair") or text:find("seat")
+                        local isFurniture = text:find("furniture") or text:find("decor")
 
-                    local shouldPlace = (Config.AutoPlaceTables and isTable)
-                                     or (Config.AutoPlaceChairs and isChair)
-                                     or (Config.AutoPlaceFurniture and isFurniture)
-                                     or (not isTable and not isChair and not isFurniture)
+                        shouldPlace = (Config.AutoPlaceTables and isTable)
+                                         or (Config.AutoPlaceChairs and isChair)
+                                         or (Config.AutoPlaceFurniture and isFurniture)
+                                         or (not isTable and not isChair and not isFurniture)
+                    end
 
                     if shouldPlace then
                         local ok = executeAction(p, 3.0, "ItemsPlaced")
-                        if ok then return true end
+                        if ok then
+                            if isQuestPlace then
+                                State.Stats.QuestsCompleted = (State.Stats.QuestsCompleted or 0) + 1
+                            end
+                            return true
+                        end
                     end
                 end
             end
@@ -4357,14 +4916,20 @@ return function(Core)
                     local isPlaceBtn = (bText == "place" or bText:find("place") or bName:find("place") or bText == "deploy" or bText == "build" or bText == "add") and not bText:find("cancel") and not bName:find("close")
                     if isPlaceBtn then
                         local combined = (bText .. " " .. bName .. " " .. pName):lower()
-                        local isTable = combined:find("table")
-                        local isChair = combined:find("chair") or combined:find("seat")
-                        local isFurniture = combined:find("furniture") or combined:find("decor")
+                        
+                        local shouldPlace = false
+                        if isQuestPlace and targetItemLower then
+                            shouldPlace = combined:find(targetItemLower, 1, true) ~= nil
+                        else
+                            local isTable = combined:find("table")
+                            local isChair = combined:find("chair") or combined:find("seat")
+                            local isFurniture = combined:find("furniture") or combined:find("decor")
 
-                        local shouldPlace = (Config.AutoPlaceTables and isTable)
-                                         or (Config.AutoPlaceChairs and isChair)
-                                         or (Config.AutoPlaceFurniture and isFurniture)
-                                         or (not isTable and not isChair and not isFurniture)
+                            shouldPlace = (Config.AutoPlaceTables and isTable)
+                                             or (Config.AutoPlaceChairs and isChair)
+                                             or (Config.AutoPlaceFurniture and isFurniture)
+                                             or (not isTable and not isChair and not isFurniture)
+                        end
 
                         if shouldPlace then
                             -- Trigger place button on item
@@ -4417,7 +4982,10 @@ return function(Core)
                                 end)
                             end
 
-                            State.Stats.ItemsPlaced = State.Stats.ItemsPlaced + 1
+                            State.Stats.ItemsPlaced = (State.Stats.ItemsPlaced or 0) + 1
+                            if isQuestPlace then
+                                State.Stats.QuestsCompleted = (State.Stats.QuestsCompleted or 0) + 1
+                            end
                             task.wait(Config.PostActionDelay or 0.2)
                             return true
                         end
@@ -4454,9 +5022,10 @@ return function(Core)
             pcall(function()
                 local directives = Utility.AcceptAndDoQuests()
                 if directives then
-                    if directives.Buy then pcall(Restaurant.HandleAutoBuy) end
-                    if directives.Place then pcall(Restaurant.HandleAutoPlace) end
-                    if directives.Staff then pcall(Restaurant.HandleStaffManage) end
+                    if directives.Buy then pcall(Restaurant.HandleAutoBuy, directives.TargetItem) end
+                    if directives.Place then pcall(Restaurant.HandleAutoPlace, directives.TargetItem) end
+                    if directives.Staff then pcall(Restaurant.HandleStaffManage, directives.TargetRole) end
+                    if directives.Farm and Restaurant.HandleFarming then pcall(Restaurant.HandleFarming) end
                 end
             end)
         end
@@ -4466,6 +5035,7 @@ return function(Core)
 
     -- Interleaved multi-queue pipeline categories definition
     local pipelineCategories = {
+        { name = "Sink", configKey = "AutoWashSinksEnabled", stat = "DishesWashed", cooldown = 2.5 },
         { name = "Serve", configKey = "AutoServeEnabled", stat = "DishesServed", cooldown = 2.5 },
         { name = "Cook", configKey = "AutoCookEnabled", stat = "DishesCooked", cooldown = 2.5 },
         { name = "Order", configKey = "AutoOrderEnabled", stat = "OrdersTaken", cooldown = 2.5 },
@@ -4483,16 +5053,104 @@ return function(Core)
     -- Interleaved multi-queue scheduler: Dispatches next ready category round-robin to eliminate starvation
     function Restaurant.DispatchInterleavedPipeline(prompts)
         local isMaster = Config.MasterAutoFarmEnabled
+        local holdingType, holdingCount, handsFull = Restaurant.GetHoldingState()
+        local sinksFull = State.SinksFull and (os.clock() < (State.SinksFullUntil or 0))
+
+        -- =====================================================================
+        -- CRITICAL HAND STATE GATING (Solves "hands are full" & "you cant do that rn")
+        -- =====================================================================
+        -- Priority Override 1: Holding Dirty Dishes -> MUST go to Sink / Dishwasher
+        if holdingType == "DirtyDishes" or (handsFull and State.LastActionType == "Clean") then
+            if prompts.Sink and #prompts.Sink > 0 then
+                for _, p in ipairs(prompts.Sink) do
+                    if isPromptReady(p) and not State.InFlightTasks[p] then
+                        return executeAction(p, 2.5, "DishesWashed", "Sink")
+                    end
+                end
+            end
+            if sinksFull and (Config.AutoBuyAppliances or Config.AutoBuyEnabled) then
+                pcall(Restaurant.HandleAutoBuy)
+            end
+        end
+
+        -- Priority Override 2: Holding Food -> MUST Serve to customer table
+        if holdingType == "Food" or (handsFull and (State.LastActionType == "Serve" or State.LastActionType == "Cook")) then
+            if prompts.Serve and #prompts.Serve > 0 then
+                for _, p in ipairs(prompts.Serve) do
+                    if isPromptReady(p) and not State.InFlightTasks[p] then
+                        return executeAction(p, 2.5, "DishesServed", "Serve")
+                    end
+                end
+            end
+        end
+
+        -- Priority Override 3: Sinks are Full -> Wash existing dishes in sink
+        if sinksFull and prompts.Sink and #prompts.Sink > 0 then
+            for _, p in ipairs(prompts.Sink) do
+                if isPromptReady(p) and not State.InFlightTasks[p] then
+                    local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "")):lower()
+                    if text:find("wash") or text:find("clean") or text:find("scrub") or text:find("start") then
+                        return executeAction(p, 3.0, "DishesWashed", "Sink")
+                    end
+                end
+            end
+        end
+
+        -- Priority Override 4: Active Goal Accelerated Station Priority
+        -- If current Goal requires Cook, Clean, Serve, Seat, Order, Farm, or Delivery, prioritize it!
+        local activeCat = State.ActiveGoal and State.ActiveGoal.Category
+        if (isMaster or Config.AutoDoQuestsEnabled) and activeCat and activeCat ~= "None" and prompts[activeCat] and #prompts[activeCat] > 0 then
+            local canRunGoalCat = true
+            if activeCat == "Clean" and (handsFull or holdingType == "DirtyDishes" or sinksFull) then canRunGoalCat = false end
+            if activeCat == "Cook" and (holdingType ~= "None" or handsFull) then canRunGoalCat = false end
+            if (activeCat == "Seat" or activeCat == "Order") and (holdingType == "DirtyDishes" or handsFull) then canRunGoalCat = false end
+            if activeCat == "Serve" and holdingType == "DirtyDishes" then canRunGoalCat = false end
+
+            if canRunGoalCat then
+                for _, p in ipairs(prompts[activeCat]) do
+                    if isPromptReady(p) and not State.InFlightTasks[p] then
+                        if Config.ConcurrentExecutionEnabled then
+                            local cluster = Restaurant.GetNearbyCluster(p, prompts[activeCat], 14, Config.StationBatchSize or 3)
+                            executeCluster(p, cluster, 2.5, "QuestsCompleted", prompts, activeCat)
+                        else
+                            executeAction(p, 2.5, "QuestsCompleted", activeCat)
+                        end
+                        return true
+                    end
+                end
+            end
+        end
+
         local totalCategories = #pipelineCategories
 
         for i = 0, totalCategories - 1 do
             local idx = ((pipelineCursor - 1 + i) % totalCategories) + 1
             local cat = pipelineCategories[idx]
 
+            -- State filtering per category:
+            -- Do not pick up more dirty dishes if hands full or holding dirty dishes or sinks are full
+            local canRun = true
+            if cat.name == "Clean" then
+                if handsFull or holdingType == "DirtyDishes" or sinksFull then
+                    canRun = false
+                end
+            elseif cat.name == "Cook" then
+                if holdingType ~= "None" or handsFull then
+                    canRun = false
+                end
+            elseif cat.name == "Seat" or cat.name == "Order" then
+                if holdingType == "DirtyDishes" or handsFull then
+                    canRun = false
+                end
+            elseif cat.name == "Serve" then
+                if holdingType == "DirtyDishes" then
+                    canRun = false
+                end
+            end
+
             local isCategoryEnabled = cat.requireExplicit and Config[cat.configKey] or (isMaster or Config[cat.configKey])
 
-            if isCategoryEnabled and prompts[cat.name] and #prompts[cat.name] > 0 then
-                -- Find first ready prompt that is not currently in flight and is affordable if it's Expand/Buy
+            if canRun and isCategoryEnabled and prompts[cat.name] and #prompts[cat.name] > 0 then
                 local primaryPrompt = nil
                 for _, p in ipairs(prompts[cat.name]) do
                     if isPromptReady(p) and not State.InFlightTasks[p] then
@@ -4511,12 +5169,22 @@ return function(Core)
                 if primaryPrompt then
                     if Config.ConcurrentExecutionEnabled then
                         local cluster = Restaurant.GetNearbyCluster(primaryPrompt, prompts[cat.name], 14, Config.StationBatchSize or 3)
-                        executeCluster(primaryPrompt, cluster, cat.cooldown, cat.stat, prompts)
+                        executeCluster(primaryPrompt, cluster, cat.cooldown, cat.stat, prompts, cat.name)
                     else
-                        executeAction(primaryPrompt, cat.cooldown, cat.stat)
+                        executeAction(primaryPrompt, cat.cooldown, cat.stat, cat.name)
                     end
 
-                    -- Advance cursor to next category for balanced, starvation-free progression
+                    -- If Quest NPC/Board prompt was triggered, auto-dismiss/accept dialog popup
+                    if cat.name == "Quest" then
+                        task.delay(0.4, function()
+                            pcall(function()
+                                Utility.ClaimAllRewards()
+                                Utility.AcceptAndDoQuests()
+                            end)
+                        end)
+                    end
+
+                    -- Advance cursor to next category for balanced progression
                     pipelineCursor = (idx % totalCategories) + 1
                     return true
                 end
@@ -4590,48 +5258,60 @@ return function(Core)
                     if Config.InterleavedPipelineEnabled then
                         dispatched = Restaurant.DispatchInterleavedPipeline(prompts)
                     else
-                        -- Fallback: Classical single/cluster prioritized ladder
+                        -- Fallback: Classical single/cluster prioritized ladder with Hand State Gating
                         local isMaster = Config.MasterAutoFarmEnabled
-                        local function dispatchCategory(list, cooldown, statKey)
+                        local holdingType, holdingCount, handsFull = Restaurant.GetHoldingState()
+                        local sinksFull = State.SinksFull and (os.clock() < (State.SinksFullUntil or 0))
+
+                        local function dispatchCategory(list, cooldown, statKey, catType)
                             for _, p in ipairs(list) do
                                 if isPromptReady(p) and not State.InFlightTasks[p] then
                                     if Config.ConcurrentExecutionEnabled then
                                         local cluster = Restaurant.GetNearbyCluster(p, list, 14, Config.StationBatchSize or 3)
-                                        return executeCluster(p, cluster, cooldown, statKey, prompts)
+                                        return executeCluster(p, cluster, cooldown, statKey, prompts, catType)
                                     else
-                                        return executeAction(p, cooldown, statKey)
+                                        return executeAction(p, cooldown, statKey, catType)
                                     end
                                 end
                             end
                             return false
                         end
 
-                        if (isMaster or Config.AutoCollectCashEnabled) and #prompts.Cash > 0 then
-                            dispatched = dispatchCategory(prompts.Cash, 3.0, "CashCollected")
-                        elseif (isMaster or Config.AutoOrderEnabled) and #prompts.Order > 0 then
-                            dispatched = dispatchCategory(prompts.Order, 2.5, "OrdersTaken")
-                        elseif (isMaster or Config.AutoServeEnabled) and #prompts.Serve > 0 then
-                            dispatched = dispatchCategory(prompts.Serve, 2.5, "DishesServed")
-                        elseif (isMaster or Config.AutoCookEnabled) and #prompts.Cook > 0 then
-                            dispatched = dispatchCategory(prompts.Cook, 2.5, "DishesCooked")
-                        elseif (isMaster or Config.AutoCleanEnabled) and #prompts.Clean > 0 then
-                            dispatched = dispatchCategory(prompts.Clean, 3.0, "TablesCleaned")
-                        elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 then
-                            dispatched = dispatchCategory(prompts.Seat, 3.0, "CustomersSeated")
+                        -- Hand State Overrides in Fallback Ladder
+                        if (holdingType == "DirtyDishes" or (handsFull and State.LastActionType == "Clean")) and #prompts.Sink > 0 then
+                            dispatched = dispatchCategory(prompts.Sink, 2.5, "DishesWashed", "Sink")
+                        elseif (holdingType == "Food" or (handsFull and (State.LastActionType == "Serve" or State.LastActionType == "Cook"))) and #prompts.Serve > 0 then
+                            dispatched = dispatchCategory(prompts.Serve, 2.5, "DishesServed", "Serve")
+                        elseif (isMaster or Config.AutoWashSinksEnabled) and #prompts.Sink > 0 and (holdingType == "DirtyDishes" or sinksFull) then
+                            dispatched = dispatchCategory(prompts.Sink, 2.5, "DishesWashed", "Sink")
+                        elseif (isMaster or Config.AutoCollectCashEnabled) and #prompts.Cash > 0 then
+                            dispatched = dispatchCategory(prompts.Cash, 3.0, "CashCollected", "Cash")
+                        elseif (isMaster or Config.AutoOrderEnabled) and #prompts.Order > 0 and holdingType == "None" then
+                            dispatched = dispatchCategory(prompts.Order, 2.5, "OrdersTaken", "Order")
+                        elseif (isMaster or Config.AutoServeEnabled) and #prompts.Serve > 0 and holdingType ~= "DirtyDishes" then
+                            dispatched = dispatchCategory(prompts.Serve, 2.5, "DishesServed", "Serve")
+                        elseif (isMaster or Config.AutoCookEnabled) and #prompts.Cook > 0 and holdingType == "None" then
+                            dispatched = dispatchCategory(prompts.Cook, 2.5, "DishesCooked", "Cook")
+                        elseif (isMaster or Config.AutoCleanEnabled) and #prompts.Clean > 0 and not handsFull and holdingType ~= "DirtyDishes" and not sinksFull then
+                            dispatched = dispatchCategory(prompts.Clean, 3.0, "TablesCleaned", "Clean")
+                        elseif (isMaster or Config.AutoWashSinksEnabled) and #prompts.Sink > 0 then
+                            dispatched = dispatchCategory(prompts.Sink, 2.5, "DishesWashed", "Sink")
+                        elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 and holdingType == "None" then
+                            dispatched = dispatchCategory(prompts.Seat, 3.0, "CustomersSeated", "Seat")
                         elseif (isMaster or Config.AutoDoQuestsEnabled) and #prompts.Quest > 0 then
-                            dispatched = dispatchCategory(prompts.Quest, 3.0, "QuestsCompleted")
+                            dispatched = dispatchCategory(prompts.Quest, 3.0, "QuestsCompleted", "Quest")
                         elseif (isMaster or Config.AutoDeliveryEnabled) and #prompts.Delivery > 0 then
-                            dispatched = dispatchCategory(prompts.Delivery, 4.0, "DeliveriesCompleted")
+                            dispatched = dispatchCategory(prompts.Delivery, 4.0, "DeliveriesCompleted", "Delivery")
                         elseif (isMaster or Config.AutoRestockEnabled) and #prompts.Restock > 0 then
-                            dispatched = dispatchCategory(prompts.Restock, 3.5, "StorageRestocked")
+                            dispatched = dispatchCategory(prompts.Restock, 3.5, "StorageRestocked", "Restock")
                         elseif (isMaster or Config.AutoFarmEnabled) and #prompts.Farm > 0 then
-                            dispatched = dispatchCategory(prompts.Farm, 3.0, "CropsHarvested")
+                            dispatched = dispatchCategory(prompts.Farm, 3.0, "CropsHarvested", "Farm")
                         elseif (isMaster or Config.AutoPlaceEnabled) and Restaurant.HandleAutoPlace() then
                             dispatched = true
                         elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
                             for _, p in ipairs(prompts.Expand) do
                                 if isPromptAffordable(p) then
-                                    dispatched = dispatchCategory({p}, 6.0, "ExpansionsPurchased")
+                                    dispatched = dispatchCategory({p}, 6.0, "ExpansionsPurchased", "Expand")
                                     if dispatched then break end
                                 end
                             end
@@ -4654,12 +5334,24 @@ return function(Core)
 
     function Restaurant.Init()
         Restaurant.GetPlayerPlot()
+        Restaurant.SetupGameNotificationListener()
+        Restaurant.GetHoldingState()
         Restaurant.StartLoop()
-        print("🍽️ Run a Restaurant autonomous engine initialized successfully.")
+        print("🍽️ Run a Restaurant autonomous engine initialized successfully with Hand & Sink Intelligence.")
     end
 
     function Restaurant.Cleanup()
         runningLoop = false
+        cachedPlot = nil
+        Restaurant.RestaurantCenter = nil
+        table.clear(promptCooldowns)
+        table.clear(State.InFlightTasks)
+        State.HoldingType = "None"
+        State.HoldingCount = 0
+        State.HandsFull = false
+        State.SinksFull = false
+        State.ActivePrompt = nil
+        State.InteractionBlockedUntil = 0
         cachedPlot = nil
         Restaurant.RestaurantCenter = nil
         table.clear(promptCooldowns)
@@ -4729,12 +5421,32 @@ return function(Core)
         end
     end
 
+    local speedToggleHandle = nil
+    local jumpToggleHandle = nil
+    local noClipToggleHandle = nil
+    local infJumpToggleHandle = nil
+
+    function Movement.SyncToggles()
+        if speedToggleHandle and speedToggleHandle.SetState then
+            speedToggleHandle:SetState(Config.WalkSpeedEnabled)
+        end
+        if jumpToggleHandle and jumpToggleHandle.SetState then
+            jumpToggleHandle:SetState(Config.JumpPowerEnabled)
+        end
+        if noClipToggleHandle and noClipToggleHandle.SetState then
+            noClipToggleHandle:SetState(Config.NoClipEnabled)
+        end
+        if infJumpToggleHandle and infJumpToggleHandle.SetState then
+            infJumpToggleHandle:SetState(Config.InfiniteJumpEnabled)
+        end
+    end
+
     function Movement.Init()
         if Core.UI and Core.UI.Window then
             local MoveTab = Core.UI.Window:AddTab("Movement", "🏃")
             MoveTab:AddSection("PHYSICS OVERRIDES", "⚡")
             
-            MoveTab:AddToggle("Speed Hack", "Overrides character walk speed for swift travel.", Config.WalkSpeedEnabled, function(val)
+            speedToggleHandle = MoveTab:AddToggle("Speed Hack", "Overrides character walk speed for swift travel.", Config.WalkSpeedEnabled, function(val)
                 Config.WalkSpeedEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -4742,7 +5454,7 @@ return function(Core)
                 Config.WalkSpeed = val
             end)
             
-            MoveTab:AddToggle("Jump Hack", "Overrides character jump power.", Config.JumpPowerEnabled, function(val)
+            jumpToggleHandle = MoveTab:AddToggle("Jump Hack", "Overrides character jump power.", Config.JumpPowerEnabled, function(val)
                 Config.JumpPowerEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -4751,11 +5463,11 @@ return function(Core)
             end)
             
             MoveTab:AddSection("UTILITY", "🛡️")
-            MoveTab:AddToggle("No-Clip", "Walk freely through walls, furniture, and NPCs.", Config.NoClipEnabled, function(val)
+            noClipToggleHandle = MoveTab:AddToggle("No-Clip", "Walk freely through walls, furniture, and NPCs.", Config.NoClipEnabled, function(val)
                 Config.NoClipEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
-            MoveTab:AddToggle("Infinite Jump", "Allows jumping continuously in mid-air.", Config.InfiniteJumpEnabled, function(val)
+            infJumpToggleHandle = MoveTab:AddToggle("Infinite Jump", "Allows jumping continuously in mid-air.", Config.InfiniteJumpEnabled, function(val)
                 Config.InfiniteJumpEnabled = val
                 if Core.UI.UpdateStatus then Core.UI.UpdateStatus() end
             end)
@@ -4807,12 +5519,12 @@ return function(Core)
         Utility.RegisterConnection(RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then return end
+            if not hum or hum.Health <= 0 then return end
 
             -- Capture originals once before we override anything (#7)
             if Config.WalkSpeedEnabled then
                 if originalWalkSpeed == nil then
-                    originalWalkSpeed = hum.WalkSpeed
+                    originalWalkSpeed = (hum.WalkSpeed ~= Config.WalkSpeed and hum.WalkSpeed > 0) and hum.WalkSpeed or 16
                 end
                 if hum.WalkSpeed ~= Config.WalkSpeed then
                     hum.WalkSpeed = Config.WalkSpeed
@@ -4828,7 +5540,7 @@ return function(Core)
             if Config.JumpPowerEnabled then
                 if hum.UseJumpPower then
                     if originalJumpPower == nil then
-                        originalJumpPower = hum.JumpPower
+                        originalJumpPower = (hum.JumpPower ~= Config.JumpPower and hum.JumpPower > 0) and hum.JumpPower or 50
                     end
                     if hum.JumpPower ~= Config.JumpPower then
                         hum.JumpPower = Config.JumpPower
@@ -4896,13 +5608,24 @@ return function(Core)
     local Utility = Core.Utility
     local Services = Core.Services
 
+    local function isValidKey(key)
+        return key ~= nil and key ~= Enum.KeyCode.None and key ~= Enum.KeyCode.Unknown
+    end
+
+    local function matchesKey(boundKey, inputKey)
+        return isValidKey(boundKey) and inputKey == boundKey
+    end
+
     function MainLoop.Init()
         -- Keybind handling
         Utility.RegisterConnection(Services.UserInputService.InputBegan:Connect(function(input, gp)
             if gp then return end
+            -- Only process keyboard inputs; ignore mouse clicks, touches, and non-keyboard events
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            if not isValidKey(input.KeyCode) then return end
 
             -- Toggle Menu
-            if Config.MenuKey and input.KeyCode == Config.MenuKey then
+            if matchesKey(Config.MenuKey, input.KeyCode) then
                 if Core.UI and Core.UI.Window and Core.UI.Window.Library then
                     local lib = Core.UI.Window.Library
                     if lib.ToggleWindow then
@@ -4913,8 +5636,9 @@ return function(Core)
                 end
 
             -- Toggle No-Clip
-            elseif Config.ToggleNoClipKey and input.KeyCode == Config.ToggleNoClipKey then
+            elseif matchesKey(Config.ToggleNoClipKey, input.KeyCode) then
                 Config.NoClipEnabled = not Config.NoClipEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -4926,8 +5650,9 @@ return function(Core)
                 end
 
             -- Toggle Speed Hack
-            elseif Config.ToggleSpeedKey and input.KeyCode == Config.ToggleSpeedKey then
+            elseif matchesKey(Config.ToggleSpeedKey, input.KeyCode) then
                 Config.WalkSpeedEnabled = not Config.WalkSpeedEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -4939,8 +5664,9 @@ return function(Core)
                 end
 
             -- Toggle Jump Hack
-            elseif Config.ToggleJumpKey and input.KeyCode == Config.ToggleJumpKey then
+            elseif matchesKey(Config.ToggleJumpKey, input.KeyCode) then
                 Config.JumpPowerEnabled = not Config.JumpPowerEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({
@@ -4952,8 +5678,9 @@ return function(Core)
                 end
 
             -- Toggle Infinite Jump
-            elseif Config.ToggleInfJumpKey and input.KeyCode == Config.ToggleInfJumpKey then
+            elseif matchesKey(Config.ToggleInfJumpKey, input.KeyCode) then
                 Config.InfiniteJumpEnabled = not Config.InfiniteJumpEnabled
+                if Core.Movement and Core.Movement.SyncToggles then Core.Movement.SyncToggles() end
                 if Core.UI and Core.UI.UpdateStatus then pcall(Core.UI.UpdateStatus) end
                 if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
                     Core.UI.Window:Notify({

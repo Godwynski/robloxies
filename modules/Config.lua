@@ -9,7 +9,10 @@ return function(Core)
         AutoCookEnabled = false,
         AutoServeEnabled = false,
         AutoCleanEnabled = false,
+        AutoWashSinksEnabled = true,
         AutoCollectCashEnabled = false,
+        HandCapacity = 1,
+        StrictHandPriority = true,
         AutoFarmEnabled = false,
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
@@ -77,9 +80,9 @@ return function(Core)
 
         -- Movement Physics
         WalkSpeedEnabled = false,
-        WalkSpeed = 16,
+        WalkSpeed = 32,
         JumpPowerEnabled = false,
-        JumpPower = 50,
+        JumpPower = 70,
         InfiniteJumpEnabled = false,
         NoClipEnabled = false,
 

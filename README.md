@@ -70,6 +70,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Godwynski/robloxies/r
 - **Auto-Cook Food** — Automatically triggers cooking stations, grills, and ovens to prepare food tickets.
 - **Auto-Serve Dishes** — Delivers cooked meals from counters to waiting tables.
 - **Auto-Clean Tables** — Clears dirty dishes and wipes tables immediately after customers leave.
+- **🧽 Hand State Intelligence & Auto-Wash Sinks** — Real-time avatar hand tracking (Dirty Dishes vs Cooked Food). Automatically routes dirty dishes directly to sinks/dishwashers and scrubs dishes clean, eliminating "Your hands are full rn" and "Sinks are full buy more in shop" errors.
+- **🛡️ Reactive Game Toast & Error Interceptor** — Intercepts in-game popups in real-time, applies backoff cooldowns to occupied stations, and serializes prompt interactions to eliminate "You can't do that rn" conflicts.
 - **Auto-Collect Cash & Tips** — Sweeps coins, cash drops, and register tips across the restaurant.
 - **Auto-Harvest Farm & Ranch** — Gathers crops (wheat, tomatoes) and animal goods to keep the kitchen supplied with ingredients.
 - **One-Click Code Redeemer** — In-menu tool to submit active promotional codes (`FISHIES`, `RAR4EVER`) for free exclusive decor.
