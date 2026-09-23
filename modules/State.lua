@@ -15,6 +15,7 @@ return function(Core)
             DeliveriesCompleted = 0,
             StorageRestocked = 0,
             QuestsClaimed = 0,
+            QuestsCompleted = 0,
             RewardsClaimed = 0,
             ExpansionsPurchased = 0,
             ItemsPurchased = 0,

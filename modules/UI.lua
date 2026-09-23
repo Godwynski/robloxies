@@ -16,8 +16,8 @@ return function(Core)
             local active = Config.MasterAutoFarmEnabled or Config.AutoSeatEnabled or Config.AutoOrderEnabled or
                            Config.AutoCookEnabled or Config.AutoServeEnabled or Config.AutoCleanEnabled or
                            Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or
-                           Config.AutoRestockEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
-                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or Config.AutoClaimQuestsEnabled or
+                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             local text = Config.MasterAutoFarmEnabled and "FARMING" or (active and "ACTIVE" or "IDLE")
             Window:UpdateStatus(active, text)
@@ -33,16 +33,20 @@ return function(Core)
             local heroCard = DashTab:AddHeroCard({
                 Icon = "⚡",
                 Title = "Master Restaurant Auto-Farm",
-                Subtitle = "Synchronizes seating, ordering, cooking, serving, cleaning, and cash sweeping.",
+                Subtitle = "Synchronizes seating, ordering, cooking, serving, cleaning, cash sweeping, and auto doing & claiming quests.",
                 InitialState = Config.MasterAutoFarmEnabled,
                 OnToggle = function(state)
                     Config.MasterAutoFarmEnabled = state
+                    if state then
+                        Config.AutoDoQuestsEnabled = true
+                        Config.AutoClaimQuestsEnabled = true
+                    end
                     UI.UpdateStatus()
                     Window:Notify({
                         Title = state and "Auto-Farm Activated" or "Auto-Farm Paused",
-                        Content = state and "All kitchen and dining operations are now running." or "All restaurant tasks paused.",
+                        Content = state and "All kitchen, dining, quest completion, and reward claiming workflows are running." or "All restaurant tasks paused.",
                         Type = state and "Success" or "Info",
-                        Duration = 3
+                        Duration = 3.5
                     })
                 end
             })
@@ -53,8 +57,9 @@ return function(Core)
 
             metricGrid:AddMetric("Cash", "💵", "Cash Swept", 0, Color3.fromRGB(34, 197, 94))
             metricGrid:AddMetric("Rewards", "🎁", "Rewards Claimed", 0, Color3.fromRGB(245, 158, 11))
+            metricGrid:AddMetric("Quests", "📜", "Quests Done", 0, Color3.fromRGB(168, 85, 247))
             metricGrid:AddMetric("Seated", "👥", "Guests Seated", 0, Color3.fromRGB(59, 130, 246))
-            metricGrid:AddMetric("Orders", "📋", "Orders Processed", 0, Color3.fromRGB(168, 85, 247))
+            metricGrid:AddMetric("Orders", "📋", "Orders Processed", 0, Color3.fromRGB(217, 70, 239))
             metricGrid:AddMetric("Cooked", "🍳", "Dishes Cooked", 0, Color3.fromRGB(249, 115, 22))
             metricGrid:AddMetric("Served", "🍽️", "Dishes Served", 0, Color3.fromRGB(16, 185, 129))
             metricGrid:AddMetric("Cleaned", "🧼", "Tables Cleaned", 0, Color3.fromRGB(6, 182, 212))
@@ -82,10 +87,11 @@ return function(Core)
                         local ratePerHour = math.floor(((s.CashCollected or 0) / elapsed) * 3600)
                         heroCard.SetInfo(string.format("⏱ Uptime: %s  •  Rate: ~%d items/hr", uptimeStr, ratePerHour))
 
-                        -- Update 14 metrics
+                        -- Update metrics
                         local totalRewards = (s.RewardsClaimed or 0) + (s.QuestsClaimed or 0)
                         metricGrid:UpdateMetric("Cash", string.format("%d items", s.CashCollected or 0))
                         metricGrid:UpdateMetric("Rewards", totalRewards)
+                        metricGrid:UpdateMetric("Quests", s.QuestsCompleted or 0)
                         metricGrid:UpdateMetric("Seated", s.CustomersSeated or 0)
                         metricGrid:UpdateMetric("Orders", s.OrdersTaken or 0)
                         metricGrid:UpdateMetric("Cooked", s.DishesCooked or 0)
@@ -191,6 +197,17 @@ return function(Core)
             end)
             RestTab:AddToggle("Auto-Harvest Farm & Ranch", "Gathers wheat, tomatoes, and animal goods from your farm plot.", Config.AutoFarmEnabled, function(val)
                 Config.AutoFarmEnabled = val
+                UI.UpdateStatus()
+            end)
+
+            -- Quests & Tasks Automation
+            RestTab:AddSection("QUESTS & TASKS AUTOMATION", "📜")
+            RestTab:AddToggle("Auto-Do Quests", "Automatically fulfills active quest objectives, talks to quest NPCs, and prioritizes quest tasks.", Config.AutoDoQuestsEnabled, function(val)
+                Config.AutoDoQuestsEnabled = val
+                UI.UpdateStatus()
+            end)
+            RestTab:AddToggle("Auto-Claim Quests & Goals", "Automatically claims completed quests, daily tasks, and milestone rewards.", Config.AutoClaimQuestsEnabled, function(val)
+                Config.AutoClaimQuestsEnabled = val
                 UI.UpdateStatus()
             end)
 

@@ -316,6 +316,7 @@ return function(Core)
             Expand = {},
             Buy = {},
             Place = {},
+            Quest = {},
         }
 
         local searchList = {}
@@ -397,6 +398,10 @@ return function(Core)
                     -- 12. Expand Land & Floors
                     elseif combined:find("expand") or combined:find("unlock") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
                         table.insert(categorized.Expand, obj)
+
+                    -- 13. Quest NPCs, Quest Boards, Bounty Givers & Turn-Ins
+                    elseif combined:find("quest") or combined:find("mission") or combined:find("bounty") or combined:find("board") or combined:find("contract") or (combined:find("talk") and not combined:find("seat")) then
+                        table.insert(categorized.Quest, obj)
                     end
                 end
             end
@@ -962,6 +967,42 @@ return function(Core)
         return false
     end
 
+    -- Auto-do and auto-claim quests, tasks, and daily objectives
+    local lastQuestAutomation = 0
+    function Restaurant.HandleQuestAutomation()
+        if not Config.MasterAutoFarmEnabled and not Config.AutoClaimQuestsEnabled and not Config.AutoDoQuestsEnabled then
+            return false
+        end
+
+        local now = os.clock()
+        if now - lastQuestAutomation < 2.5 then return false end
+        lastQuestAutomation = now
+
+        -- 1. Auto-claim all finished quests, goals, milestones, and playtime rewards
+        if Config.MasterAutoFarmEnabled or Config.AutoClaimQuestsEnabled then
+            pcall(function()
+                local claimed = Utility.ClaimAllRewards()
+                if claimed and claimed > 0 then
+                    State.Stats.QuestsClaimed = (State.Stats.QuestsClaimed or 0) + claimed
+                end
+            end)
+        end
+
+        -- 2. Auto-accept new quests and parse active quest directives
+        if Config.MasterAutoFarmEnabled or Config.AutoDoQuestsEnabled then
+            pcall(function()
+                local directives = Utility.AcceptAndDoQuests()
+                if directives then
+                    if directives.Buy then pcall(Restaurant.HandleAutoBuy) end
+                    if directives.Place then pcall(Restaurant.HandleAutoPlace) end
+                    if directives.Staff then pcall(Restaurant.HandleStaffManage) end
+                end
+            end)
+        end
+
+        return true
+    end
+
     -- Interleaved multi-queue pipeline categories definition
     local pipelineCategories = {
         { name = "Serve", configKey = "AutoServeEnabled", stat = "DishesServed", cooldown = 2.5 },
@@ -970,6 +1011,7 @@ return function(Core)
         { name = "Clean", configKey = "AutoCleanEnabled", stat = "TablesCleaned", cooldown = 3.0 },
         { name = "Seat", configKey = "AutoSeatEnabled", stat = "CustomersSeated", cooldown = 3.0 },
         { name = "Cash", configKey = "AutoCollectCashEnabled", stat = "CashCollected", cooldown = 3.0 },
+        { name = "Quest", configKey = "AutoDoQuestsEnabled", stat = "QuestsCompleted", cooldown = 3.0 },
         { name = "Delivery", configKey = "AutoDeliveryEnabled", stat = "DeliveriesCompleted", cooldown = 4.0 },
         { name = "Restock", configKey = "AutoRestockEnabled", stat = "StorageRestocked", cooldown = 3.5 },
         { name = "Farm", configKey = "AutoFarmEnabled", stat = "CropsHarvested", cooldown = 3.0 },
@@ -1035,12 +1077,12 @@ return function(Core)
         -- Decoupled Worker 2: Parallel Background UI Manager (Quests, Daily Gifts, Staff, UI Catalog)
         task.spawn(function()
             while Core.State.Running and runningLoop do
-                -- Auto-claim all quests, gifts, daily rewards, spin wheels, achievements
+                -- Auto-claim all quests, gifts, daily rewards, and auto-do quest actions
                 local now = os.clock()
-                if (Config.AutoClaimRewardsEnabled or Config.AutoClaimQuestsEnabled) and (now - lastQuestCheck > 4) then
+                if (Config.MasterAutoFarmEnabled or Config.AutoClaimRewardsEnabled or Config.AutoClaimQuestsEnabled or Config.AutoDoQuestsEnabled) and (now - lastQuestCheck > 3) then
                     lastQuestCheck = now
                     pcall(function()
-                        Utility.ClaimAllRewards()
+                        Restaurant.HandleQuestAutomation()
                     end)
                 end
 
@@ -1106,6 +1148,8 @@ return function(Core)
                             dispatched = dispatchCategory(prompts.Clean, 3.0, "TablesCleaned")
                         elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 then
                             dispatched = dispatchCategory(prompts.Seat, 3.0, "CustomersSeated")
+                        elseif (isMaster or Config.AutoDoQuestsEnabled) and #prompts.Quest > 0 then
+                            dispatched = dispatchCategory(prompts.Quest, 3.0, "QuestsCompleted")
                         elseif (isMaster or Config.AutoDeliveryEnabled) and #prompts.Delivery > 0 then
                             dispatched = dispatchCategory(prompts.Delivery, 4.0, "DeliveriesCompleted")
                         elseif (isMaster or Config.AutoRestockEnabled) and #prompts.Restock > 0 then

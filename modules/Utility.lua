@@ -55,12 +55,13 @@ return function(Core)
     end
 
     -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
     function Utility.ClaimAllRewards()
-        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled then return 0 end
+        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled and not Config.MasterAutoFarmEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local claimed = 0
 
-        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone buttons
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest buttons
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
@@ -69,10 +70,10 @@ return function(Core)
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
                     local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
 
-                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem"
-                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin")
-                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily")
-                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward")
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in"
+                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin") or text:find("quest")
+                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily") or name:find("quest")
+                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward") or grandParentName:find("quest")
 
                     if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
                         if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
@@ -95,7 +96,8 @@ return function(Core)
         local remoteNames = {
             "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
             "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
-            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin"
+            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
+            "CompleteQuest", "TurnInQuest", "FinishQuest", "RedeemQuest"
         }
         for _, rName in ipairs(remoteNames) do
             local remote = rs:FindFirstChild(rName, true)
@@ -120,6 +122,93 @@ return function(Core)
         return claimed
     end
     Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
+
+    -- Auto-Accept and Auto-Do Quests
+    function Utility.AcceptAndDoQuests()
+        if not Config.AutoDoQuestsEnabled and not Config.MasterAutoFarmEnabled then return nil end
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local rs = game:GetService("ReplicatedStorage")
+
+        -- 1. Auto-Accept new quests from UI dialogs or lists
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local name = btn.Name:lower()
+                    local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest"
+                    local isQuestContext = parentName:find("quest") or parentName:find("mission") or parentName:find("task") or name:find("quest") or name:find("accept")
+
+                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take")))) and
+                       not text:find("robux") and not text:find("buy") and not text:find("cancel") then
+                        pcall(function()
+                            if type(firesignal) == "function" and btn.Activated then
+                                firesignal(btn.Activated)
+                            elseif btn.Activate then
+                                btn:Activate()
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+
+        -- 2. Trigger AcceptQuest / StartQuest remotes if available in ReplicatedStorage
+        local acceptRemotes = {
+            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest"
+        }
+        for _, rName in ipairs(acceptRemotes) do
+            local remote = rs:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                pcall(function() remote:FireServer() end)
+            elseif remote and remote:IsA("RemoteFunction") then
+                pcall(function() remote:InvokeServer() end)
+            end
+        end
+
+        -- 3. Parse active quest directives from PlayerGui labels
+        local directives = {
+            Cook = false,
+            Serve = false,
+            Order = false,
+            Clean = false,
+            Seat = false,
+            Cash = false,
+            Farm = false,
+            Delivery = false,
+            Buy = false,
+            Place = false,
+            Staff = false,
+            Expand = false
+        }
+
+        if pg then
+            for _, lbl in ipairs(pg:GetDescendants()) do
+                if lbl:IsA("TextLabel") and lbl.Visible then
+                    local parentName = (lbl.Parent and lbl.Parent.Name or ""):lower()
+                    local isQuestLabel = parentName:find("quest") or parentName:find("task") or parentName:find("mission") or parentName:find("goal") or lbl.Name:lower():find("quest") or lbl.Name:lower():find("task")
+                    if isQuestLabel then
+                        local t = (lbl.Text or ""):lower()
+                        if t:find("cook") or t:find("dish") or t:find("meal") or t:find("bake") then directives.Cook = true end
+                        if t:find("serve") or t:find("deliver to table") then directives.Serve = true end
+                        if t:find("order") or t:find("ticket") then directives.Order = true end
+                        if t:find("clean") or t:find("wipe") or t:find("table") or t:find("trash") then directives.Clean = true end
+                        if t:find("seat") or t:find("customer") or t:find("guest") then directives.Seat = true end
+                        if t:find("cash") or t:find("coin") or t:find("tip") or t:find("money") or t:find("earn") then directives.Cash = true end
+                        if t:find("harvest") or t:find("crop") or t:find("wheat") or t:find("farm") then directives.Farm = true end
+                        if t:find("delivery") or t:find("package") or t:find("box") or t:find("scooter") then directives.Delivery = true end
+                        if t:find("buy") or t:find("purchase") or t:find("stove") or t:find("chair") then directives.Buy = true end
+                        if t:find("place") or t:find("furniture") or t:find("build") then directives.Place = true end
+                        if t:find("hire") or t:find("staff") or t:find("waiter") or t:find("chef") then directives.Staff = true end
+                        if t:find("expand") or t:find("floor") or t:find("land") then directives.Expand = true end
+                    end
+                end
+            end
+        end
+
+        return directives
+    end
 
     -- Redeem known active promotional codes automatically
     function Utility.RedeemKnownCodes()

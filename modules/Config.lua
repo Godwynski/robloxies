@@ -14,6 +14,7 @@ return function(Core)
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
         AutoClaimQuestsEnabled = true,
+        AutoDoQuestsEnabled = true,
         AutoClaimRewardsEnabled = true,
         AutoExpandEnabled = false,
         AutoBuyEnabled = false,

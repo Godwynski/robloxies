@@ -84,6 +84,7 @@ return function(Core)
         AutoDeliveryEnabled = false,
         AutoRestockEnabled = false,
         AutoClaimQuestsEnabled = true,
+        AutoDoQuestsEnabled = true,
         AutoClaimRewardsEnabled = true,
         AutoExpandEnabled = false,
         AutoBuyEnabled = false,
@@ -211,6 +212,7 @@ return function(Core)
             DeliveriesCompleted = 0,
             StorageRestocked = 0,
             QuestsClaimed = 0,
+            QuestsCompleted = 0,
             RewardsClaimed = 0,
             ExpansionsPurchased = 0,
             ItemsPurchased = 0,
@@ -280,12 +282,13 @@ return function(Core)
     end
 
     -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
     function Utility.ClaimAllRewards()
-        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled then return 0 end
+        if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled and not Config.MasterAutoFarmEnabled then return 0 end
         local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
         local claimed = 0
 
-        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone buttons
+        -- 1. Scan PlayerGui for claim, reward, gift, daily, spin, milestone, quest buttons
         if pg then
             for _, btn in ipairs(pg:GetDescendants()) do
                 if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
@@ -294,10 +297,10 @@ return function(Core)
                     local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
                     local grandParentName = (btn.Parent and btn.Parent.Parent and btn.Parent.Parent.Name or ""):lower()
 
-                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem"
-                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin")
-                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily")
-                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward")
+                    local isClaimText = text == "claim" or text == "collect" or text == "reward" or text == "open" or text == "free" or text == "spin" or text == "redeem" or text == "complete" or text == "turn in"
+                    local hasClaimWord = text:find("claim") or text:find("collect") or text:find("reward") or text:find("free gift") or text:find("daily") or text:find("spin") or text:find("quest")
+                    local hasRewardName = name:find("claim") or name:find("reward") or name:find("collect") or name:find("gift") or name:find("spin") or name:find("daily") or name:find("quest")
+                    local isRewardContainer = parentName:find("quest") or parentName:find("gift") or parentName:find("reward") or parentName:find("daily") or parentName:find("milestone") or grandParentName:find("reward") or grandParentName:find("quest")
 
                     if not text:find("robux") and not text:find("buy") and not text:find("purchase") and not text:find("cancel") and not text:find("close") then
                         if isClaimText or hasClaimWord or (hasRewardName and (isRewardContainer or text ~= "")) then
@@ -320,7 +323,8 @@ return function(Core)
         local remoteNames = {
             "ClaimReward", "ClaimDaily", "ClaimDailyReward", "ClaimGift",
             "ClaimPlaytime", "ClaimQuest", "ClaimGoal", "ClaimAchievement",
-            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin"
+            "ClaimMilestone", "ClaimPass", "ClaimFreeGift", "SpinWheel", "FreeSpin",
+            "CompleteQuest", "TurnInQuest", "FinishQuest", "RedeemQuest"
         }
         for _, rName in ipairs(remoteNames) do
             local remote = rs:FindFirstChild(rName, true)
@@ -345,6 +349,93 @@ return function(Core)
         return claimed
     end
     Utility.ClaimQuestsAndGifts = Utility.ClaimAllRewards
+
+    -- Auto-Accept and Auto-Do Quests
+    function Utility.AcceptAndDoQuests()
+        if not Config.AutoDoQuestsEnabled and not Config.MasterAutoFarmEnabled then return nil end
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        local rs = game:GetService("ReplicatedStorage")
+
+        -- 1. Auto-Accept new quests from UI dialogs or lists
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local name = btn.Name:lower()
+                    local parentName = (btn.Parent and btn.Parent.Name or ""):lower()
+
+                    local isAccept = text == "accept" or text == "start" or text == "take quest" or text == "track" or text == "select" or text == "accept quest"
+                    local isQuestContext = parentName:find("quest") or parentName:find("mission") or parentName:find("task") or name:find("quest") or name:find("accept")
+
+                    if (isAccept or (isQuestContext and (text:find("accept") or text:find("start") or text:find("take")))) and
+                       not text:find("robux") and not text:find("buy") and not text:find("cancel") then
+                        pcall(function()
+                            if type(firesignal) == "function" and btn.Activated then
+                                firesignal(btn.Activated)
+                            elseif btn.Activate then
+                                btn:Activate()
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+
+        -- 2. Trigger AcceptQuest / StartQuest remotes if available in ReplicatedStorage
+        local acceptRemotes = {
+            "AcceptQuest", "StartQuest", "TakeQuest", "TrackQuest", "SelectQuest", "AssignQuest"
+        }
+        for _, rName in ipairs(acceptRemotes) do
+            local remote = rs:FindFirstChild(rName, true)
+            if remote and remote:IsA("RemoteEvent") then
+                pcall(function() remote:FireServer() end)
+            elseif remote and remote:IsA("RemoteFunction") then
+                pcall(function() remote:InvokeServer() end)
+            end
+        end
+
+        -- 3. Parse active quest directives from PlayerGui labels
+        local directives = {
+            Cook = false,
+            Serve = false,
+            Order = false,
+            Clean = false,
+            Seat = false,
+            Cash = false,
+            Farm = false,
+            Delivery = false,
+            Buy = false,
+            Place = false,
+            Staff = false,
+            Expand = false
+        }
+
+        if pg then
+            for _, lbl in ipairs(pg:GetDescendants()) do
+                if lbl:IsA("TextLabel") and lbl.Visible then
+                    local parentName = (lbl.Parent and lbl.Parent.Name or ""):lower()
+                    local isQuestLabel = parentName:find("quest") or parentName:find("task") or parentName:find("mission") or parentName:find("goal") or lbl.Name:lower():find("quest") or lbl.Name:lower():find("task")
+                    if isQuestLabel then
+                        local t = (lbl.Text or ""):lower()
+                        if t:find("cook") or t:find("dish") or t:find("meal") or t:find("bake") then directives.Cook = true end
+                        if t:find("serve") or t:find("deliver to table") then directives.Serve = true end
+                        if t:find("order") or t:find("ticket") then directives.Order = true end
+                        if t:find("clean") or t:find("wipe") or t:find("table") or t:find("trash") then directives.Clean = true end
+                        if t:find("seat") or t:find("customer") or t:find("guest") then directives.Seat = true end
+                        if t:find("cash") or t:find("coin") or t:find("tip") or t:find("money") or t:find("earn") then directives.Cash = true end
+                        if t:find("harvest") or t:find("crop") or t:find("wheat") or t:find("farm") then directives.Farm = true end
+                        if t:find("delivery") or t:find("package") or t:find("box") or t:find("scooter") then directives.Delivery = true end
+                        if t:find("buy") or t:find("purchase") or t:find("stove") or t:find("chair") then directives.Buy = true end
+                        if t:find("place") or t:find("furniture") or t:find("build") then directives.Place = true end
+                        if t:find("hire") or t:find("staff") or t:find("waiter") or t:find("chef") then directives.Staff = true end
+                        if t:find("expand") or t:find("floor") or t:find("land") then directives.Expand = true end
+                    end
+                end
+            end
+        end
+
+        return directives
+    end
 
     -- Redeem known active promotional codes automatically
     function Utility.RedeemKnownCodes()
@@ -2357,8 +2448,8 @@ end)()(Core)
             local active = Config.MasterAutoFarmEnabled or Config.AutoSeatEnabled or Config.AutoOrderEnabled or
                            Config.AutoCookEnabled or Config.AutoServeEnabled or Config.AutoCleanEnabled or
                            Config.AutoCollectCashEnabled or Config.AutoFarmEnabled or Config.AutoDeliveryEnabled or
-                           Config.AutoRestockEnabled or Config.WalkSpeedEnabled or Config.JumpPowerEnabled or
-                           Config.NoClipEnabled or Config.InfiniteJumpEnabled
+                           Config.AutoRestockEnabled or Config.AutoDoQuestsEnabled or Config.AutoClaimQuestsEnabled or
+                           Config.WalkSpeedEnabled or Config.JumpPowerEnabled or Config.NoClipEnabled or Config.InfiniteJumpEnabled
 
             local text = Config.MasterAutoFarmEnabled and "FARMING" or (active and "ACTIVE" or "IDLE")
             Window:UpdateStatus(active, text)
@@ -2374,16 +2465,20 @@ end)()(Core)
             local heroCard = DashTab:AddHeroCard({
                 Icon = "⚡",
                 Title = "Master Restaurant Auto-Farm",
-                Subtitle = "Synchronizes seating, ordering, cooking, serving, cleaning, and cash sweeping.",
+                Subtitle = "Synchronizes seating, ordering, cooking, serving, cleaning, cash sweeping, and auto doing & claiming quests.",
                 InitialState = Config.MasterAutoFarmEnabled,
                 OnToggle = function(state)
                     Config.MasterAutoFarmEnabled = state
+                    if state then
+                        Config.AutoDoQuestsEnabled = true
+                        Config.AutoClaimQuestsEnabled = true
+                    end
                     UI.UpdateStatus()
                     Window:Notify({
                         Title = state and "Auto-Farm Activated" or "Auto-Farm Paused",
-                        Content = state and "All kitchen and dining operations are now running." or "All restaurant tasks paused.",
+                        Content = state and "All kitchen, dining, quest completion, and reward claiming workflows are running." or "All restaurant tasks paused.",
                         Type = state and "Success" or "Info",
-                        Duration = 3
+                        Duration = 3.5
                     })
                 end
             })
@@ -2394,8 +2489,9 @@ end)()(Core)
 
             metricGrid:AddMetric("Cash", "💵", "Cash Swept", 0, Color3.fromRGB(34, 197, 94))
             metricGrid:AddMetric("Rewards", "🎁", "Rewards Claimed", 0, Color3.fromRGB(245, 158, 11))
+            metricGrid:AddMetric("Quests", "📜", "Quests Done", 0, Color3.fromRGB(168, 85, 247))
             metricGrid:AddMetric("Seated", "👥", "Guests Seated", 0, Color3.fromRGB(59, 130, 246))
-            metricGrid:AddMetric("Orders", "📋", "Orders Processed", 0, Color3.fromRGB(168, 85, 247))
+            metricGrid:AddMetric("Orders", "📋", "Orders Processed", 0, Color3.fromRGB(217, 70, 239))
             metricGrid:AddMetric("Cooked", "🍳", "Dishes Cooked", 0, Color3.fromRGB(249, 115, 22))
             metricGrid:AddMetric("Served", "🍽️", "Dishes Served", 0, Color3.fromRGB(16, 185, 129))
             metricGrid:AddMetric("Cleaned", "🧼", "Tables Cleaned", 0, Color3.fromRGB(6, 182, 212))
@@ -2423,10 +2519,11 @@ end)()(Core)
                         local ratePerHour = math.floor(((s.CashCollected or 0) / elapsed) * 3600)
                         heroCard.SetInfo(string.format("⏱ Uptime: %s  •  Rate: ~%d items/hr", uptimeStr, ratePerHour))
 
-                        -- Update 14 metrics
+                        -- Update metrics
                         local totalRewards = (s.RewardsClaimed or 0) + (s.QuestsClaimed or 0)
                         metricGrid:UpdateMetric("Cash", string.format("%d items", s.CashCollected or 0))
                         metricGrid:UpdateMetric("Rewards", totalRewards)
+                        metricGrid:UpdateMetric("Quests", s.QuestsCompleted or 0)
                         metricGrid:UpdateMetric("Seated", s.CustomersSeated or 0)
                         metricGrid:UpdateMetric("Orders", s.OrdersTaken or 0)
                         metricGrid:UpdateMetric("Cooked", s.DishesCooked or 0)
@@ -2532,6 +2629,17 @@ end)()(Core)
             end)
             RestTab:AddToggle("Auto-Harvest Farm & Ranch", "Gathers wheat, tomatoes, and animal goods from your farm plot.", Config.AutoFarmEnabled, function(val)
                 Config.AutoFarmEnabled = val
+                UI.UpdateStatus()
+            end)
+
+            -- Quests & Tasks Automation
+            RestTab:AddSection("QUESTS & TASKS AUTOMATION", "📜")
+            RestTab:AddToggle("Auto-Do Quests", "Automatically fulfills active quest objectives, talks to quest NPCs, and prioritizes quest tasks.", Config.AutoDoQuestsEnabled, function(val)
+                Config.AutoDoQuestsEnabled = val
+                UI.UpdateStatus()
+            end)
+            RestTab:AddToggle("Auto-Claim Quests & Goals", "Automatically claims completed quests, daily tasks, and milestone rewards.", Config.AutoClaimQuestsEnabled, function(val)
+                Config.AutoClaimQuestsEnabled = val
                 UI.UpdateStatus()
             end)
 
@@ -3128,6 +3236,7 @@ return function(Core)
             Expand = {},
             Buy = {},
             Place = {},
+            Quest = {},
         }
 
         local searchList = {}
@@ -3209,6 +3318,10 @@ return function(Core)
                     -- 12. Expand Land & Floors
                     elseif combined:find("expand") or combined:find("unlock") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
                         table.insert(categorized.Expand, obj)
+
+                    -- 13. Quest NPCs, Quest Boards, Bounty Givers & Turn-Ins
+                    elseif combined:find("quest") or combined:find("mission") or combined:find("bounty") or combined:find("board") or combined:find("contract") or (combined:find("talk") and not combined:find("seat")) then
+                        table.insert(categorized.Quest, obj)
                     end
                 end
             end
@@ -3774,6 +3887,42 @@ return function(Core)
         return false
     end
 
+    -- Auto-do and auto-claim quests, tasks, and daily objectives
+    local lastQuestAutomation = 0
+    function Restaurant.HandleQuestAutomation()
+        if not Config.MasterAutoFarmEnabled and not Config.AutoClaimQuestsEnabled and not Config.AutoDoQuestsEnabled then
+            return false
+        end
+
+        local now = os.clock()
+        if now - lastQuestAutomation < 2.5 then return false end
+        lastQuestAutomation = now
+
+        -- 1. Auto-claim all finished quests, goals, milestones, and playtime rewards
+        if Config.MasterAutoFarmEnabled or Config.AutoClaimQuestsEnabled then
+            pcall(function()
+                local claimed = Utility.ClaimAllRewards()
+                if claimed and claimed > 0 then
+                    State.Stats.QuestsClaimed = (State.Stats.QuestsClaimed or 0) + claimed
+                end
+            end)
+        end
+
+        -- 2. Auto-accept new quests and parse active quest directives
+        if Config.MasterAutoFarmEnabled or Config.AutoDoQuestsEnabled then
+            pcall(function()
+                local directives = Utility.AcceptAndDoQuests()
+                if directives then
+                    if directives.Buy then pcall(Restaurant.HandleAutoBuy) end
+                    if directives.Place then pcall(Restaurant.HandleAutoPlace) end
+                    if directives.Staff then pcall(Restaurant.HandleStaffManage) end
+                end
+            end)
+        end
+
+        return true
+    end
+
     -- Interleaved multi-queue pipeline categories definition
     local pipelineCategories = {
         { name = "Serve", configKey = "AutoServeEnabled", stat = "DishesServed", cooldown = 2.5 },
@@ -3782,6 +3931,7 @@ return function(Core)
         { name = "Clean", configKey = "AutoCleanEnabled", stat = "TablesCleaned", cooldown = 3.0 },
         { name = "Seat", configKey = "AutoSeatEnabled", stat = "CustomersSeated", cooldown = 3.0 },
         { name = "Cash", configKey = "AutoCollectCashEnabled", stat = "CashCollected", cooldown = 3.0 },
+        { name = "Quest", configKey = "AutoDoQuestsEnabled", stat = "QuestsCompleted", cooldown = 3.0 },
         { name = "Delivery", configKey = "AutoDeliveryEnabled", stat = "DeliveriesCompleted", cooldown = 4.0 },
         { name = "Restock", configKey = "AutoRestockEnabled", stat = "StorageRestocked", cooldown = 3.5 },
         { name = "Farm", configKey = "AutoFarmEnabled", stat = "CropsHarvested", cooldown = 3.0 },
@@ -3847,12 +3997,12 @@ return function(Core)
         -- Decoupled Worker 2: Parallel Background UI Manager (Quests, Daily Gifts, Staff, UI Catalog)
         task.spawn(function()
             while Core.State.Running and runningLoop do
-                -- Auto-claim all quests, gifts, daily rewards, spin wheels, achievements
+                -- Auto-claim all quests, gifts, daily rewards, and auto-do quest actions
                 local now = os.clock()
-                if (Config.AutoClaimRewardsEnabled or Config.AutoClaimQuestsEnabled) and (now - lastQuestCheck > 4) then
+                if (Config.MasterAutoFarmEnabled or Config.AutoClaimRewardsEnabled or Config.AutoClaimQuestsEnabled or Config.AutoDoQuestsEnabled) and (now - lastQuestCheck > 3) then
                     lastQuestCheck = now
                     pcall(function()
-                        Utility.ClaimAllRewards()
+                        Restaurant.HandleQuestAutomation()
                     end)
                 end
 
@@ -3918,6 +4068,8 @@ return function(Core)
                             dispatched = dispatchCategory(prompts.Clean, 3.0, "TablesCleaned")
                         elseif (isMaster or Config.AutoSeatEnabled) and #prompts.Seat > 0 then
                             dispatched = dispatchCategory(prompts.Seat, 3.0, "CustomersSeated")
+                        elseif (isMaster or Config.AutoDoQuestsEnabled) and #prompts.Quest > 0 then
+                            dispatched = dispatchCategory(prompts.Quest, 3.0, "QuestsCompleted")
                         elseif (isMaster or Config.AutoDeliveryEnabled) and #prompts.Delivery > 0 then
                             dispatched = dispatchCategory(prompts.Delivery, 4.0, "DeliveriesCompleted")
                         elseif (isMaster or Config.AutoRestockEnabled) and #prompts.Restock > 0 then
