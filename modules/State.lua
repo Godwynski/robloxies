@@ -13,6 +13,10 @@ return function(Core)
         InteractionBlockedUntil = 0,
         ActivePrompt = nil,
         LastActionType = nil,
+        ExpansionQuestLocked = false,
+        ExpansionQuestLockedUntil = 0,
+        ExpansionLockReason = nil,
+        BlockedCategories = {}, -- e.g. { Cook = timestamp, Seat = timestamp, Serve = timestamp }
         ActiveGoal = {
             Title = "None",
             Objective = "Monitoring...",

@@ -99,6 +99,9 @@ return function(Core)
         AutoExpandEnabled = false,
         AutoBuyLand = false,
         AutoBuyFloors = false,
+        AutoQuestGateExpansions = true,
+        QuestLockBackoffDuration = 120,
+        StrictPreActionVerification = true,
 
         -- Equipment & Furniture Auto-Buy Choices
         AutoBuyEnabled = false,
@@ -234,6 +237,10 @@ return function(Core)
         InteractionBlockedUntil = 0,
         ActivePrompt = nil,
         LastActionType = nil,
+        ExpansionQuestLocked = false,
+        ExpansionQuestLockedUntil = 0,
+        ExpansionLockReason = nil,
+        BlockedCategories = {}, -- e.g. { Cook = timestamp, Seat = timestamp, Serve = timestamp }
         ActiveGoal = {
             Title = "None",
             Objective = "Monitoring...",
@@ -562,6 +569,9 @@ return function(Core)
         if claimed > 0 and Core.State and Core.State.Stats then
             Core.State.Stats.RewardsClaimed = (Core.State.Stats.RewardsClaimed or 0) + claimed
             Core.State.Stats.QuestsClaimed = (Core.State.Stats.QuestsClaimed or 0) + claimed
+            Core.State.ExpansionQuestLocked = false
+            Core.State.ExpansionQuestLockedUntil = 0
+            Core.State.ExpansionLockReason = nil
         end
 
         return claimed
@@ -3199,7 +3209,7 @@ end)()(Core)
                         if items and #items > 0 then
                             table.insert(lines, catTitle .. ":")
                             for _, it in ipairs(items) do
-                                local status = it.CanAfford and "✓ AFFORDABLE" or (it.Needed > 0 and ("✗ Need +$" .. tostring(it.Needed):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "✗ Unaffordable")
+                                local status = it.IsLocked and ("🔒 " .. (it.LockReason or "QUEST LOCKED")) or (it.CanAfford and "✓ AFFORDABLE" or (it.Needed > 0 and ("✗ Need +$" .. tostring(it.Needed):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "✗ Unaffordable"))
                                 table.insert(lines, string.format("  • %s — %s [%s]", it.Title, it.PriceText, status))
                             end
                         end
@@ -3237,6 +3247,9 @@ end)()(Core)
             BuildTab:AddSection("LAND & PROPERTY EXPANSIONS", "🏰")
             BuildTab:AddToggle("Auto-Expand Land & Floors (Master)", "Master toggle for buying land and multi-story floor unlocks as cash allows.", Config.AutoExpandEnabled, function(val)
                 Config.AutoExpandEnabled = val
+            end)
+            BuildTab:AddToggle("Strict Quest-Gate Expansion Guard", "Prevents attempting land/floor purchases until prerequisite quests or milestones are completed.", Config.AutoQuestGateExpansions, function(val)
+                Config.AutoQuestGateExpansions = val
             end)
             BuildTab:AddToggle("Expand Plot Land Footprint", "Allows purchasing plot acreage and property boundaries.", Config.AutoBuyLand, function(val)
                 Config.AutoBuyLand = val
@@ -3656,8 +3669,34 @@ return function(Core)
             if not text or type(text) ~= "string" or #text < 3 then return end
             local lower = text:lower()
 
-            -- 1. Hands Full Alert ("your hands are full rn")
-            if lower:find("hands are full") or lower:find("hand is full") or lower:find("carrying too much") or lower:find("cannot carry") or lower:find("inventory full") then
+            -- 1. Quest Requirement Alert ("you need to complete quest first" / "complete quest first")
+            if (lower:find("quest") and (lower:find("complete") or lower:find("first") or lower:find("need") or lower:find("must") or lower:find("require") or lower:find("before") or lower:find("lock")))
+               or (lower:find("complete") and lower:find("first")) then
+                State.ExpansionQuestLocked = true
+                State.ExpansionQuestLockedUntil = os.clock() + (Config.QuestLockBackoffDuration or 120)
+                State.ExpansionLockReason = text
+                if State.ActivePrompt then
+                    unaffordableBackoff[State.ActivePrompt] = os.clock() + (Config.QuestLockBackoffDuration or 120)
+                    setPromptCooldown(State.ActivePrompt, 60.0)
+                end
+                pcall(function()
+                    if Core.UI and Core.UI.Window and Core.UI.Window.Notify then
+                        Core.UI.Window:Notify({
+                            Title = "Quest Required",
+                            Content = "Land purchase paused: " .. text .. ". Prioritizing quests.",
+                            Type = "Warning",
+                            Duration = 5
+                        })
+                    end
+                end)
+                if Config.MasterAutoFarmEnabled or Config.AutoDoQuestsEnabled then
+                    task.spawn(function()
+                        pcall(Restaurant.HandleQuestAutomation)
+                    end)
+                end
+
+            -- 2. Hands Full Alert ("your hands are full rn")
+            elseif lower:find("hands are full") or lower:find("hand is full") or lower:find("carrying too much") or lower:find("cannot carry") or lower:find("inventory full") then
                 State.HandsFull = true
                 State.HandsFullUntil = os.clock() + 7.5
                 if State.LastActionType == "Clean" or State.HoldingType == "DirtyDishes" then
@@ -3669,7 +3708,7 @@ return function(Core)
                     setPromptCooldown(State.ActivePrompt, 4.5)
                 end
 
-            -- 2. Sinks Full Alert ("sinks are full buy more in shop")
+            -- 3. Sinks Full Alert ("sinks are full buy more in shop")
             elseif lower:find("sink") and (lower:find("full") or lower:find("shop") or lower:find("buy")) then
                 State.SinksFull = true
                 State.SinksFullUntil = os.clock() + 10.0
@@ -3683,14 +3722,38 @@ return function(Core)
                     end)
                 end
 
-            -- 3. You can't do that right now ("you cant do that rn" / "already in use" / "busy")
-            elseif lower:find("cant do that") or lower:find("can't do that") or lower:find("cannot do that") or lower:find("not right now") or lower:find("already in use") or lower:find("station in use") or lower:find("station busy") or lower:find("someone is using") then
+            -- 4. No Available Tables Alert ("no available tables" / "no empty table")
+            elseif lower:find("no available table") or lower:find("no empty table") or lower:find("no table") then
+                State.BlockedCategories = State.BlockedCategories or {}
+                State.BlockedCategories.Seat = os.clock() + 8.0
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 8.0)
+                end
+
+            -- 5. No Orders / Tickets Alert ("no orders" / "no tickets")
+            elseif lower:find("no order") or lower:find("no tickets") or lower:find("no meal to cook") then
+                State.BlockedCategories = State.BlockedCategories or {}
+                State.BlockedCategories.Cook = os.clock() + 4.5
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 4.5)
+                end
+
+            -- 6. Not Holding Food Alert ("not holding food")
+            elseif lower:find("not holding") or (lower:find("need") and lower:find("food")) then
+                State.BlockedCategories = State.BlockedCategories or {}
+                State.BlockedCategories.Serve = os.clock() + 3.5
+                if State.ActivePrompt then
+                    setPromptCooldown(State.ActivePrompt, 3.5)
+                end
+
+            -- 7. You can't do that right now ("you cant do that rn" / "already in use" / "busy" / "occupied")
+            elseif lower:find("cant do that") or lower:find("can't do that") or lower:find("cannot do that") or lower:find("not right now") or lower:find("already in use") or lower:find("station in use") or lower:find("station busy") or lower:find("someone is using") or lower:find("occupied") then
                 if State.ActivePrompt then
                     setPromptCooldown(State.ActivePrompt, 4.0)
                 end
                 State.InteractionBlockedUntil = os.clock() + 0.5
 
-            -- 4. Not enough money / Cannot afford
+            -- 8. Not enough money / Cannot afford
             elseif lower:find("not enough money") or lower:find("cannot afford") or lower:find("need more cash") then
                 if State.ActivePrompt then
                     unaffordableBackoff[State.ActivePrompt] = os.clock() + (Config.AffordabilityBackoff or 30)
@@ -3786,6 +3849,266 @@ return function(Core)
             end
         end
         return nil
+    end
+
+    -- Check if an in-world expansion pad or prompt is visually/structurally locked or quest-gated
+    function Restaurant.IsExpansionPadLocked(prompt)
+        if not prompt then return false end
+
+        local now = os.clock()
+
+        -- 1. Check if global expansion quest lock is currently active from previous game rejection
+        if State.ExpansionQuestLocked then
+            if now < (State.ExpansionQuestLockedUntil or 0) then
+                return true, State.ExpansionLockReason or "Quest required"
+            else
+                State.ExpansionQuestLocked = false
+                State.ExpansionLockReason = nil
+            end
+        end
+
+        -- 2. Inspect prompt ActionText & ObjectText
+        local act = (prompt.ActionText or ""):lower()
+        local obj = (prompt.ObjectText or prompt.Name or ""):lower()
+        local combined = act .. " " .. obj
+        if combined:find("complete quest") or combined:find("quest required") or combined:find("locked") or combined:find("🔒") or combined:find("need quest") then
+            return true, "Prompt text indicates locked"
+        end
+
+        -- 3. Inspect Prompt & Parent Model Attributes
+        local p = prompt.Parent
+        local model = p and (p:IsA("Model") and p or p.Parent)
+        local candidates = { prompt, p, model }
+        for _, inst in ipairs(candidates) do
+            if inst then
+                if inst:GetAttribute("Locked") == true or inst:GetAttribute("QuestLocked") == true or inst:GetAttribute("QuestRequired") == true or inst:GetAttribute("Unlocked") == false then
+                    return true, "Attribute indicates locked"
+                end
+                local reqQuest = inst:GetAttribute("RequiredQuest") or inst:GetAttribute("QuestId") or inst:GetAttribute("Quest")
+                if reqQuest and tostring(reqQuest) ~= "" then
+                    return true, "Requires quest: " .. tostring(reqQuest)
+                end
+            end
+        end
+
+        -- 4. Inspect Child BillboardGuis / SurfaceGuis for lock labels
+        local searchGuis = {}
+        if p then
+            for _, d in ipairs(p:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible and d.Text and #d.Text > 1 then
+                    table.insert(searchGuis, d.Text:lower())
+                end
+            end
+        end
+        if model and model ~= p then
+            for _, d in ipairs(model:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Visible and d.Text and #d.Text > 1 then
+                    table.insert(searchGuis, d.Text:lower())
+                end
+            end
+        end
+
+        for _, txt in ipairs(searchGuis) do
+            if txt:find("complete quest") or txt:find("quest required") or txt:find("need quest") or txt:find("locked") or txt:find("🔒") or txt:find("requires quest") or txt:find("quest first") then
+                return true, "Signboard indicates: " .. txt
+            end
+        end
+
+        return false
+    end
+
+    -- =========================================================================
+    -- CENTRAL PRE-FLIGHT ACTION FEASIBILITY ENGINE
+    -- =========================================================================
+    function Restaurant.IsActionDoable(prompt, actionType, category)
+        category = category or actionType
+        if not prompt or not prompt.Parent or not prompt.Enabled then return false, "Prompt invalid or disabled" end
+        if not isPromptReady(prompt) then return false, "Prompt on cooldown or interaction blocked" end
+
+        local now = os.clock()
+
+        -- Check temporary category blockades from reactive toasts
+        if State.BlockedCategories and State.BlockedCategories[category] then
+            if now < State.BlockedCategories[category] then
+                return false, "Category " .. tostring(category) .. " temporarily blocked by game notification"
+            else
+                State.BlockedCategories[category] = nil
+            end
+        end
+
+        local holdingType, holdingCount, handsFull = Restaurant.GetHoldingState()
+        local sinksFull = State.SinksFull and (now < (State.SinksFullUntil or 0))
+
+        -- 1. EXPAND (Land & Floor Purchases)
+        if category == "Expand" then
+            if not Config.AutoExpandEnabled then return false, "AutoExpandEnabled is false" end
+
+            local combined = ((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. (prompt.Parent and prompt.Parent.Name or "")):lower()
+            local isFloor = combined:find("floor")
+            local isLand = combined:find("land") or combined:find("plot") or combined:find("expand") or combined:find("acre") or combined:find("footprint") or combined:find("territory")
+
+            local allowed = (isFloor and Config.AutoBuyFloors) or (isLand and Config.AutoBuyLand) or (not isFloor and not isLand and (Config.AutoBuyLand or Config.AutoBuyFloors))
+            if not allowed then return false, "Expansion type not opted in" end
+
+            -- Quest Gate Verification
+            if Config.AutoQuestGateExpansions then
+                local isQuestExpand = (State.ActiveGoal and State.ActiveGoal.Category == "Expand")
+                if not isQuestExpand then
+                    local isLocked, lockReason = Restaurant.IsExpansionPadLocked(prompt)
+                    if isLocked then
+                        State.ExpansionQuestLocked = true
+                        State.ExpansionQuestLockedUntil = now + (Config.QuestLockBackoffDuration or 120)
+                        State.ExpansionLockReason = lockReason
+                        return false, "Expansion quest-gated: " .. tostring(lockReason)
+                    end
+                end
+            end
+
+            -- Affordability Check
+            local price = Utility.ParsePrice(combined, prompt)
+            local canAfford, needed = Utility.CanAfford(price)
+            if not canAfford then
+                unaffordableBackoff[prompt] = now + (Config.AffordabilityBackoff or 30)
+                return false, "Cannot afford expansion: need +$" .. tostring(needed)
+            end
+
+            return true
+
+        -- 2. COOK (Cooking at Stoves/Ovens/Grills)
+        elseif category == "Cook" then
+            -- Hands must be completely empty
+            if holdingType ~= "None" or handsFull then
+                return false, "Cannot cook while holding " .. holdingType
+            end
+
+            -- Station occupancy & active timer check
+            local parentPart = prompt.Parent
+            if parentPart then
+                local stationPos = getTargetPosition(parentPart)
+                if stationPos then
+                    for _, player in ipairs(Services.Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character then
+                            local otherRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                            if otherRoot and (otherRoot.Position - stationPos).Magnitude < 3.2 then
+                                return false, "Workstation occupied by another player"
+                            end
+                        end
+                    end
+                end
+
+                for _, child in ipairs(parentPart:GetDescendants()) do
+                    if child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
+                        for _, lbl in ipairs(child:GetDescendants()) do
+                            if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text then
+                                local lTxt = lbl.Text:lower()
+                                if lTxt:find("cooking") or lTxt:find("timer") or lTxt:find("%d+%%") or lTxt:find("in use") or lTxt:find("busy") then
+                                    return false, "Station already in use or cooking"
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            return true
+
+        -- 3. SERVE (Delivering Food to Customer Tables)
+        elseif category == "Serve" then
+            if holdingType ~= "Food" then
+                return false, "Cannot serve: not holding food (holding " .. holdingType .. ")"
+            end
+            return true
+
+        -- 4. CLEAN (Bussing Dirty Dining Tables)
+        elseif category == "Clean" then
+            if handsFull or holdingType == "DirtyDishes" or holdingCount >= (Config.HandCapacity or 1) then
+                return false, "Cannot clean: hands full of dishes"
+            end
+            if sinksFull then
+                return false, "Cannot clean tables: all sinks are full"
+            end
+            local tableModel = prompt.Parent and (prompt.Parent:IsA("Model") and prompt.Parent or prompt.Parent.Parent)
+            if tableModel then
+                for _, d in ipairs(tableModel:GetDescendants()) do
+                    if d:IsA("Humanoid") and d.Health > 0 and d.Parent ~= LocalPlayer.Character then
+                        local act = (prompt.ActionText or ""):lower()
+                        if act:find("eat") or act:find("dining") or act:find("busy") then
+                            return false, "Customer is still eating at table"
+                        end
+                    end
+                end
+            end
+            return true
+
+        -- 5. SINK (Washing Dishes / Depositing in Sinks)
+        elseif category == "Sink" then
+            if holdingType == "Food" then
+                return false, "Cannot use sink while holding food"
+            end
+            local text = ((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "")):lower()
+            if holdingType == "DirtyDishes" then
+                if sinksFull then return false, "Cannot deposit: sinks full" end
+            else
+                if text:find("empty") and not (text:find("wash") or text:find("scrub") or text:find("start")) then
+                    return false, "Sink is empty; nothing to wash"
+                end
+            end
+            return true
+
+        -- 6. SEAT (Customer Seating)
+        elseif category == "Seat" then
+            if holdingType == "DirtyDishes" or handsFull then
+                return false, "Cannot seat customers while holding dirty dishes"
+            end
+            return true
+
+        -- 7. ORDER (Taking Customer Orders)
+        elseif category == "Order" then
+            if holdingType == "DirtyDishes" or handsFull then
+                return false, "Cannot take orders while holding dirty dishes"
+            end
+            return true
+
+        -- 8. BUY (In-World Shop Prompts)
+        elseif category == "Buy" then
+            local combined = ((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. (prompt.Parent and prompt.Parent.Name or "")):lower()
+            local isLand = combined:find("land") or combined:find("plot") or combined:find("floor") or combined:find("expand") or combined:find("acre") or combined:find("territory") or combined:find("footprint")
+            if isLand then
+                return false, "Expansion prompts must not be processed via Buy category"
+            end
+            local price = Utility.ParsePrice(combined, prompt)
+            local canAfford = Utility.CanAfford(price)
+            if not canAfford then
+                unaffordableBackoff[prompt] = now + (Config.AffordabilityBackoff or 30)
+                return false, "Cannot afford purchase"
+            end
+            return true
+
+        -- 9. FARM (Harvesting Crops)
+        elseif category == "Farm" then
+            local parent = prompt.Parent
+            if parent then
+                for _, child in ipairs(parent:GetDescendants()) do
+                    if child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
+                        for _, lbl in ipairs(child:GetDescendants()) do
+                            if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text then
+                                local lTxt = lbl.Text:lower()
+                                if lTxt:find("grow") or lTxt:find("seed") or lTxt:find("%d+%%") or lTxt:find("water") then
+                                    return false, "Crop still growing"
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            return true
+
+        -- 10. CASH / REWARD
+        elseif category == "Cash" or category == "Quest" or category == "Delivery" or category == "Restock" or category == "Place" then
+            return true
+        end
+
+        return true
     end
 
     -- Recalibrate the center of the restaurant to current avatar position
@@ -4099,14 +4422,14 @@ return function(Core)
                     elseif combined:find("harvest") or combined:find("crop") or combined:find("wheat") or combined:find("plant") or combined:find("gather") or combined:find("pick") then
                         table.insert(categorized.Farm, obj)
 
-                    -- 11. Buy Furniture & Equipment
-                    elseif (combined:find("buy") or combined:find("purchase")) and not combined:find("floor") and not combined:find("expand") then
+                    -- 11. Buy Furniture & Equipment (Strictly non-land/non-floor items)
+                    elseif (combined:find("buy") or combined:find("purchase")) and not (combined:find("land") or combined:find("plot") or combined:find("floor") or combined:find("expand") or combined:find("acre") or combined:find("territory") or combined:find("footprint")) then
                         if isPromptAffordable(obj) then
                             table.insert(categorized.Buy, obj)
                         end
 
                     -- 12. Expand Land & Floors
-                    elseif combined:find("expand") or combined:find("unlock") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
+                    elseif combined:find("expand") or combined:find("unlock") or combined:find("land") or combined:find("plot") or combined:find("acre") or combined:find("footprint") or combined:find("territory") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
                         if isPromptAffordable(obj) then
                             table.insert(categorized.Expand, obj)
                         end
@@ -4264,6 +4587,12 @@ return function(Core)
         if State.InFlightTasks[prompt] then return false end
         if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return false end
 
+        -- Pre-flight feasibility verification
+        if Config.StrictPreActionVerification then
+            local doable, reason = Restaurant.IsActionDoable(prompt, actionType, actionType)
+            if not doable then return false end
+        end
+
         State.InFlightTasks[prompt] = true
         State.ActivePrompt = prompt
         State.LastActionType = actionType
@@ -4312,6 +4641,12 @@ return function(Core)
         if State.InFlightTasks[primaryPrompt] then return false end
         if State.InteractionBlockedUntil and os.clock() < State.InteractionBlockedUntil then return false end
 
+        -- Pre-flight feasibility verification for primary cluster action
+        if Config.StrictPreActionVerification then
+            local doable, reason = Restaurant.IsActionDoable(primaryPrompt, actionType, actionType)
+            if not doable then return false end
+        end
+
         State.InFlightTasks[primaryPrompt] = true
         State.ActivePrompt = primaryPrompt
         State.LastActionType = actionType
@@ -4347,6 +4682,12 @@ return function(Core)
             -- 3. Complete each cluster prompt sequentially while standing at the station
             for _, prompt in ipairs(cluster) do
                 if prompt and prompt.Parent and prompt.Enabled and isPromptReady(prompt) then
+                    -- Verify feasibility of secondary prompt
+                    if Config.StrictPreActionVerification then
+                        local cDoable = Restaurant.IsActionDoable(prompt, actionType, actionType)
+                        if not cDoable then break end
+                    end
+
                     -- Verify holding state: stop picking up more if hands full!
                     local _, _, handsFull = Restaurant.GetHoldingState()
                     if handsFull and (actionType == "Clean" or actionType == "Serve") then
@@ -4527,21 +4868,14 @@ return function(Core)
 
         for _, prompt in ipairs(p.Expand) do
             if isPromptReady(prompt) and not State.InFlightTasks[prompt] then
-                local combined = ((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. (prompt.Parent and prompt.Parent.Name or "")):lower()
-                local isFloor = combined:find("floor")
-                local isLand = combined:find("land") or combined:find("plot") or combined:find("expand")
+                local doable = true
+                if Config.StrictPreActionVerification then
+                    doable = Restaurant.IsActionDoable(prompt, "Expand", "Expand")
+                end
 
-                local allowed = (isFloor and Config.AutoBuyFloors) or (isLand and Config.AutoBuyLand) or (not isFloor and not isLand and (Config.AutoBuyLand or Config.AutoBuyFloors))
-
-                if allowed then
-                    local price = Utility.ParsePrice(combined, prompt)
-                    local canAfford, needed = Utility.CanAfford(price)
-                    if canAfford then
-                        local ok = executeAction(prompt, 6.0, "ExpansionsPurchased")
-                        if ok then return true end
-                    else
-                        unaffordableBackoff[prompt] = os.clock() + (Config.AffordabilityBackoff or 30)
-                    end
+                if doable then
+                    local ok = executeAction(prompt, 6.0, "ExpansionsPurchased", "Expand")
+                    if ok then return true end
                 end
             end
         end
@@ -4777,6 +5111,11 @@ return function(Core)
                     catLabel = "🌿 Decor & Aesthetics"
                 end
 
+                local isLocked, lockReason = false, nil
+                if category == "LandFloors" and Restaurant.IsExpansionPadLocked then
+                    isLocked, lockReason = Restaurant.IsExpansionPadLocked(p)
+                end
+
                 local entry = {
                     Title = cleanTitle,
                     Category = category,
@@ -4785,6 +5124,8 @@ return function(Core)
                     PriceText = price > 0 and ("$" .. tostring(price):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "Free / Unknown",
                     CanAfford = canAfford,
                     Needed = needed,
+                    IsLocked = isLocked,
+                    LockReason = lockReason,
                     Prompt = p,
                     Type = "Prompt"
                 }
@@ -5013,6 +5354,9 @@ return function(Core)
                 local claimed = Utility.ClaimAllRewards()
                 if claimed and claimed > 0 then
                     State.Stats.QuestsClaimed = (State.Stats.QuestsClaimed or 0) + claimed
+                    State.ExpansionQuestLocked = false
+                    State.ExpansionQuestLockedUntil = 0
+                    State.ExpansionLockReason = nil
                 end
             end)
         end
@@ -5026,6 +5370,7 @@ return function(Core)
                     if directives.Place then pcall(Restaurant.HandleAutoPlace, directives.TargetItem) end
                     if directives.Staff then pcall(Restaurant.HandleStaffManage, directives.TargetRole) end
                     if directives.Farm and Restaurant.HandleFarming then pcall(Restaurant.HandleFarming) end
+                    if directives.Expand and Restaurant.HandleExpansion then pcall(Restaurant.HandleExpansion) end
                 end
             end)
         end
@@ -5109,13 +5454,19 @@ return function(Core)
             if canRunGoalCat then
                 for _, p in ipairs(prompts[activeCat]) do
                     if isPromptReady(p) and not State.InFlightTasks[p] then
-                        if Config.ConcurrentExecutionEnabled then
-                            local cluster = Restaurant.GetNearbyCluster(p, prompts[activeCat], 14, Config.StationBatchSize or 3)
-                            executeCluster(p, cluster, 2.5, "QuestsCompleted", prompts, activeCat)
-                        else
-                            executeAction(p, 2.5, "QuestsCompleted", activeCat)
+                        local doable = true
+                        if Config.StrictPreActionVerification then
+                            doable = Restaurant.IsActionDoable(p, activeCat, activeCat)
                         end
-                        return true
+                        if doable then
+                            if Config.ConcurrentExecutionEnabled then
+                                local cluster = Restaurant.GetNearbyCluster(p, prompts[activeCat], 14, Config.StationBatchSize or 3)
+                                executeCluster(p, cluster, 2.5, "QuestsCompleted", prompts, activeCat)
+                            else
+                                executeAction(p, 2.5, "QuestsCompleted", activeCat)
+                            end
+                            return true
+                        end
                     end
                 end
             end
@@ -5154,14 +5505,20 @@ return function(Core)
                 local primaryPrompt = nil
                 for _, p in ipairs(prompts[cat.name]) do
                     if isPromptReady(p) and not State.InFlightTasks[p] then
-                        if cat.name == "Expand" or cat.name == "Buy" then
-                            if isPromptAffordable(p) then
+                        local doable = true
+                        if Config.StrictPreActionVerification then
+                            doable = Restaurant.IsActionDoable(p, cat.name, cat.name)
+                        end
+                        if doable then
+                            if cat.name == "Expand" or cat.name == "Buy" then
+                                if isPromptAffordable(p) then
+                                    primaryPrompt = p
+                                    break
+                                end
+                            else
                                 primaryPrompt = p
                                 break
                             end
-                        else
-                            primaryPrompt = p
-                            break
                         end
                     end
                 end
@@ -5266,11 +5623,17 @@ return function(Core)
                         local function dispatchCategory(list, cooldown, statKey, catType)
                             for _, p in ipairs(list) do
                                 if isPromptReady(p) and not State.InFlightTasks[p] then
-                                    if Config.ConcurrentExecutionEnabled then
-                                        local cluster = Restaurant.GetNearbyCluster(p, list, 14, Config.StationBatchSize or 3)
-                                        return executeCluster(p, cluster, cooldown, statKey, prompts, catType)
-                                    else
-                                        return executeAction(p, cooldown, statKey, catType)
+                                    local doable = true
+                                    if Config.StrictPreActionVerification then
+                                        doable = Restaurant.IsActionDoable(p, catType, catType)
+                                    end
+                                    if doable then
+                                        if Config.ConcurrentExecutionEnabled then
+                                            local cluster = Restaurant.GetNearbyCluster(p, list, 14, Config.StationBatchSize or 3)
+                                            return executeCluster(p, cluster, cooldown, statKey, prompts, catType)
+                                        else
+                                            return executeAction(p, cooldown, statKey, catType)
+                                        end
                                     end
                                 end
                             end
@@ -5310,7 +5673,11 @@ return function(Core)
                             dispatched = true
                         elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
                             for _, p in ipairs(prompts.Expand) do
-                                if isPromptAffordable(p) then
+                                local doable = true
+                                if Config.StrictPreActionVerification then
+                                    doable = Restaurant.IsActionDoable(p, "Expand", "Expand")
+                                end
+                                if doable and isPromptAffordable(p) then
                                     dispatched = dispatchCategory({p}, 6.0, "ExpansionsPurchased", "Expand")
                                     if dispatched then break end
                                 end

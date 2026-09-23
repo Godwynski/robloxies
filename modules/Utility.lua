@@ -293,6 +293,9 @@ return function(Core)
         if claimed > 0 and Core.State and Core.State.Stats then
             Core.State.Stats.RewardsClaimed = (Core.State.Stats.RewardsClaimed or 0) + claimed
             Core.State.Stats.QuestsClaimed = (Core.State.Stats.QuestsClaimed or 0) + claimed
+            Core.State.ExpansionQuestLocked = false
+            Core.State.ExpansionQuestLockedUntil = 0
+            Core.State.ExpansionLockReason = nil
         end
 
         return claimed

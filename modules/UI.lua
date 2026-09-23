@@ -310,7 +310,7 @@ return function(Core)
                         if items and #items > 0 then
                             table.insert(lines, catTitle .. ":")
                             for _, it in ipairs(items) do
-                                local status = it.CanAfford and "✓ AFFORDABLE" or (it.Needed > 0 and ("✗ Need +$" .. tostring(it.Needed):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "✗ Unaffordable")
+                                local status = it.IsLocked and ("🔒 " .. (it.LockReason or "QUEST LOCKED")) or (it.CanAfford and "✓ AFFORDABLE" or (it.Needed > 0 and ("✗ Need +$" .. tostring(it.Needed):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "✗ Unaffordable"))
                                 table.insert(lines, string.format("  • %s — %s [%s]", it.Title, it.PriceText, status))
                             end
                         end
@@ -348,6 +348,9 @@ return function(Core)
             BuildTab:AddSection("LAND & PROPERTY EXPANSIONS", "🏰")
             BuildTab:AddToggle("Auto-Expand Land & Floors (Master)", "Master toggle for buying land and multi-story floor unlocks as cash allows.", Config.AutoExpandEnabled, function(val)
                 Config.AutoExpandEnabled = val
+            end)
+            BuildTab:AddToggle("Strict Quest-Gate Expansion Guard", "Prevents attempting land/floor purchases until prerequisite quests or milestones are completed.", Config.AutoQuestGateExpansions, function(val)
+                Config.AutoQuestGateExpansions = val
             end)
             BuildTab:AddToggle("Expand Plot Land Footprint", "Allows purchasing plot acreage and property boundaries.", Config.AutoBuyLand, function(val)
                 Config.AutoBuyLand = val

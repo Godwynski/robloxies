@@ -29,6 +29,9 @@ return function(Core)
         AutoExpandEnabled = false,
         AutoBuyLand = false,
         AutoBuyFloors = false,
+        AutoQuestGateExpansions = true,
+        QuestLockBackoffDuration = 120,
+        StrictPreActionVerification = true,
 
         -- Equipment & Furniture Auto-Buy Choices
         AutoBuyEnabled = false,
