@@ -16,11 +16,29 @@ return function(Core)
 
     -- Per-prompt cooldown tracker
     local promptCooldowns = setmetatable({}, {__mode = "k"})
+    -- Unaffordable prompt backoff tracker (prevents spamming unaffordable land/items)
+    local unaffordableBackoff = setmetatable({}, {__mode = "k"})
 
     local function isPromptReady(prompt)
         if not prompt or not prompt.Parent or not prompt.Enabled then return false end
         local exp = promptCooldowns[prompt]
         if exp and os.clock() < exp then return false end
+        return true
+    end
+
+    local function isPromptAffordable(prompt)
+        if not prompt or not prompt.Parent then return false end
+        local backoff = unaffordableBackoff[prompt]
+        if backoff and os.clock() < backoff then return false end
+
+        local price = Utility.ParsePrice(nil, prompt)
+        if price and price > 0 then
+            local canAfford, needed = Utility.CanAfford(price)
+            if not canAfford then
+                unaffordableBackoff[prompt] = os.clock() + (Config.AffordabilityBackoff or 30)
+                return false
+            end
+        end
         return true
     end
 
@@ -38,6 +56,11 @@ return function(Core)
             for p, exp in pairs(promptCooldowns) do
                 if now >= exp or not p or not p.Parent then
                     promptCooldowns[p] = nil
+                end
+            end
+            for p, exp in pairs(unaffordableBackoff) do
+                if now >= exp or not p or not p.Parent then
+                    unaffordableBackoff[p] = nil
                 end
             end
         end
@@ -393,11 +416,15 @@ return function(Core)
 
                     -- 11. Buy Furniture & Equipment
                     elseif (combined:find("buy") or combined:find("purchase")) and not combined:find("floor") and not combined:find("expand") then
-                        table.insert(categorized.Buy, obj)
+                        if isPromptAffordable(obj) then
+                            table.insert(categorized.Buy, obj)
+                        end
 
                     -- 12. Expand Land & Floors
                     elseif combined:find("expand") or combined:find("unlock") or (combined:find("floor") and (combined:find("buy") or combined:find("unlock") or combined:find("purchase"))) then
-                        table.insert(categorized.Expand, obj)
+                        if isPromptAffordable(obj) then
+                            table.insert(categorized.Expand, obj)
+                        end
 
                     -- 13. Quest NPCs, Quest Boards, Bounty Givers & Turn-Ins
                     elseif combined:find("quest") or combined:find("mission") or combined:find("bounty") or combined:find("board") or combined:find("contract") or (combined:find("talk") and not combined:find("seat")) then
@@ -739,8 +766,31 @@ return function(Core)
         end
     end
     function Restaurant.HandleExpansion()
+        if not Config.AutoExpandEnabled then return false end
         local p = Restaurant.ScanPrompts()
-        if #p.Expand > 0 then executeAction(p.Expand[1], 6.0, "ExpansionsPurchased") end
+        if #p.Expand == 0 then return false end
+
+        for _, prompt in ipairs(p.Expand) do
+            if isPromptReady(prompt) and not State.InFlightTasks[prompt] then
+                local combined = ((prompt.ActionText or "") .. " " .. (prompt.ObjectText or "") .. " " .. (prompt.Parent and prompt.Parent.Name or "")):lower()
+                local isFloor = combined:find("floor")
+                local isLand = combined:find("land") or combined:find("plot") or combined:find("expand")
+
+                local allowed = (isFloor and Config.AutoBuyFloors) or (isLand and Config.AutoBuyLand) or (not isFloor and not isLand and (Config.AutoBuyLand or Config.AutoBuyFloors))
+
+                if allowed then
+                    local price = Utility.ParsePrice(combined, prompt)
+                    local canAfford, needed = Utility.CanAfford(price)
+                    if canAfford then
+                        local ok = executeAction(prompt, 6.0, "ExpansionsPurchased")
+                        if ok then return true end
+                    else
+                        unaffordableBackoff[prompt] = os.clock() + (Config.AffordabilityBackoff or 30)
+                    end
+                end
+            end
+        end
+        return false
     end
 
     local lastBuyCheck = 0
@@ -754,23 +804,36 @@ return function(Core)
         local prompts = Restaurant.ScanPrompts()
         if #prompts.Buy > 0 then
             for _, p in ipairs(prompts.Buy) do
-                local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
-                local isStove = text:find("stove") or text:find("oven") or text:find("grill")
-                local isTable = text:find("table") and not text:find("chair")
-                local isChair = text:find("chair") or text:find("seat") or text:find("stool") or text:find("booth") or text:find("bench")
-                local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
-                local isFurniture = text:find("furniture") or text:find("decor") or text:find("shelf") or text:find("plant") or text:find("light")
+                if isPromptReady(p) and not State.InFlightTasks[p] then
+                    local text = ((p.ActionText or "") .. " " .. (p.ObjectText or "") .. " " .. (p.Parent and p.Parent.Name or "")):lower()
+                    local isStove = text:find("stove") or text:find("oven")
+                    local isGrill = text:find("grill") or text:find("fryer") or text:find("smoker")
+                    local isTable = text:find("table") and not text:find("chair")
+                    local isChair = text:find("chair") or text:find("seat") or text:find("stool") or text:find("booth") or text:find("bench")
+                    local isAppliance = text:find("sink") or text:find("dish") or text:find("fridge") or text:find("cooler") or text:find("appliance")
+                    local isCounter = text:find("counter") or text:find("prep") or text:find("station")
+                    local isLighting = text:find("light") or text:find("lamp") or text:find("chandelier")
+                    local isFurniture = text:find("furniture") or text:find("decor") or text:find("shelf") or text:find("plant") or text:find("tree") or text:find("painting")
 
-                local shouldBuy = (Config.AutoBuyStoves and isStove)
-                               or (Config.AutoBuyTables and isTable)
-                               or (Config.AutoBuyChairs and isChair)
-                               or (Config.AutoBuyAppliances and isAppliance)
-                               or (Config.AutoBuyFurniture and isFurniture)
-                               or (not isStove and not isTable and not isChair and not isAppliance and not isFurniture)
+                    local shouldBuy = (Config.AutoBuyStoves and isStove)
+                                   or (Config.AutoBuyGrills and isGrill)
+                                   or (Config.AutoBuyTables and isTable)
+                                   or (Config.AutoBuyChairs and isChair)
+                                   or (Config.AutoBuyAppliances and isAppliance)
+                                   or (Config.AutoBuyCounters and isCounter)
+                                   or (Config.AutoBuyLighting and isLighting)
+                                   or (Config.AutoBuyFurniture and isFurniture)
 
-                if shouldBuy then
-                    local ok = executeAction(p, 4.0, "ItemsPurchased")
-                    if ok then return true end
+                    if shouldBuy then
+                        local price = Utility.ParsePrice(text, p)
+                        local canAfford, needed = Utility.CanAfford(price)
+                        if canAfford then
+                            local ok = executeAction(p, 4.0, "ItemsPurchased")
+                            if ok then return true end
+                        else
+                            unaffordableBackoff[p] = os.clock() + (Config.AffordabilityBackoff or 30)
+                        end
+                    end
                 end
             end
         end
@@ -787,20 +850,79 @@ return function(Core)
 
                     if (bText:find("buy") or bText:find("purchase") or bName:find("buy") or bName:find("purchase")) and not bText:find("robux") then
                         local combined = (bText .. " " .. bName .. " " .. pName .. " " .. gpName):lower()
-                        local isStove = combined:find("stove") or combined:find("oven") or combined:find("grill")
+                        local isStove = combined:find("stove") or combined:find("oven")
+                        local isGrill = combined:find("grill") or combined:find("fryer") or combined:find("smoker")
                         local isTable = combined:find("table") and not combined:find("chair")
                         local isChair = combined:find("chair") or combined:find("seat") or combined:find("stool") or combined:find("booth") or combined:find("bench")
-                        local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge")
-                        local isFurniture = combined:find("furniture") or combined:find("decor") or combined:find("plant") or combined:find("light")
+                        local isAppliance = combined:find("sink") or combined:find("dish") or combined:find("fridge") or combined:find("cooler")
+                        local isCounter = combined:find("counter") or combined:find("prep") or combined:find("station")
+                        local isLighting = combined:find("light") or combined:find("lamp")
+                        local isFurniture = combined:find("furniture") or combined:find("decor") or combined:find("plant") or combined:find("tree")
 
                         local shouldBuy = (Config.AutoBuyStoves and isStove)
+                                       or (Config.AutoBuyGrills and isGrill)
                                        or (Config.AutoBuyTables and isTable)
                                        or (Config.AutoBuyChairs and isChair)
                                        or (Config.AutoBuyAppliances and isAppliance)
+                                       or (Config.AutoBuyCounters and isCounter)
+                                       or (Config.AutoBuyLighting and isLighting)
                                        or (Config.AutoBuyFurniture and isFurniture)
-                                       or (not isStove and not isTable and not isChair and not isAppliance and not isFurniture)
 
                         if shouldBuy then
+                            local price = Utility.ParsePrice(combined, btn)
+                            local canAfford, needed = Utility.CanAfford(price)
+                            if canAfford then
+                                pcall(function()
+                                    if type(firesignal) == "function" and btn.Activated then
+                                        firesignal(btn.Activated)
+                                    elseif btn.Activate then
+                                        btn:Activate()
+                                    end
+                                end)
+                                State.Stats.ItemsPurchased = State.Stats.ItemsPurchased + 1
+                                task.wait(Config.PostActionDelay or 0.2)
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local lastStaffCheck = 0
+    function Restaurant.HandleStaffManage()
+        if not Config.AutoHireStaffEnabled then return false end
+        local now = os.clock()
+        if now - lastStaffCheck < 3.5 then return false end
+        lastStaffCheck = now
+
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return false end
+
+        for _, btn in ipairs(pg:GetDescendants()) do
+            if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                local bText = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                local bName = btn.Name:lower()
+                local pName = (btn.Parent and btn.Parent.Name or ""):lower()
+                local combined = (bText .. " " .. bName .. " " .. pName):lower()
+
+                local isHire = (combined:find("hire") or combined:find("upgrade") or combined:find("recruit") or combined:find("level up")) and not combined:find("robux")
+                if isHire then
+                    local isCook = combined:find("cook") or combined:find("chef")
+                    local isWaiter = combined:find("waiter") or combined:find("server")
+                    local isCleaner = combined:find("clean") or combined:find("busser") or combined:find("janitor")
+
+                    local shouldHire = (Config.AutoHireCooks and isCook)
+                                    or (Config.AutoHireWaiters and isWaiter)
+                                    or (Config.AutoHireCleaners and isCleaner)
+                                    or (not isCook and not isWaiter and not isCleaner and (Config.AutoHireCooks or Config.AutoHireWaiters or Config.AutoHireCleaners))
+
+                    if shouldHire then
+                        local price = Utility.ParsePrice(combined, btn)
+                        local canAfford, needed = Utility.CanAfford(price)
+                        if canAfford then
                             pcall(function()
                                 if type(firesignal) == "function" and btn.Activated then
                                     firesignal(btn.Activated)
@@ -808,7 +930,9 @@ return function(Core)
                                     btn:Activate()
                                 end
                             end)
-                            State.Stats.ItemsPurchased = State.Stats.ItemsPurchased + 1
+                            if State.Stats.StaffHired ~= nil then
+                                State.Stats.StaffHired = State.Stats.StaffHired + 1
+                            end
                             task.wait(Config.PostActionDelay or 0.2)
                             return true
                         end
@@ -817,6 +941,133 @@ return function(Core)
             end
         end
         return false
+    end
+
+    -- Scan and group all currently available purchasable items & upgrades across world prompts and UI catalog
+    function Restaurant.ScanAvailablePurchases()
+        local results = {
+            LandFloors = {},
+            Cooking = {},
+            Dining = {},
+            Kitchen = {},
+            Decor = {},
+            Staff = {},
+            All = {}
+        }
+
+        local seenNames = {}
+
+        -- 1. Scan in-world Prompts (Expansion & Buy)
+        local prompts = Restaurant.ScanPrompts()
+        local candidatePrompts = {}
+        for _, p in ipairs(prompts.Expand) do table.insert(candidatePrompts, { Prompt = p, Type = "Expand" }) end
+        for _, p in ipairs(prompts.Buy) do table.insert(candidatePrompts, { Prompt = p, Type = "Buy" }) end
+
+        for _, item in ipairs(candidatePrompts) do
+            local p = item.Prompt
+            local act = (p.ActionText or ""):lower()
+            local obj = (p.ObjectText or p.Name or (p.Parent and p.Parent.Name or "")):lower()
+            local combined = act .. " " .. obj
+            local cleanTitle = (p.ObjectText and #p.ObjectText > 0) and p.ObjectText or (p.Parent and p.Parent.Name or "Item")
+            if not seenNames[cleanTitle] then
+                seenNames[cleanTitle] = true
+                local price = Utility.ParsePrice(combined, p) or 0
+                local canAfford, needed = Utility.CanAfford(price)
+                local category = "Kitchen"
+                local catLabel = "🍽️ Kitchen Equipment"
+
+                if item.Type == "Expand" or combined:find("floor") or combined:find("land") or combined:find("expand") then
+                    category = "LandFloors"
+                    catLabel = "🏰 Land & Floors"
+                elseif combined:find("stove") or combined:find("oven") or combined:find("grill") or combined:find("fryer") then
+                    category = "Cooking"
+                    catLabel = "🍳 Cooking Appliances"
+                elseif combined:find("table") or combined:find("chair") or combined:find("stool") or combined:find("booth") then
+                    category = "Dining"
+                    catLabel = "🪑 Dining Furniture"
+                elseif combined:find("decor") or combined:find("plant") or combined:find("light") or combined:find("paint") then
+                    category = "Decor"
+                    catLabel = "🌿 Decor & Aesthetics"
+                end
+
+                local entry = {
+                    Title = cleanTitle,
+                    Category = category,
+                    CategoryLabel = catLabel,
+                    Price = price,
+                    PriceText = price > 0 and ("$" .. tostring(price):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "Free / Unknown",
+                    CanAfford = canAfford,
+                    Needed = needed,
+                    Prompt = p,
+                    Type = "Prompt"
+                }
+
+                table.insert(results[category], entry)
+                table.insert(results.All, entry)
+            end
+        end
+
+        -- 2. Scan PlayerGui Shop and Staff buttons
+        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, btn in ipairs(pg:GetDescendants()) do
+                if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+                    local bText = (btn:IsA("TextButton") and btn.Text or ""):lower()
+                    local bName = btn.Name:lower()
+                    local pName = (btn.Parent and btn.Parent.Name or ""):lower()
+                    local combined = (bText .. " " .. bName .. " " .. pName):lower()
+
+                    local isBuy = (combined:find("buy") or combined:find("purchase")) and not combined:find("robux")
+                    local isHire = (combined:find("hire") or combined:find("upgrade") or combined:find("recruit")) and not combined:find("robux")
+
+                    if isBuy or isHire then
+                        local rawText = btn:IsA("TextButton") and btn.Text or btn.Name
+                        local cleanTitle = rawText:gsub("%$%s*[%d%,%.]+", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                        if #cleanTitle > 2 and not seenNames[cleanTitle] then
+                            seenNames[cleanTitle] = true
+                            local price = Utility.ParsePrice(combined, btn) or 0
+                            local canAfford, needed = Utility.CanAfford(price)
+                            local category = "Kitchen"
+                            local catLabel = "🍽️ Kitchen Equipment"
+
+                            if isHire or combined:find("cook") or combined:find("waiter") or combined:find("cleaner") or combined:find("staff") then
+                                category = "Staff"
+                                catLabel = "👨‍🍳 Staff Personnel"
+                            elseif combined:find("floor") or combined:find("land") or combined:find("expand") then
+                                category = "LandFloors"
+                                catLabel = "🏰 Land & Floors"
+                            elseif combined:find("stove") or combined:find("oven") or combined:find("grill") or combined:find("fryer") then
+                                category = "Cooking"
+                                catLabel = "🍳 Cooking Appliances"
+                            elseif combined:find("table") or combined:find("chair") or combined:find("stool") or combined:find("booth") then
+                                category = "Dining"
+                                catLabel = "🪑 Dining Furniture"
+                            elseif combined:find("decor") or combined:find("plant") or combined:find("light") then
+                                category = "Decor"
+                                catLabel = "🌿 Decor & Aesthetics"
+                            end
+
+                            local entry = {
+                                Title = cleanTitle,
+                                Category = category,
+                                CategoryLabel = catLabel,
+                                Price = price,
+                                PriceText = price > 0 and ("$" .. tostring(price):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "Free / In-Store",
+                                CanAfford = canAfford,
+                                Needed = needed,
+                                Button = btn,
+                                Type = "Button"
+                            }
+
+                            table.insert(results[category], entry)
+                            table.insert(results.All, entry)
+                        end
+                    end
+                end
+            end
+        end
+
+        return results
     end
 
     local lastPlaceCheck = 0
@@ -935,38 +1186,6 @@ return function(Core)
         return false
     end
 
-    local lastStaffCheck = 0
-    function Restaurant.HandleStaffManage()
-        if not Config.AutoHireStaffEnabled then return false end
-        local now = os.clock()
-        if now - lastStaffCheck < 4.0 then return false end
-        lastStaffCheck = now
-
-        local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
-        if not pg then return false end
-
-        for _, btn in ipairs(pg:GetDescendants()) do
-            if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
-                local text = (btn:IsA("TextButton") and btn.Text or ""):lower()
-                local name = btn.Name:lower()
-                local pName = (btn.Parent and btn.Parent.Name or ""):lower()
-
-                if (text:find("hire") or text:find("recruit") or name:find("hire") or (pName:find("staff") and text:find("upgrade"))) and not text:find("robux") then
-                    pcall(function()
-                        if type(firesignal) == "function" and btn.Activated then
-                            firesignal(btn.Activated)
-                        elseif btn.Activate then
-                            btn:Activate()
-                        end
-                        State.Stats.StaffHired = State.Stats.StaffHired + 1
-                    end)
-                    return true
-                end
-            end
-        end
-        return false
-    end
-
     -- Auto-do and auto-claim quests, tasks, and daily objectives
     local lastQuestAutomation = 0
     function Restaurant.HandleQuestAutomation()
@@ -1015,7 +1234,7 @@ return function(Core)
         { name = "Delivery", configKey = "AutoDeliveryEnabled", stat = "DeliveriesCompleted", cooldown = 4.0 },
         { name = "Restock", configKey = "AutoRestockEnabled", stat = "StorageRestocked", cooldown = 3.5 },
         { name = "Farm", configKey = "AutoFarmEnabled", stat = "CropsHarvested", cooldown = 3.0 },
-        { name = "Expand", configKey = "AutoExpandEnabled", stat = "ExpansionsPurchased", cooldown = 6.0 },
+        { name = "Expand", configKey = "AutoExpandEnabled", stat = "ExpansionsPurchased", cooldown = 6.0, requireExplicit = true },
     }
     local pipelineCursor = 1
 
@@ -1028,13 +1247,22 @@ return function(Core)
             local idx = ((pipelineCursor - 1 + i) % totalCategories) + 1
             local cat = pipelineCategories[idx]
 
-            if (isMaster or Config[cat.configKey]) and prompts[cat.name] and #prompts[cat.name] > 0 then
-                -- Find first ready prompt that is not currently in flight
+            local isCategoryEnabled = cat.requireExplicit and Config[cat.configKey] or (isMaster or Config[cat.configKey])
+
+            if isCategoryEnabled and prompts[cat.name] and #prompts[cat.name] > 0 then
+                -- Find first ready prompt that is not currently in flight and is affordable if it's Expand/Buy
                 local primaryPrompt = nil
                 for _, p in ipairs(prompts[cat.name]) do
                     if isPromptReady(p) and not State.InFlightTasks[p] then
-                        primaryPrompt = p
-                        break
+                        if cat.name == "Expand" or cat.name == "Buy" then
+                            if isPromptAffordable(p) then
+                                primaryPrompt = p
+                                break
+                            end
+                        else
+                            primaryPrompt = p
+                            break
+                        end
                     end
                 end
 
@@ -1159,7 +1387,12 @@ return function(Core)
                         elseif (isMaster or Config.AutoPlaceEnabled) and Restaurant.HandleAutoPlace() then
                             dispatched = true
                         elseif Config.AutoExpandEnabled and #prompts.Expand > 0 then
-                            dispatched = dispatchCategory(prompts.Expand, 6.0, "ExpansionsPurchased")
+                            for _, p in ipairs(prompts.Expand) do
+                                if isPromptAffordable(p) then
+                                    dispatched = dispatchCategory({p}, 6.0, "ExpansionsPurchased")
+                                    if dispatched then break end
+                                end
+                            end
                         end
                     end
 

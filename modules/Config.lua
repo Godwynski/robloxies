@@ -16,15 +16,36 @@ return function(Core)
         AutoClaimQuestsEnabled = true,
         AutoDoQuestsEnabled = true,
         AutoClaimRewardsEnabled = true,
+
+        -- Budget & Affordability Safety
+        MinCashReserve = 2500,
+        MaxItemPrice = 50000,
+        AffordabilityBackoff = 30,
+
+        -- Land & Floor Expansions (Strictly manual opt-in)
         AutoExpandEnabled = false,
+        AutoBuyLand = false,
+        AutoBuyFloors = false,
+
+        -- Equipment & Furniture Auto-Buy Choices
         AutoBuyEnabled = false,
-        AutoPlaceEnabled = false,
-        AutoHireStaffEnabled = false,
         AutoBuyStoves = true,
+        AutoBuyGrills = true,
         AutoBuyTables = true,
         AutoBuyChairs = true,
         AutoBuyAppliances = true,
-        AutoBuyFurniture = true,
+        AutoBuyCounters = true,
+        AutoBuyFurniture = false,
+        AutoBuyLighting = false,
+
+        -- Staff Personnel Auto-Hire Choices
+        AutoHireStaffEnabled = false,
+        AutoHireCooks = true,
+        AutoHireWaiters = true,
+        AutoHireCleaners = true,
+
+        -- Furniture Placement
+        AutoPlaceEnabled = false,
         AutoPlaceTables = true,
         AutoPlaceChairs = true,
         AutoPlaceFurniture = true,

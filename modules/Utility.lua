@@ -54,7 +54,184 @@ return function(Core)
         end)
     end
 
-    -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
+    -- Parse string into numeric representation (supports commas, decimals, and k/m/b suffixes)
+    function Utility.ParseNumber(str)
+        if not str then return nil end
+        if type(str) == "number" then return str end
+        local cleaned = tostring(str):lower():gsub(",", ""):gsub("%$", ""):gsub("%s+", "")
+        local numStr, suffix = cleaned:match("([%d%.]+)%s*([kmb]?)")
+        if not numStr then return nil end
+        local val = tonumber(numStr)
+        if not val then return nil end
+        if suffix == "k" then
+            val = val * 1000
+        elseif suffix == "m" then
+            val = val * 1000000
+        elseif suffix == "b" then
+            val = val * 1000000000
+        end
+        return val
+    end
+
+    -- Multi-source player balance detector
+    function Utility.GetPlayerBalance()
+        local balance = 0
+
+        -- 1. Check leaderstats (standard Roblox pattern)
+        if LocalPlayer then
+            local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+            if leaderstats then
+                for _, name in ipairs({"Cash", "Money", "Coins", "Bucks", "Dollars", "Balance", "Currency", "Gems"}) do
+                    local valObj = leaderstats:FindFirstChild(name)
+                    if valObj and (valObj:IsA("NumberValue") or valObj:IsA("IntValue")) then
+                        return valObj.Value
+                    elseif valObj and valObj:IsA("StringValue") then
+                        local parsed = Utility.ParseNumber(valObj.Value)
+                        if parsed then return parsed end
+                    end
+                end
+                for _, child in ipairs(leaderstats:GetChildren()) do
+                    if child:IsA("NumberValue") or child:IsA("IntValue") then
+                        return child.Value
+                    end
+                end
+            end
+
+            -- 2. Check player attributes
+            for _, attrName in ipairs({"Cash", "Money", "Coins", "Bucks", "Dollars", "Balance", "Gems"}) do
+                local attr = LocalPlayer:GetAttribute(attrName)
+                if type(attr) == "number" then
+                    return attr
+                elseif type(attr) == "string" then
+                    local p = Utility.ParseNumber(attr)
+                    if p then return p end
+                end
+            end
+
+            -- 3. Check custom Data / Stats folders
+            for _, folderName in ipairs({"PlayerData", "Data", "Stats", "Currencies", "Values"}) do
+                local folder = LocalPlayer:FindFirstChild(folderName)
+                if folder then
+                    for _, name in ipairs({"Cash", "Money", "Coins", "Bucks", "Balance"}) do
+                        local v = folder:FindFirstChild(name)
+                        if v and (v:IsA("NumberValue") or v:IsA("IntValue")) then
+                            return v.Value
+                        end
+                    end
+                end
+            end
+
+            -- 4. Check PlayerGui for top currency labels
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            if pg then
+                for _, lbl in ipairs(pg:GetDescendants()) do
+                    if lbl:IsA("TextLabel") and lbl.Visible then
+                        local txt = lbl.Text or ""
+                        local lName = lbl.Name:lower()
+                        if lName:find("cash") or lName:find("money") or lName:find("coin") or lName:find("balance") or lName:find("currency") then
+                            local parsed = Utility.ParseNumber(txt)
+                            if parsed and parsed > 0 then
+                                return parsed
+                            end
+                        elseif txt:match("^%$%s*[%d%,%.]+%s*[kKmMbB]?$") then
+                            local parsed = Utility.ParseNumber(txt)
+                            if parsed and parsed > 0 then
+                                return parsed
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        return balance
+    end
+
+    -- Intelligent price parser: extracts cost from prompts, UI buttons, billboard labels
+    function Utility.ParsePrice(text, obj)
+        local rawText = tostring(text or "")
+
+        if obj then
+            if obj:IsA("ProximityPrompt") then
+                rawText = (obj.ActionText or "") .. " " .. (obj.ObjectText or "") .. " " .. rawText
+                if obj.Parent then
+                    rawText = rawText .. " " .. obj.Parent.Name
+                    for _, child in ipairs(obj.Parent:GetDescendants()) do
+                        if child:IsA("TextLabel") and child.Visible then
+                            rawText = rawText .. " " .. (child.Text or "")
+                        end
+                    end
+                end
+            elseif obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                if obj:IsA("TextButton") then
+                    rawText = (obj.Text or "") .. " " .. rawText
+                end
+                rawText = rawText .. " " .. obj.Name
+                if obj.Parent then
+                    for _, sibling in ipairs(obj.Parent:GetChildren()) do
+                        if sibling:IsA("TextLabel") and (sibling.Name:lower():find("price") or sibling.Name:lower():find("cost") or sibling.Text:find("%$")) then
+                            rawText = rawText .. " " .. sibling.Text
+                        end
+                    end
+                end
+            end
+        end
+
+        local lower = rawText:lower()
+
+        -- 1. "$ 1,500" or "$25k" or "$1.5M"
+        local p1 = lower:match("%$%s*([%d%,%.]+%s*[kmb]?)")
+        if p1 then
+            local val = Utility.ParseNumber(p1)
+            if val then return val end
+        end
+
+        -- 2. "Price: 5,000" or "Cost: $500" or "price: 25k"
+        local p2 = lower:match("price%s*[:%-]?%s*%$?%s*([%d%,%.]+%s*[kmb]?)") or lower:match("cost%s*[:%-]?%s*%$?%s*([%d%,%.]+%s*[kmb]?)")
+        if p2 then
+            local val = Utility.ParseNumber(p2)
+            if val then return val end
+        end
+
+        -- 3. "5,000 cash" or "500 coins" or "25k money"
+        local p3 = lower:match("([%d%,%.]+%s*[kmb]?)%s*cash") or lower:match("([%d%,%.]+%s*[kmb]?)%s*coins") or lower:match("([%d%,%.]+%s*[kmb]?)%s*money")
+        if p3 then
+            local val = Utility.ParseNumber(p3)
+            if val then return val end
+        end
+
+        -- 4. Isolated number in parentheses e.g. "Buy (15000)" or "Unlock (50k)"
+        local p4 = lower:match("%(%s*%$?%s*([%d%,%.]+%s*[kmb]?)%s*%)")
+        if p4 then
+            local val = Utility.ParseNumber(p4)
+            if val then return val end
+        end
+
+        return nil
+    end
+
+    -- Strict affordability evaluator
+    function Utility.CanAfford(cost, reserve)
+        if not cost or cost <= 0 then
+            return true, 0, "Affordable"
+        end
+
+        local balance = Utility.GetPlayerBalance()
+        local minReserve = reserve or (Config and Config.MinCashReserve) or 0
+        local maxPrice = (Config and Config.MaxItemPrice) or 0
+
+        -- 1. Max price ceiling check
+        if maxPrice > 0 and cost > maxPrice then
+            return false, cost - math.max(0, balance - minReserve), "Exceeds max item price limit"
+        end
+
+        -- 2. Balance vs cost + reserve check
+        local affordable = (balance >= (cost + minReserve))
+        local needed = (cost + minReserve) - balance
+
+        return affordable, (needed > 0 and needed or 0), (affordable and "Affordable" or "Insufficient funds")
+    end
+
     -- Auto-Claim all finished quests, daily gifts, playtime rewards, spin wheels, and achievements
     function Utility.ClaimAllRewards()
         if not Config.AutoClaimRewardsEnabled and not Config.AutoClaimQuestsEnabled and not Config.MasterAutoFarmEnabled then return 0 end

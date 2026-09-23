@@ -1829,9 +1829,28 @@ return function(Core)
 
         table.insert(self.TabCards[tabName], { Card = card, Title = titleText, Desc = content })
 
+        local function updateSize(text)
+            task.defer(function()
+                pcall(function()
+                    local width = math.max(200, card.AbsoluteSize.X - 24)
+                    local boundsY = Services.TextService:GetTextSize(text, 10, Enum.Font.GothamMedium, Vector2.new(width, 3000)).Y
+                    local targetH = math.max(56, boundsY + 34)
+                    card.Size = UDim2.new(0.96, 0, 0, targetH)
+                    cLbl.Size = UDim2.new(1, -24, 0, boundsY + 8)
+                end)
+            end)
+        end
+
+        if content and #content > 0 then
+            updateSize(content)
+        end
+
         return {
             Card = card,
-            SetContent = function(selfObj, newContent) cLbl.Text = newContent end
+            SetContent = function(selfObj, newContent)
+                cLbl.Text = newContent
+                updateSize(newContent)
+            end
         }
     end
 

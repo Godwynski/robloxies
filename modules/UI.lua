@@ -228,28 +228,158 @@ return function(Core)
         -- =====================================================================
         -- 3. BUILD & STAFF MANAGEMENT TAB
         -- =====================================================================
+        -- 3. BUILD, EXPANSION & STAFF TAB
+        -- =====================================================================
         function UI.BuildBuildTab()
             local BuildTab = Window:AddTab("Build/Staff", "🏗️")
 
-            -- Auto-Buy Equipment & Furniture
-            BuildTab:AddSection("AUTO-BUY UPGRADES & EQUIPMENT", "🛒")
-            BuildTab:AddToggle("Auto-Buy Upgrades (Master)", "Scans the catalog and automatically buys restaurant equipment.", Config.AutoBuyEnabled, function(val)
+            -- Budget & Affordability Safety
+            BuildTab:AddSection("BUDGET & AFFORDABILITY SAFETY", "🛡️")
+            local balancePara = BuildTab:AddParagraph("💵 Detected Balance & Safety Buffer", "Loading financial status...")
+
+            BuildTab:AddSlider("Minimum Cash Reserve", "Keeps this minimum cash untouched so you never go bankrupt.", Config.MinCashReserve, 0, 100000, 0, "$", function(val)
+                Config.MinCashReserve = val
+            end)
+            BuildTab:AddSlider("Max Single Item Price", "Maximum price allowed for a single purchase (0 = no limit).", Config.MaxItemPrice, 0, 250000, 0, "$", function(val)
+                Config.MaxItemPrice = val
+            end)
+
+            -- What I Can Buy (Catalog Inspector)
+            BuildTab:AddSection("WHAT I CAN BUY (CATALOG INSPECTOR)", "📋")
+            local catalogPara = BuildTab:AddParagraph("📋 Available Upgrades by Category", "Press 'Scan Available Purchases' below to inspect.")
+
+            local function updateCatalogView()
+                local bal = Core.Utility.GetPlayerBalance()
+                local reserve = Config.MinCashReserve or 0
+                local usable = math.max(0, bal - reserve)
+                local balFormatted = "$" .. tostring(bal):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+                local resFormatted = "$" .. tostring(reserve):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+                local useFormatted = "$" .. tostring(usable):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+
+                balancePara:SetContent(string.format("Current Balance: %s  |  Safety Reserve: %s  |  Usable Budget: %s", balFormatted, resFormatted, useFormatted))
+
+                if Core.Restaurant and Core.Restaurant.ScanAvailablePurchases then
+                    local data = Core.Restaurant.ScanAvailablePurchases()
+                    local lines = {}
+                    local totalFound = #data.All
+                    local affordableCount = 0
+
+                    for _, item in ipairs(data.All) do
+                        if item.CanAfford then affordableCount = affordableCount + 1 end
+                    end
+
+                    table.insert(lines, string.format("Found %d upgrades in world/shop (%d affordable right now):\n", totalFound, affordableCount))
+
+                    local function formatCategory(catKey, catTitle)
+                        local items = data[catKey]
+                        if items and #items > 0 then
+                            table.insert(lines, catTitle .. ":")
+                            for _, it in ipairs(items) do
+                                local status = it.CanAfford and "✓ AFFORDABLE" or (it.Needed > 0 and ("✗ Need +$" .. tostring(it.Needed):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")) or "✗ Unaffordable")
+                                table.insert(lines, string.format("  • %s — %s [%s]", it.Title, it.PriceText, status))
+                            end
+                        end
+                    end
+
+                    formatCategory("LandFloors", "🏰 Land & Floors")
+                    formatCategory("Cooking", "🍳 Cooking Appliances")
+                    formatCategory("Dining", "🪑 Dining Furniture")
+                    formatCategory("Kitchen", "🍽️ Kitchen Equipment")
+                    formatCategory("Staff", "👨‍🍳 Staff Personnel")
+                    formatCategory("Decor", "🌿 Decor & Aesthetics")
+
+                    if totalFound == 0 then
+                        table.insert(lines, "No shop prompts or UI items detected currently in range. Step near the shop or open the catalog.")
+                    end
+
+                    catalogPara:SetContent(table.concat(lines, "\n"))
+                end
+            end
+
+            BuildTab:AddButton("🔄 Scan Available Purchases Now", "Inspects restaurant plot and shop to list all buyable items and prices.", "Secondary", function()
+                updateCatalogView()
+                Window:Notify({Title = "Catalog Scanned", Content = "Updated list of available items and affordability status.", Type = "Info", Duration = 2.5})
+            end)
+            BuildTab:AddButton("🛒 Auto-Buy Next Affordable Upgrade", "Instantly checks the shop and buys affordable upgrades.", "Primary", function()
+                if Core.Restaurant and Core.Restaurant.HandleAutoBuy then
+                    Config.AutoBuyEnabled = true
+                    pcall(Core.Restaurant.HandleAutoBuy)
+                    updateCatalogView()
+                    Window:Notify({Title = "Shop Checked", Content = "Evaluated catalog and purchased available upgrades.", Type = "Success", Duration = 2.5})
+                end
+            end)
+
+            -- Land & Floor Expansions (Strictly manual opt-in)
+            BuildTab:AddSection("LAND & PROPERTY EXPANSIONS", "🏰")
+            BuildTab:AddToggle("Auto-Expand Land & Floors (Master)", "Master toggle for buying land and multi-story floor unlocks as cash allows.", Config.AutoExpandEnabled, function(val)
+                Config.AutoExpandEnabled = val
+            end)
+            BuildTab:AddToggle("Expand Plot Land Footprint", "Allows purchasing plot acreage and property boundaries.", Config.AutoBuyLand, function(val)
+                Config.AutoBuyLand = val
+            end)
+            BuildTab:AddToggle("Unlock Upper Floors", "Allows purchasing 2nd Floor, 3rd Floor, etc.", Config.AutoBuyFloors, function(val)
+                Config.AutoBuyFloors = val
+            end)
+
+            -- Cooking Appliances
+            BuildTab:AddSection("COOKING APPLIANCES & UPGRADES", "🍳")
+            BuildTab:AddToggle("Auto-Buy Upgrades (Master)", "Enables automatic equipment purchasing according to choices below.", Config.AutoBuyEnabled, function(val)
                 Config.AutoBuyEnabled = val
             end)
             BuildTab:AddToggle("Buy Cooking Stoves & Ovens", "Purchases higher-tier stoves to cook meals faster.", Config.AutoBuyStoves, function(val)
                 Config.AutoBuyStoves = val
             end)
+            BuildTab:AddToggle("Buy Grills, Smokers & Fryers", "Purchases BBQ grills, smokers, and deep fryers.", Config.AutoBuyGrills, function(val)
+                Config.AutoBuyGrills = val
+            end)
+
+            -- Dining Furniture
+            BuildTab:AddSection("DINING ROOM FURNITURE", "🪑")
             BuildTab:AddToggle("Buy Dining Tables", "Purchases 2-seater and 4-seater dining tables.", Config.AutoBuyTables, function(val)
                 Config.AutoBuyTables = val
             end)
             BuildTab:AddToggle("Buy Dining Chairs & Seating", "Purchases chairs, bar stools, and comfortable booths.", Config.AutoBuyChairs, function(val)
                 Config.AutoBuyChairs = val
             end)
-            BuildTab:AddToggle("Buy Kitchen Appliances & Sinks", "Purchases dishwashers, counters, and prep sinks.", Config.AutoBuyAppliances, function(val)
+
+            -- Kitchen Equipment
+            BuildTab:AddSection("KITCHEN EQUIPMENT & STORAGE", "🍽️")
+            BuildTab:AddToggle("Buy Kitchen Appliances & Sinks", "Purchases dishwashers, fridges, coolers, and prep sinks.", Config.AutoBuyAppliances, function(val)
                 Config.AutoBuyAppliances = val
             end)
-            BuildTab:AddToggle("Buy General Furniture & Decor", "Purchases lighting, restaurant decor, and aesthetic plants.", Config.AutoBuyFurniture, function(val)
+            BuildTab:AddToggle("Buy Prep Counters & Stations", "Purchases food prep stations and kitchen counters.", Config.AutoBuyCounters, function(val)
+                Config.AutoBuyCounters = val
+            end)
+
+            -- Decor & Aesthetics
+            BuildTab:AddSection("DECOR & AMBIENCE", "🌿")
+            BuildTab:AddToggle("Buy Decor & Aesthetic Plants", "Purchases indoor plants, trees, and decorative art.", Config.AutoBuyFurniture, function(val)
                 Config.AutoBuyFurniture = val
+            end)
+            BuildTab:AddToggle("Buy Ambient Lighting & Lamps", "Purchases chandeliers, ceiling lights, and lamps.", Config.AutoBuyLighting, function(val)
+                Config.AutoBuyLighting = val
+            end)
+
+            -- Staff Personnel Management
+            BuildTab:AddSection("STAFF PERSONNEL MANAGEMENT", "👨‍🍳")
+            BuildTab:AddToggle("Auto-Hire & Upgrade Staff (Master)", "Hires and levels up Cooks, Waiters, and Cleaners from Manage menu.", Config.AutoHireStaffEnabled, function(val)
+                Config.AutoHireStaffEnabled = val
+            end)
+            BuildTab:AddToggle("Hire Cooks & Chefs", "Recruits and levels up kitchen cooks.", Config.AutoHireCooks, function(val)
+                Config.AutoHireCooks = val
+            end)
+            BuildTab:AddToggle("Hire Waiters & Servers", "Recruits and levels up dining servers.", Config.AutoHireWaiters, function(val)
+                Config.AutoHireWaiters = val
+            end)
+            BuildTab:AddToggle("Hire Cleaners & Janitors", "Recruits and levels up dishwashers and bussers.", Config.AutoHireCleaners, function(val)
+                Config.AutoHireCleaners = val
+            end)
+            BuildTab:AddButton("👨‍🍳 Auto-Hire Available Staff Now", "Checks employee limits and hires available kitchen staff.", "Secondary", function()
+                if Core.Restaurant and Core.Restaurant.HandleStaffManage then
+                    Config.AutoHireStaffEnabled = true
+                    pcall(Core.Restaurant.HandleStaffManage)
+                    Window:Notify({Title = "Staff Managed", Content = "Hired and leveled up restaurant staff.", Type = "Success", Duration = 2.5})
+                end
             end)
 
             -- Auto-Place Furniture & Seating
@@ -266,29 +396,6 @@ return function(Core)
             BuildTab:AddToggle("Place General Furniture", "Places counters, sinks, and decor onto available floor tiles.", Config.AutoPlaceFurniture, function(val)
                 Config.AutoPlaceFurniture = val
             end)
-
-            -- Staff & Expansions
-            BuildTab:AddSection("STAFF & PROPERTY EXPANSIONS", "👨‍🍳")
-            BuildTab:AddToggle("Auto-Hire & Upgrade Staff", "Hires and levels up Cooks, Waiters, and Cleaners from Manage menu.", Config.AutoHireStaffEnabled, function(val)
-                Config.AutoHireStaffEnabled = val
-            end)
-            BuildTab:AddToggle("Auto-Expand Floors & Land", "Triggers land expansion and multi-story floor unlocks as cash allows.", Config.AutoExpandEnabled, function(val)
-                Config.AutoExpandEnabled = val
-            end)
-            BuildTab:AddToggle("Auto-Claim All Rewards & Gifts", "Automatically redeems daily gifts, playtime streaks, and achievements.", Config.AutoClaimRewardsEnabled, function(val)
-                Config.AutoClaimRewardsEnabled = val
-                Config.AutoClaimQuestsEnabled = val
-            end)
-
-            -- Instant Actions
-            BuildTab:AddSection("INSTANT SHOP ACTIONS", "⚡")
-            BuildTab:AddButton("🛒 Auto-Buy Next Equipment Now", "Instantly checks the shop and buys affordable upgrades.", "Secondary", function()
-                if Core.Restaurant and Core.Restaurant.HandleAutoBuy then
-                    Config.AutoBuyEnabled = true
-                    pcall(Core.Restaurant.HandleAutoBuy)
-                    Window:Notify({Title = "Shop Checked", Content = "Evaluated catalog and purchased available upgrades.", Type = "Success", Duration = 2.5})
-                end
-            end)
             BuildTab:AddButton("🔨 Auto-Place Stored Items Now", "Immediately places any inventory furniture onto the restaurant layout.", "Secondary", function()
                 if Core.Restaurant and Core.Restaurant.HandleAutoPlace then
                     Config.AutoPlaceEnabled = true
@@ -296,12 +403,10 @@ return function(Core)
                     Window:Notify({Title = "Furniture Placed", Content = "Placed unassigned inventory items on the floor grid.", Type = "Success", Duration = 2.5})
                 end
             end)
-            BuildTab:AddButton("👨‍🍳 Auto-Hire Available Staff Now", "Checks employee limits and hires available kitchen staff.", "Secondary", function()
-                if Core.Restaurant and Core.Restaurant.HandleStaffManage then
-                    Config.AutoHireStaffEnabled = true
-                    pcall(Core.Restaurant.HandleStaffManage)
-                    Window:Notify({Title = "Staff Managed", Content = "Hired and leveled up restaurant staff.", Type = "Success", Duration = 2.5})
-                end
+
+            -- Auto-refresh catalog view after tab creation
+            task.delay(1.0, function()
+                pcall(updateCatalogView)
             end)
         end
 
